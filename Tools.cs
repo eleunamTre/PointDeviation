@@ -174,7 +174,7 @@ namespace PointDeviation
             bottom.Controls.Add(_diag);
             bottom.Controls.Add(zoom);
             bottom.Controls.Add(log);
-            var dbg = new CheckBox { Text = L.T("Colori per livello"), AutoSize = true, Dock = DockStyle.Right, Checked = CloudDebug.Levels };
+            var dbg = new System.Windows.Forms.CheckBox { Text = L.T("Colori per livello"), AutoSize = true, Dock = DockStyle.Right, Checked = CloudDebug.Levels };
             dbg.CheckedChanged += (s, e) => { CloudDebug.Levels = dbg.Checked; DeviationController.Apply(Job.Recolor); };
             bottom.Controls.Add(dbg);
             Controls.Add(_list);
