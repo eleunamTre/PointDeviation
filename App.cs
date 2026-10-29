@@ -237,8 +237,6 @@ namespace PointDeviation
             RibbonPanel pManage = app.CreateRibbonPanel(tabName, L.T("Impostazioni"));
             pManage.AddItem(Push("Advanced", "Avanzate", asm, typeof(AdvancedCommand), "settings",
                 "Registro di diagnostica, colori per livello, limite di punti e memoria. Valgono per questo computer."));
-            pManage.AddItem(Push("OpenLog", "Registro", asm, typeof(OpenLogCommand), "legend",
-                "Apre il file di registro del plugin (per segnalare un problema)."));
         }
 
         // ------------------------------------------------------------------ icone incorporate nella DLL
