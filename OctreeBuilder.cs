@@ -272,6 +272,15 @@ namespace PointDeviation
             }
 
             // punti del nodo
+            // ordine stratificato: i primi punti coprono tutto il cubo a bassa densità, i successivi aggiungono dettaglio
+            {
+                var xs = new double[keepN]; var ys = new double[keepN]; var zs = new double[keepN];
+                for (int k = 0; k < keepN; k++) { int p = keep[k]; xs[k] = P.X[p] * scale; ys[k] = P.Y[p] * scale; zs[k] = P.Z[p] * scale; }
+                int[] ord = Stratify(xs, ys, zs, keepN, node.CubeX, node.CubeY, node.CubeZ, node.Size);
+                var sorted = new int[keepN];
+                for (int k = 0; k < keepN; k++) sorted[k] = keep[ord[k]];
+                keep = sorted;
+            }
             byte[] rec = Serialize(P, keep, keepN, scale, node);
             if (isChunkRoot) node.Mem = rec;
             else
@@ -363,7 +372,7 @@ namespace PointDeviation
                 int c = (int)(acc[k] >> 32), i = (int)(acc[k] & 0xFFFFFFFF);
                 Buffer.BlockCopy(kids[c].Mem, i * Record, mine, k * Record, Record);
             }
-            node.Mem = mine;
+            node.Mem = StratifyRecords(mine, node, scale);
 
             // figli senza i punti saliti
             for (int c = 0; c < kids.Count; c++)
@@ -376,7 +385,8 @@ namespace PointDeviation
                 int r = 0;
                 for (int i = 0; i < n; i++)
                     if (!removed[c][i]) { Buffer.BlockCopy(m, i * Record, rest, r * Record, Record); r++; }
-                kids[c].Mem = rest;
+                // i figli hanno perso i punti saliti: si riordinano perché il loro inizio resti uniforme
+                kids[c].Mem = StratifyRecords(rest, kids[c], scale);
                 node.Grow(kids[c].Box);
             }
         }
@@ -408,6 +418,58 @@ namespace PointDeviation
             depth = Math.Max(depth, node.Level);
             if (node.Chunk >= 0) return; // il sotto-albero del pezzo è già scritto
             foreach (Node ch in node.Child) if (ch != null) WriteMem(ch, outFs, ref written, ref depth);
+        }
+
+        // ------------------------------------------------------------------ ordine stratificato dei punti di un nodo
+
+        /// <summary>
+        /// Ordine «a strati»: prima un punto per cella di una griglia 2×2×2 sul cubo del nodo, poi uno per cella
+        /// di 4×4×4 (tra quelle ancora vuote), poi 8×8×8, e così via. Leggendo i primi k punti si ottiene una versione
+        /// a bassa densità ma uniforme di tutto il nodo, senza i grumi e i vuoti di un ordine casuale; i successivi
+        /// aggiungono dettaglio in modo progressivo. Dentro ogni strato l'ordine resta casuale.
+        /// </summary>
+        internal static int[] Stratify(double[] xs, double[] ys, double[] zs, int n, double cx, double cy, double cz, double size)
+        {
+            var order = new int[n];
+            var done = new bool[n];
+            int m = 0;
+            var occ = new HashSet<long>();
+            for (int g = 2; g <= 4096 && m < n; g *= 2)
+            {
+                occ.Clear();
+                double inv = g / Math.Max(size, 1e-9);
+                for (int k = 0; k < m; k++) occ.Add(Cell(xs[order[k]], ys[order[k]], zs[order[k]], cx, cy, cz, inv, g));
+                for (int p = 0; p < n; p++)
+                {
+                    if (done[p]) continue;
+                    if (occ.Add(Cell(xs[p], ys[p], zs[p], cx, cy, cz, inv, g))) { done[p] = true; order[m++] = p; }
+                }
+            }
+            for (int p = 0; p < n; p++) if (!done[p]) order[m++] = p;
+            return order;
+        }
+
+        private static long Cell(double x, double y, double z, double cx, double cy, double cz, double inv, int g)
+        {
+            long ix = Clamp((int)((x - cx) * inv), g), iy = Clamp((int)((y - cy) * inv), g), iz = Clamp((int)((z - cz) * inv), g);
+            return (ix * g + iy) * g + iz;
+        }
+
+        /// <summary>Riordina a strati i record (formato 2) di un nodo.</summary>
+        private static byte[] StratifyRecords(byte[] mem, Node node, double scale)
+        {
+            int n = mem.Length / Record;
+            if (n < 2) return mem;
+            var xs = new double[n]; var ys = new double[n]; var zs = new double[n];
+            for (int k = 0; k < n; k++)
+            {
+                int o = k * Record;
+                xs[k] = BitConverter.ToInt32(mem, o) * scale; ys[k] = BitConverter.ToInt32(mem, o + 4) * scale; zs[k] = BitConverter.ToInt32(mem, o + 8) * scale;
+            }
+            int[] ord = Stratify(xs, ys, zs, n, node.CubeX, node.CubeY, node.CubeZ, node.Size);
+            var res = new byte[mem.Length];
+            for (int k = 0; k < n; k++) Buffer.BlockCopy(mem, ord[k] * Record, res, k * Record, Record);
+            return res;
         }
 
         // ------------------------------------------------------------------ utilità

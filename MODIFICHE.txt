@@ -285,3 +285,6 @@ Ottava tornata (28/10/2026): octree
 80. Registro: ogni 10 s lo stato degli interruttori di visibilita' della nuvola nella vista (per capire VV).
 81. Diagnostica "Colori per livello" in Gestisci visibilita': ogni livello dell'octree con un colore (punti grandi
     pieni, punti di un pixel chiari), per vedere quali blocchi si disegnano e dove.
+82. Conversione: i punti di ogni nodo sono in ordine stratificato (un punto per cella di griglie sempre piu'
+    fini sul cubo del nodo) invece che casuale: disegnandone solo una parte la copertura e' piu' uniforme
+    (su una nuvola di prova: buco massimo -35%, medio -10%). Vale per le nuvole convertite da ora.
