@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>PointDeviation</Name>
+    <Assembly>PointDeviation\PointDeviation.dll</Assembly>
+    <FullClassName>PointDeviation.App</FullClassName>
+    <ClientId>b5f0a6a2-6d3e-4c1f-9b1c-3f6c2a1d7e41</ClientId>
+    <VendorId>OPEN</VendorId>
+    <VendorDescription>Open source</VendorDescription>
+  </AddIn>
+</RevitAddIns>

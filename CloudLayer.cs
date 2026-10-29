@@ -1,0 +1,1556 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.DirectContext3D;
+
+namespace PointDeviation
+{
+    // =====================================================================================
+    //  Disegno ibrido.
+    //  La nuvola esiste in Revit come nuvola nativa del nostro motore (gestione: Gestisci collegamenti,
+    //  Visibilità/Grafica, nascondi, cancella), ma il motore consegna a Revit solo il contorno.
+    //  I punti li disegna il plugin (DirectContext3D) dove l'elemento nativo è visibile, con livello di
+    //  dettaglio per vista, punti ingranditi, colori istantanei, trasparenza e X-ray.
+    // =====================================================================================
+
+    /// <summary>Punti caricati di un blocco (immutabile: il caricatore ne crea uno nuovo e lo sostituisce).</summary>
+    internal sealed class TileCpu
+    {
+        public int Count;
+        public float[] Pos;      // 3 per punto, piedi, relativi al centro della nuvola (coordinate originali)
+        public byte[] Rgb;       // 3 per punto
+        public float[] Dist;     // distanza con segno dal modello (piedi, NaN = nessuna superficie), null se non calcolata
+        public int DistKey;      // analisi + posizione per cui valgono le distanze
+        public int DistCount;    // punti per cui le distanze sono calcolate
+        public sbyte[] Nrm;      // normale (3 per punto, *127), null se non calcolata
+        public int NrmCount;     // punti per cui sono state calcolate le normali
+    }
+
+    /// <summary>Un pezzo di buffer grafico: al massimo 16k punti (o 10.9k ottaedri), sorgente fino a SrcEnd.</summary>
+    internal sealed class GpuChunk
+    {
+        public VertexBuffer Vb;
+        public int Points;
+        public int SrcEnd;
+        public int Oct = -1;          // ottante del blocco a cui appartengono i punti (-1 = tutti)
+    }
+
+    /// <summary>
+    /// Buffer grafici di un blocco per un certo stile. Si costruiscono a pezzi: prima pochi punti (subito, per tutta la vista),
+    /// poi si aggiungono gli altri senza rifare quelli già pronti.
+    /// </summary>
+    internal sealed class TileGpu : IDisposable
+    {
+        public readonly List<GpuChunk> Chunks = new List<GpuChunk>();
+        public bool Points;            // true = punti di un pixel, false = ottaedri
+        public double Radius;          // raggio degli ottaedri (piedi)
+        public int RadiusN;            // punti disegnati per cui è stato calcolato il raggio
+        public int StyleVersion, GeoVersion, ColorKey;
+        public int Built;              // punti della sorgente già esaminati
+        public bool Highlight;         // nuvola illuminata dal pannello Visibilità
+        public long LastDraw;
+
+        public void Dispose()
+        {
+            foreach (GpuChunk c in Chunks) try { c.Vb.Dispose(); } catch { }
+            Chunks.Clear();
+            Built = 0;
+        }
+    }
+
+    /// <summary>Come colorare e disegnare le nuvole di un progetto in questo momento (immutabile, con versione).</summary>
+    internal sealed class Style
+    {
+        private static int _next;
+
+        public readonly int Version = Interlocked.Increment(ref _next);
+        public DisplayMode Mode;
+        public ColorProfile Profile;
+        public bool Invert;
+        public MissingMode Missing;
+        public bool Visible = true;
+        public int Brightness, Contrast, Transparency, XrayContrast, PointScale;
+        public Quality Quality;
+        public ClipSet Clip;
+        public double ZMin, ZRange = 1;
+        public Dictionary<string, int> CloudColors;
+        public AnalysisSnapshot Analysis;
+
+        private const int LutSize = 4096;
+        private byte[] _lut;
+        private bool[] _lutOk;
+        private double _lutMin, _lutMax;
+        private bool _lutAbs;
+
+        public bool NeedsTransparentPass { get { return Transparency > 0 || Mode == DisplayMode.XRay; } }
+
+        /// <summary>Trasparenza del disegno (0 = opaco, 1 = invisibile), applicata a tutto il buffer.</summary>
+        public double DrawTransparency
+        {
+            get
+            {
+                // i punti si sovrappongono (in media 3-4 strati per pixel), quindi la trasparenza percepita
+                // è circa t^3: la si corregge perché il cursore risponda in modo uniforme su tutta la scala
+                double s = Transparency / 100.0;
+                double t = s <= 0 ? 0 : Math.Pow(s, 1.0 / 3.0);
+                // X-ray: trasparenza di base dal contrasto, che si combina con quella scelta
+                if (Mode == DisplayMode.XRay) t = 1.0 - (1.0 - t) * (XrayContrast * 0.009);
+                return Math.Max(0, Math.Min(0.985, t));
+            }
+        }
+        public bool NeedsNormals { get { return Mode == DisplayMode.Normali; } }
+
+        public static Style From(DeviationSettings s, AnalysisSnapshot analysis, double zmin, double zmax)
+        {
+            var st = new Style
+            {
+                Mode = s.Display,
+                Profile = s.Profile,
+                Invert = s.InvertSign,
+                Missing = s.Missing,
+                Visible = s.Visible,
+                Brightness = s.Brightness,
+                Contrast = s.Contrast,
+                Transparency = Math.Max(0, Math.Min(100, s.Transparency)),
+                XrayContrast = Math.Max(1, Math.Min(100, s.XrayContrast)),
+                PointScale = Math.Max(0, Math.Min(400, s.PointScale)),
+                Quality = s.Quality,
+                Clip = ClipSet.From(s.Clips, s.ClipInvert),
+                ZMin = zmin,
+                ZRange = Math.Max(1e-6, zmax - zmin),
+                CloudColors = new Dictionary<string, int>(s.CloudColors ?? new Dictionary<string, int>(), StringComparer.OrdinalIgnoreCase),
+                Analysis = analysis
+            };
+            // analisi chiesta ma non disponibile: colori della scansione
+            if (st.Mode == DisplayMode.Discrepanze && analysis == null) st.Mode = DisplayMode.Rgb;
+            st.BuildLut();
+            return st;
+        }
+
+        private void BuildLut()
+        {
+            _lut = new byte[LutSize * 3];
+            _lutOk = new bool[LutSize];
+            Profile.GetRange(out _lutMin, out _lutMax);
+            _lutAbs = Profile.Absolute;
+            for (int i = 0; i < LutSize; i++)
+            {
+                double v = _lutMin + (_lutMax - _lutMin) * (i + 0.5) / LutSize;
+                byte r, g, b;
+                _lutOk[i] = Profile.TryColor(v, out r, out g, out b);
+                _lut[i * 3] = r; _lut[i * 3 + 1] = g; _lut[i * 3 + 2] = b;
+            }
+        }
+
+        private bool Lut(double mm, out byte r, out byte g, out byte b)
+        {
+            r = g = b = 0;
+            double v = _lutAbs ? Math.Abs(mm) : mm;
+            if (v < _lutMin - 1e-9 || v > _lutMax + 1e-9) return false;
+            int i = (int)((v - _lutMin) / (_lutMax - _lutMin) * LutSize);
+            if (i < 0) i = 0; else if (i >= LutSize) i = LutSize - 1;
+            if (!_lutOk[i]) return false;
+            r = _lut[i * 3]; g = _lut[i * 3 + 1]; b = _lut[i * 3 + 2];
+            return true;
+        }
+
+        /// <summary>Colore della nuvola illuminata: il suo colore con un filo di chiaroscuro dalla scansione.</summary>
+        public static void HighlightColor(TileCpu c, int i, int layerArgb, out byte r, out byte g, out byte b, out byte t)
+        {
+            System.Drawing.Color k = System.Drawing.Color.FromArgb(layerArgb);
+            int lum = (c.Rgb[i * 3] * 3 + c.Rgb[i * 3 + 1] * 6 + c.Rgb[i * 3 + 2]) / 10;
+            double f = 0.75 + 0.25 * lum / 255.0;
+            r = (byte)(k.R * f); g = (byte)(k.G * f); b = (byte)(k.B * f);
+            t = 0;
+        }
+
+        /// <summary>Colore e trasparenza (0 = opaco, 255 = invisibile) del punto i. false = punto da non disegnare.</summary>
+        public bool Color(TileCpu c, int i, double mz, int layerArgb, out byte r, out byte g, out byte b, out byte t)
+        {
+            t = 0; // la trasparenza si applica a tutto il buffer (DrawTransparency)
+            r = g = b = 150;
+            switch (Mode)
+            {
+                case DisplayMode.Rgb:
+                    r = c.Rgb[i * 3]; g = c.Rgb[i * 3 + 1]; b = c.Rgb[i * 3 + 2];
+                    ColorScale.Adjust(ref r, ref g, ref b, Brightness, Contrast);
+                    return true;
+
+                case DisplayMode.Quota:
+                    ColorScale.Elevation((mz - ZMin) / ZRange, out r, out g, out b);
+                    ColorScale.Adjust(ref r, ref g, ref b, Brightness, Contrast);
+                    return true;
+
+                case DisplayMode.Normali:
+                    if (c.Nrm != null && i < c.NrmCount)
+                    {
+                        r = (byte)(55 + Math.Abs((int)c.Nrm[i * 3]) * 200 / 127);
+                        g = (byte)(55 + Math.Abs((int)c.Nrm[i * 3 + 1]) * 200 / 127);
+                        b = (byte)(55 + Math.Abs((int)c.Nrm[i * 3 + 2]) * 200 / 127);
+                    }
+                    ColorScale.Adjust(ref r, ref g, ref b, Brightness, Contrast);
+                    return true;
+
+                case DisplayMode.Nuvola:
+                {
+                    System.Drawing.Color k = System.Drawing.Color.FromArgb(layerArgb);
+                    // un filo di chiaroscuro dalla scansione, per leggere le forme anche con un colore unico
+                    int lum = (c.Rgb[i * 3] * 3 + c.Rgb[i * 3 + 1] * 6 + c.Rgb[i * 3 + 2]) / 10;
+                    double f = 0.65 + 0.35 * lum / 255.0;
+                    r = (byte)(k.R * f); g = (byte)(k.G * f); b = (byte)(k.B * f);
+                    ColorScale.Adjust(ref r, ref g, ref b, Brightness, Contrast);
+                    return true;
+                }
+
+                case DisplayMode.XRay:
+                {
+                    int lum = (c.Rgb[i * 3] * 3 + c.Rgb[i * 3 + 1] * 6 + c.Rgb[i * 3 + 2]) / 10;
+                    byte gray = (byte)(70 + lum * 110 / 255);
+                    r = g = b = gray;
+                    return true;
+                }
+
+                default:
+                {
+                    float dk = c.Dist != null && i < c.Dist.Length ? c.Dist[i] : float.NaN;
+                    double mm = float.IsNaN(dk) ? double.NaN : (Invert ? -dk : dk) * 304.8;
+                    if (Profile.IsSelection)
+                    {
+                        PointState st = Profile.Evaluate(mm, out r, out g, out b);
+                        return st != PointState.Nascosto;
+                    }
+                    if (!double.IsNaN(mm) && Lut(mm, out r, out g, out b)) return true;
+                    if (Missing == MissingMode.Nascondi || Profile.HideMissing) return false;
+                    if (Missing == MissingMode.Evidenzia) { r = ColorScale.MissingRgb[0]; g = ColorScale.MissingRgb[1]; b = ColorScale.MissingRgb[2]; }
+                    else { r = g = b = 150; }
+                    return true;
+                }
+            }
+        }
+    }
+
+    /// <summary>Una nuvola del progetto: l'istanza nativa, i dati della libreria, i blocchi caricati e i loro buffer.</summary>
+    internal sealed class CloudLayer : IDisposable
+    {
+        private const double FtPerM = 1.0 / 0.3048;
+
+        public readonly ElementId InstanceId;
+        public readonly string Folder;
+        public readonly CloudInfo Info;
+        public readonly TileEntry[] Tiles;
+        public readonly string PointsPath;
+        public readonly double OffX, OffY, OffZ;     // centro della nuvola (piedi, coordinate originali)
+
+        public double[] T = Placement.Identity();     // posizionamento: originali (piedi) -> Revit
+        public int GeoVersion = 1;                    // cresce quando la nuvola viene spostata
+
+        internal readonly TileCpu[] Cpu;
+        private readonly TileGpu[] _gpu;              // punti di un pixel
+        private readonly TileGpu[] _gpuO;             // punti grandi (ottaedri), raggio fisso dalla densità del blocco
+        private readonly byte[] _mode;                // 1 = si disegnano i punti grandi
+        private readonly byte[] _covered;             // octree: ottanti in cui un figlio è già disegnabile (bit)
+        private readonly double[] _ocx, _ocy, _ocz;   // octree: centro del cubo del nodo (locali, piedi)
+        private readonly int[] _want;                 // punti desiderati per blocco (massimo tra le viste recenti)
+        private readonly long[] _wantTick;
+        internal readonly int[] Pending;              // 1 = richiesta di caricamento in coda
+
+        // geometria dei blocchi in coordinate locali (piedi)
+        private readonly double[] _area;              // superficie stimata del blocco
+        private readonly double[] _cx, _cy, _cz, _rad; // centro e raggio (locali, piedi)
+
+        // octree (formato 2)
+        public readonly bool IsOctree;
+        private readonly double[] _nodeSpacing;       // distanza tra i punti al livello del nodo (piedi)
+        private readonly double[] _effSpacing;        // distanza effettiva col dettaglio disegnato sotto (ultimo fotogramma)
+        private readonly int[] _firstChild, _childCount;
+        private int[] _heap = new int[256];
+        private int[] _order = new int[256];          // nodi scelti, dal più importante (ordine di caricamento)
+        private int _orderN;
+        private double[] _heapKey = new double[256];
+
+        public CloudLayer(ElementId instanceId, string folder)
+        {
+            InstanceId = instanceId;
+            Folder = folder;
+            Info = CloudInfo.Load(folder);
+            Tiles = TileEntry.Read(Path.Combine(folder, CloudInfo.IndexName));
+            PointsPath = Path.Combine(folder, CloudInfo.PointsName);
+            OffX = Info.CenterM[0] * FtPerM; OffY = Info.CenterM[1] * FtPerM; OffZ = Info.CenterM[2] * FtPerM;
+
+            int n = Tiles.Length;
+            Cpu = new TileCpu[n];
+            _gpu = new TileGpu[n];
+            _gpuO = new TileGpu[n];
+            _mode = new byte[n];
+            _covered = new byte[n];
+            _ocx = new double[n]; _ocy = new double[n]; _ocz = new double[n];
+            _want = new int[n];
+            _wantTick = new long[n];
+            Pending = new int[n];
+            _area = new double[n]; _cx = new double[n]; _cy = new double[n]; _cz = new double[n]; _rad = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                TileEntry t = Tiles[i];
+                double dx = (t.MaxX - t.MinX) * FtPerM, dy = (t.MaxY - t.MinY) * FtPerM, dz = (t.MaxZ - t.MinZ) * FtPerM;
+                double[] s = { dx, dy, dz };
+                Array.Sort(s);
+                _area[i] = Math.Max(1e-4, s[1] * s[2]);
+                _cx[i] = (t.MinX + t.MaxX) * 0.5 * FtPerM; _cy[i] = (t.MinY + t.MaxY) * 0.5 * FtPerM; _cz[i] = (t.MinZ + t.MaxZ) * 0.5 * FtPerM;
+                _rad[i] = 0.5 * Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            IsOctree = Info.IsOctree && n > 0;
+            if (IsOctree)
+            {
+                int g = Info.OctreeGrid > 0 ? Info.OctreeGrid : OctreeBuilder.NodeGrid;
+                _nodeSpacing = new double[n]; _effSpacing = new double[n];
+                _firstChild = new int[n]; _childCount = new int[n];
+                for (int i = 0; i < n; i++)
+                {
+                    TileEntry t = Tiles[i];
+                    _firstChild[i] = t.FirstChild;
+                    _childCount[i] = t.ChildCount;
+                    double sp = t.CubeSize * FtPerM / g;
+                    // foglia: tiene tutti i punti della sua zona, quindi può essere più fitta della griglia
+                    if (_childCount[i] == 0 && t.Count > 0) sp = Math.Min(sp, Math.Sqrt(_area[i] / t.Count));
+                    _nodeSpacing[i] = _effSpacing[i] = sp;
+                    double h = t.CubeSize * 0.5;
+                    _ocx[i] = (t.CubeX + h) * FtPerM; _ocy[i] = (t.CubeY + h) * FtPerM; _ocz[i] = (t.CubeZ + h) * FtPerM;
+                }
+            }
+        }
+
+        public string Name { get { return Info.Name; } }
+
+        /// <summary>Distanza tra i punti disegnati in un blocco (piedi): octree = livello più fitto scelto, altrimenti densità del blocco.</summary>
+        public double DrawSpacing(int tile, int n)
+        {
+            if (!IsOctree) return Spacing(tile, n);
+            double e = _effSpacing[tile];
+            int cnt = Tiles[tile].Count;
+            return n > 0 && n < cnt ? e * Math.Sqrt((double)cnt / n) : e;
+        }
+
+        /// <summary>Distanza media tra i punti di un blocco con n punti caricati (piedi).</summary>
+        public double Spacing(int tile, int n)
+        {
+            return Math.Sqrt(_area[tile] / Math.Max(1, n));
+        }
+
+        public void ToModel(double lx, double ly, double lz, out double mx, out double my, out double mz)
+        {
+            double x = lx + OffX, y = ly + OffY, z = lz + OffZ;
+            double[] p = T;
+            mx = p[0] * x + p[1] * y + p[2] * z + p[9];
+            my = p[3] * x + p[4] * y + p[5] * z + p[10];
+            mz = p[6] * x + p[7] * y + p[8] * z + p[11];
+        }
+
+        /// <summary>Ingombro in coordinate Revit.</summary>
+        public void ModelBounds(out XYZ min, out XYZ max)
+        {
+            double[] mn = { double.MaxValue, double.MaxValue, double.MaxValue }, mx = { double.MinValue, double.MinValue, double.MinValue };
+            foreach (TileEntry t in Tiles)
+            {
+                for (int k = 0; k < 8; k++)
+                {
+                    double x, y, z;
+                    ToModel(((k & 1) == 0 ? t.MinX : t.MaxX) * FtPerM, ((k & 2) == 0 ? t.MinY : t.MaxY) * FtPerM,
+                        ((k & 4) == 0 ? t.MinZ : t.MaxZ) * FtPerM, out x, out y, out z);
+                    mn[0] = Math.Min(mn[0], x); mn[1] = Math.Min(mn[1], y); mn[2] = Math.Min(mn[2], z);
+                    mx[0] = Math.Max(mx[0], x); mx[1] = Math.Max(mx[1], y); mx[2] = Math.Max(mx[2], z);
+                }
+            }
+            if (Tiles.Length == 0) { mn[0] = mn[1] = mn[2] = 0; mx[0] = mx[1] = mx[2] = 1; }
+            min = new XYZ(mn[0], mn[1], mn[2]);
+            max = new XYZ(mx[0], mx[1], mx[2]);
+        }
+
+        /// <summary>Distanze valide per l'analisi e la posizione attuali.</summary>
+        public int DistKey(AnalysisSnapshot an)
+        {
+            return an == null ? 0 : (an.Version * 397) ^ GeoVersion;
+        }
+
+        /// <summary>La nuvola nativa è visibile in questa vista? (nascondi elemento/categoria, isola, nuvole spente, scaricata)</summary>
+        public bool VisibleIn(View view)
+        {
+            return HiddenReason(view) == null;
+        }
+
+        /// <summary>Perché la nuvola non si disegna in questa vista (null = si disegna).</summary>
+        public string HiddenReason(View view)
+        {
+            try
+            {
+                Document doc = view.Document;
+                Element e = doc.GetElement(InstanceId);
+                if (e == null) return "elemento non trovato";
+                if (!NativeClouds.IsLoaded(Folder)) return "nuvola scaricata (Gestisci collegamenti)";
+                if (e.IsHidden(view)) return "elemento nascosto nella vista";
+                if (e.Category != null && view.GetCategoryHidden(e.Category.Id)) return "categoria Nuvole di punti spenta nella vista";
+                if (view.IsTemporaryHideIsolateActive() &&
+                    !view.IsElementVisibleInTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate, InstanceId)) return "nascosta da Nascondi/Isola temporaneo";
+                return null;
+            }
+            catch (Exception ex) { return "errore: " + ex.Message; }
+        }
+
+        // ------------------------------------------------------------------ livello di dettaglio
+
+        /// <summary>Punti per pixel² da disegnare secondo la qualità.</summary>
+        public static double PointsPerPixel(Quality q)
+        {
+            return q == Quality.Fine ? 4.0 : q == Quality.Media ? 1.0 : 2.0;
+        }
+
+        /// <summary>Punti desiderati per ogni blocco in questa vista (0 = fuori vista) e dimensione del pixel sul blocco.</summary>
+        public void Desired(ViewCam cam, Style st, int[] outWant, double[] outPx, long budget)
+        {
+            if (IsOctree) { DesiredOctree(cam, st, outWant, outPx, budget); return; }
+            double dpp = PointsPerPixel(st.Quality);
+            for (int i = 0; i < Tiles.Length; i++)
+            {
+                double cx, cy, cz;
+                ToModel(_cx[i], _cy[i], _cz[i], out cx, out cy, out cz);
+                double px;
+                if (!cam.PixelSize(cx, cy, cz, _rad[i], out px)) { outWant[i] = 0; outPx[i] = 0; continue; }
+                double want = _area[i] / (px * px) * dpp;
+                outWant[i] = (int)Math.Min(Tiles[i].Count, Math.Max(want, Math.Min(Tiles[i].Count, 256)));
+                outPx[i] = px;
+            }
+        }
+
+        /// <summary>
+        /// Octree: si parte dalla radice e si scende nei figli dove sullo schermo i punti del livello sono più radi
+        /// di quanto chiede la qualità, prima le zone più grandi a schermo, fino al limite di punti.
+        /// Ogni nodo scelto si disegna intero (i suoi punti si sommano a quelli degli antenati).
+        /// </summary>
+        private void DesiredOctree(ViewCam cam, Style st, int[] outWant, double[] outPx, long budget)
+        {
+            int n = Tiles.Length;
+            Array.Clear(outWant, 0, n);
+            Array.Clear(outPx, 0, n);
+            _orderN = 0;
+            // pixel tra due punti: con i punti grandi ogni punto copre più pixel, quindi ne servono molti meno
+            double target = st.PointScale > 0
+                ? (st.Quality == Quality.Fine ? 1.6 : st.Quality == Quality.Media ? 3.2 : 2.3)
+                : 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
+            int hn = 0;
+            double px;
+            if (NodeVisible(cam, 0, out px)) Push(ref hn, 0, _nodeSpacing[0] / px);
+            else Log.Write("LOD", "«" + Name + "»: la nuvola è fuori dall'inquadratura della vista");
+            long total = 0;
+            while (hn > 0)
+            {
+                double key;
+                int i = Pop(ref hn, out key);
+                if (_orderN == _order.Length) Array.Resize(ref _order, _orderN * 2);
+                _order[_orderN++] = i;
+                NodeVisible(cam, i, out px);
+                outPx[i] = px;
+                int cnt = Tiles[i].Count;
+                // foglia: contiene tutti i punti della sua zona, spesso molto più fitti del necessario; se ne disegna
+                // la parte che serve (i punti sono mescolati, quindi l'inizio è un sottocampione uniforme). Così una
+                // foglia non spicca come un riquadro più denso tra i blocchi vicini.
+                if (_childCount[i] == 0 && cnt > 0)
+                {
+                    double sLeaf = Math.Sqrt(_area[i] / cnt), sWant = target * px;
+                    if (sLeaf < sWant) cnt = (int)Math.Max(Math.Min(cnt, 512), cnt * (sLeaf / sWant) * (sLeaf / sWant));
+                }
+                outWant[i] = cnt;
+                total += cnt;
+                if (total >= budget) break;
+                if (key <= target || _childCount[i] == 0) continue;
+                for (int k = 0; k < _childCount[i]; k++)
+                {
+                    int c = _firstChild[i] + k;
+                    double pc;
+                    if (NodeVisible(cam, c, out pc)) Push(ref hn, c, _nodeSpacing[c] / pc);
+                }
+            }
+
+            // distanza effettiva tra i punti disegnati: quella del livello più fitto scelto sotto ogni nodo
+            for (int i = n - 1; i >= 0; i--)
+            {
+                if (outPx[i] <= 0) continue;
+                double e = _nodeSpacing[i];
+                for (int k = 0; k < _childCount[i]; k++)
+                {
+                    int c = _firstChild[i] + k;
+                    if (outPx[c] > 0) e = Math.Min(e, _effSpacing[c]);
+                }
+                _effSpacing[i] = e;
+            }
+        }
+
+        private bool NodeVisible(ViewCam cam, int i, out double px)
+        {
+            double cx, cy, cz;
+            ToModel(_cx[i], _cy[i], _cz[i], out cx, out cy, out cz);
+            return cam.PixelSize(cx, cy, cz, _rad[i], out px);
+        }
+
+        // coda con priorità (massimo in cima) per la visita dell'octree
+        private void Push(ref int hn, int node, double key)
+        {
+            if (hn == _heap.Length) { Array.Resize(ref _heap, hn * 2); Array.Resize(ref _heapKey, hn * 2); }
+            int i = hn++;
+            while (i > 0)
+            {
+                int p = (i - 1) >> 1;
+                if (_heapKey[p] >= key) break;
+                _heap[i] = _heap[p]; _heapKey[i] = _heapKey[p];
+                i = p;
+            }
+            _heap[i] = node; _heapKey[i] = key;
+        }
+
+        private int Pop(ref int hn, out double key)
+        {
+            int top = _heap[0];
+            key = _heapKey[0];
+            hn--;
+            if (hn > 0)
+            {
+                int node = _heap[hn];
+                double k = _heapKey[hn];
+                int i = 0;
+                while (true)
+                {
+                    int l = 2 * i + 1;
+                    if (l >= hn) break;
+                    int r = l + 1;
+                    int m = r < hn && _heapKey[r] > _heapKey[l] ? r : l;
+                    if (_heapKey[m] <= k) break;
+                    _heap[i] = _heap[m]; _heapKey[i] = _heapKey[m];
+                    i = m;
+                }
+                _heap[i] = node; _heapKey[i] = k;
+            }
+            return top;
+        }
+
+        /// <summary>Registra il fabbisogno di una vista: si tiene il massimo tra le viste disegnate negli ultimi secondi.</summary>
+        public void Request(int tile, int n, long now)
+        {
+            if (n >= _want[tile] || now - _wantTick[tile] > 3000) { _want[tile] = n; _wantTick[tile] = now; }
+            else _wantTick[tile] = Math.Max(_wantTick[tile], now - 2500);
+        }
+
+        /// <summary>Millisecondi dall'ultima volta che una vista ha chiesto questo blocco.</summary>
+        public long IdleMs(int tile) { return Environment.TickCount - _wantTick[tile]; }
+
+        /// <summary>Quanti punti caricare: a gradini (2048, 4096, 8192…) per non rileggere il blocco a ogni piccolo zoom.</summary>
+        public int Level(int tile, int n)
+        {
+            int cnt = Tiles[tile].Count;
+            if (n >= cnt) return cnt;
+            int l = 2048;
+            while (l < n && l < (1 << 29)) l <<= 1;
+            return Math.Min(cnt, l);
+        }
+
+        private bool ReadyFor(TileCpu c, Style st)
+        {
+            if (st.Mode == DisplayMode.Discrepanze && st.Analysis != null) return c.Dist != null && c.DistKey == DistKey(st.Analysis) && c.DistCount >= c.Count;
+            if (st.NeedsNormals) return c.Nrm != null;
+            return true;
+        }
+
+        private static int ColorKey(TileCpu c, Style st)
+        {
+            return st.Mode == DisplayMode.Discrepanze ? c.DistKey : st.NeedsNormals ? 1 : 0;
+        }
+
+        private int LayerArgb(Style st)
+        {
+            int argb;
+            return st.CloudColors.TryGetValue(Folder, out argb) ? argb : CloudPalette.For(Folder);
+        }
+
+        // ------------------------------------------------------------------ disegno
+
+        /// <summary>
+        /// Fase 1: chiede al caricatore i punti mancanti e, dove lo stile è cambiato, ricostruisce subito
+        /// una versione leggera del blocco (così tutta la vista cambia colore in un attimo).
+        /// </summary>
+        public void Prepare(Style st, RenderBudget budget, int[] want, double[] px)
+        {
+            long now = Environment.TickCount;
+            int argb = LayerArgb(st);
+
+            // fuori vista (o modo non usato) da un po': si libera la memoria
+            for (int i = 0; i < Tiles.Length; i++)
+            {
+                TileGpu g = _gpu[i], o = _gpuO[i];
+                if (g != null && now - g.LastDraw > 15000) { g.Dispose(); _gpu[i] = null; }
+                if (o != null && now - o.LastDraw > 15000) { o.Dispose(); _gpuO[i] = null; }
+                if (want[i] <= 0 && _gpu[i] == null && _gpuO[i] == null && Cpu[i] != null && now - _wantTick[i] > 60000 && Volatile.Read(ref Pending[i]) == 0) Cpu[i] = null;
+            }
+
+            // blocchi in vista, dal più importante (octree: più grande a schermo) al meno importante
+            int count = IsOctree ? _orderN : Tiles.Length;
+            for (int oi = 0; oi < count; oi++)
+            {
+                int i = IsOctree ? _order[oi] : oi;
+                int w = want[i];
+                if (w <= 0) continue;
+                Request(i, w, now);
+                int level = Level(i, _want[i]);
+
+                TileCpu cpu = Volatile.Read(ref Cpu[i]);
+                bool ready = cpu != null && ReadyFor(cpu, st);
+                bool needData = cpu == null || cpu.Count < level || !ready
+                    || (st.NeedsNormals && cpu.NrmCount < cpu.Count * 0.6);
+                // coda corta: si chiede solo il più importante, al fotogramma dopo si rivaluta con la vista aggiornata
+                if (needData && CloudLoader.Queued < 24) CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
+                if (!ready) continue; // si continua a disegnare quello che c'era finché arrivano distanze o normali
+
+                int drawN = Math.Min(cpu.Count, w);
+                int key = ColorKey(cpu, st);
+                bool hl = Highlighted;
+
+                if (IsOctree && st.PointScale > 0)
+                {
+                    // octree: per ogni ottante del blocco, punti di un pixel dove il figlio è già disegnato (la grana la dà lui),
+                    // punti grandi dove no, così nessuna zona resta vuota mentre i figli arrivano
+                    byte cov = CoveredOctants(i, want);
+                    _covered[i] = cov;
+                    double radius = 0.6 * OwnSpacing(i, drawN) * st.PointScale / 100.0;
+                    if (cov != 0) EnsureGpu(_gpu, i, false, 0, cpu, drawN, key, hl, st, argb, budget, now);
+                    if (cov != 0xFF) EnsureGpu(_gpuO, i, true, radius, cpu, drawN, key, hl, st, argb, budget, now);
+                    continue;
+                }
+
+                bool octa = WantOcta(i, drawN, px[i], st, want);
+                _mode[i] = (byte)(octa ? 1 : 0);
+                double r1 = octa ? 0.75 * OwnSpacing(i, drawN) * st.PointScale / 100.0 : 0;
+                EnsureGpu(octa ? _gpuO : _gpu, i, octa, r1, cpu, drawN, key, hl, st, argb, budget, now);
+            }
+        }
+
+        /// <summary>Costruisce (in versione leggera) il buffer del blocco se manca o non vale più per lo stile attuale.</summary>
+        private void EnsureGpu(TileGpu[] arr, int i, bool octa, double radius, TileCpu cpu, int drawN, int key, bool hl,
+            Style st, int argb, RenderBudget budget, long now)
+        {
+            TileGpu gpu = arr[i];
+            bool stale = gpu == null || gpu.StyleVersion != st.Version || gpu.GeoVersion != GeoVersion
+                || gpu.ColorKey != key || gpu.Highlight != hl
+                || (octa && Math.Abs(gpu.Radius - radius) > radius * 0.35);
+            if (!stale) return;
+            if (!budget.CoarseTime) { budget.MoreWork = true; return; }
+            var ng = new TileGpu
+            {
+                StyleVersion = st.Version, GeoVersion = GeoVersion, ColorKey = key, Points = !octa, Highlight = hl,
+                Radius = radius, RadiusN = drawN
+            };
+            int coarse = Math.Min(drawN, Math.Max(512, drawN / 8));
+            BuildRange(cpu, ng, coarse, st, argb, null, IsOctree ? i : -1);
+            if (gpu != null) gpu.Dispose();
+            ng.LastDraw = now;
+            arr[i] = ng;
+            if (coarse < drawN) budget.MoreWork = true;
+        }
+
+        /// <summary>Ottanti del nodo in cui il figlio è scelto per questa vista e ha già qualcosa da disegnare.</summary>
+        private byte CoveredOctants(int i, int[] want)
+        {
+            int mask = Tiles[i].ChildMask, c = _firstChild[i], res = 0;
+            for (int o = 0; o < 8; o++)
+            {
+                if ((mask & (1 << o)) == 0) continue;
+                int ch = c++;
+                if (want[ch] <= 0) continue;
+                TileGpu a = _gpu[ch], b = _gpuO[ch];
+                if ((a != null && a.Chunks.Count > 0) || (b != null && b.Chunks.Count > 0)) res |= 1 << o;
+            }
+            return (byte)res;
+        }
+
+        /// <summary>Distanza tra i punti del blocco stesso (piedi), con n punti disegnati.</summary>
+        private double OwnSpacing(int tile, int n)
+        {
+            if (!IsOctree) return Spacing(tile, n);
+            int cnt = Tiles[tile].Count;
+            double sp = _nodeSpacing[tile];
+            return n > 0 && n < cnt ? sp * Math.Sqrt((double)cnt / n) : sp;
+        }
+
+        /// <summary>Qualche figlio scelto per questa vista è già disegnabile? (allora il dettaglio fine lo danno i figli)</summary>
+        private bool ChildDrawable(int i, int[] want)
+        {
+            if (!IsOctree) return false;
+            for (int k = 0; k < _childCount[i]; k++)
+            {
+                int c = _firstChild[i] + k;
+                if (want[c] <= 0) continue;
+                TileGpu g = _mode[c] == 1 ? _gpuO[c] : _gpu[c];
+                if (g != null && g.Chunks.Count > 0) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Fase 2: aggiunge punti ai blocchi già pronti finché c'è tempo in questo fotogramma.</summary>
+        public void Refine(Style st, RenderBudget budget, int[] want)
+        {
+            int argb = LayerArgb(st);
+            bool both = IsOctree && st.PointScale > 0;
+            int count = IsOctree ? _orderN : Tiles.Length;
+            for (int oi = 0; oi < count; oi++)
+            {
+                int i = IsOctree ? _order[oi] : oi;
+                int w = want[i];
+                if (w <= 0) continue;
+                TileCpu cpu = Volatile.Read(ref Cpu[i]);
+                if (cpu == null || !ReadyFor(cpu, st)) continue;
+                int drawN = Math.Min(cpu.Count, w);
+                for (int m = 0; m < 2; m++)
+                {
+                    TileGpu gpu = both ? (m == 0 ? _gpuO[i] : _gpu[i]) : (m == 0 ? (_mode[i] == 1 ? _gpuO[i] : _gpu[i]) : null);
+                    if (gpu == null || gpu.StyleVersion != st.Version || gpu.GeoVersion != GeoVersion || gpu.Highlight != Highlighted) continue;
+                    if (gpu.ColorKey != ColorKey(cpu, st) || gpu.Built >= drawN) continue;
+                    if (!budget.RefineTime) { budget.MoreWork = true; return; }
+                    BuildRange(cpu, gpu, drawN, st, argb, budget, IsOctree ? i : -1);
+                    if (gpu.Built < drawN) budget.MoreWork = true;
+                }
+            }
+        }
+
+        /// <summary>Fase 3: disegna i blocchi in vista, fino al numero di punti voluto.</summary>
+        public void DrawAll(Style st, int[] want)
+        {
+            long now = Environment.TickCount;
+            EffectInstance effect = EffectFor(st, Highlighted);
+            int nodes = 0, wanted = 0;
+            long pts = 0;
+            for (int i = 0; i < Tiles.Length; i++)
+            {
+                if (want[i] <= 0) continue;
+                wanted++;
+                if (IsOctree && st.PointScale > 0)
+                {
+                    TileGpu gp = _gpu[i], go = _gpuO[i];
+                    bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
+                    if (!hp && !ho) continue;
+                    int cov = _covered[i];
+                    // ottanti coperti dai figli: punti di un pixel; gli altri: punti grandi (se una versione manca, l'altra)
+                    int pixMask = hp ? (ho ? cov : 0xFF) : 0;
+                    int bigMask = ho ? (0xFF & ~pixMask) : 0;
+                    if (pixMask != 0) { gp.LastDraw = now; pts += Draw(gp, want[i], effect, pixMask); }
+                    if (bigMask != 0) { go.LastDraw = now; pts += Draw(go, want[i], effect, bigMask); }
+                    nodes++;
+                    continue;
+                }
+                TileGpu gpu = _mode[i] == 1 ? _gpuO[i] : _gpu[i];
+                // il modo scelto non è ancora pronto: intanto si disegna l'altro, se c'è
+                if (gpu == null || gpu.Chunks.Count == 0) gpu = _mode[i] == 1 ? _gpu[i] : _gpuO[i];
+                if (gpu == null || gpu.Chunks.Count == 0) continue;
+                gpu.LastDraw = now;
+                pts += Draw(gpu, want[i], effect, 0xFF);
+                nodes++;
+            }
+            StatPoints = pts; StatNodes = nodes; StatWanted = wanted; StatTick = now;
+        }
+
+        // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
+        public long StatPoints;
+        public int StatNodes, StatWanted;
+        public long StatTick;
+
+        /// <summary>Blocchi in memoria, in coda di lettura e illeggibili.</summary>
+        public void LoadStats(out int loaded, out int pending, out int failed)
+        {
+            loaded = pending = failed = 0;
+            for (int i = 0; i < Tiles.Length; i++)
+            {
+                if (Cpu[i] != null) loaded++;
+                int p = Volatile.Read(ref Pending[i]);
+                if (p == 1) pending++; else if (p == 2) failed++;
+            }
+        }
+
+        /// <summary>
+        /// Punti grandi (ottaedri) dove a schermo i punti del blocco si staccano (oltre ~1,5 pixel) e nessun figlio
+        /// aggiunge già dettaglio: come la dimensione adattiva di Potree, la superficie resta piena.
+        /// </summary>
+        private bool WantOcta(int tile, int n, double px, Style st, int[] want)
+        {
+            if (st.PointScale <= 0 || n <= 0) return false;
+            // octree: i blocchi «di confine» (nessun figlio ancora disegnato) a punti grandi con raggio dal proprio livello,
+            // così coprono tutta la loro zona; appena arrivano i figli il blocco passa ai punti di un pixel (versione già
+            // pronta in memoria) e la grana la danno i figli. Come la dimensione adattiva di Potree, senza punti enormi
+            // dei livelli alti sopra il dettaglio fine.
+            if (IsOctree) return !ChildDrawable(tile, want);
+            if (px <= 0) return false;
+            if (ChildDrawable(tile, want)) return false;
+            double spacingPx = OwnSpacing(tile, n) / px * st.PointScale / 100.0;
+            bool was = _mode[tile] == 1;
+            return spacingPx > (was ? 1.3 : 1.6);
+        }
+
+        private static VertexFormat _format;
+        private static EffectInstance _effect;
+        private static IndexBuffer _pointIb, _octaIb;
+        private const int PointChunk = 16384;
+        private const int OctaChunk = 65532 / 6;
+        private static readonly int[] OctaFaces = { 0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5 };
+
+        /// <summary>Indici uguali per tutti i pezzi: si creano una volta sola e si condividono.</summary>
+        private static void EnsureShared()
+        {
+            if (_format == null) _format = new VertexFormat(VertexFormatBits.PositionColored);
+            if (_effect == null) _effect = new EffectInstance(VertexFormatBits.PositionColored);
+            if (_pointIb == null)
+            {
+                var ib = new IndexBuffer(PointChunk * IndexPoint.GetSizeInShortInts());
+                ib.Map(PointChunk * IndexPoint.GetSizeInShortInts());
+                IndexStreamPoint s = ib.GetIndexStreamPoint();
+                for (int j = 0; j < PointChunk; j++) s.AddPoint(new IndexPoint(j));
+                ib.Unmap();
+                _pointIb = ib;
+            }
+            if (_octaIb == null)
+            {
+                int tris = OctaChunk * 8;
+                var ib = new IndexBuffer(tris * IndexTriangle.GetSizeInShortInts());
+                ib.Map(tris * IndexTriangle.GetSizeInShortInts());
+                IndexStreamTriangle s = ib.GetIndexStreamTriangle();
+                for (int j = 0; j < OctaChunk; j++)
+                {
+                    int o = j * 6;
+                    for (int f = 0; f < 8; f++) s.AddTriangle(new IndexTriangle(o + OctaFaces[f * 3], o + OctaFaces[f * 3 + 1], o + OctaFaces[f * 3 + 2]));
+                }
+                ib.Unmap();
+                _octaIb = ib;
+            }
+        }
+
+        /// <summary>Aggiunge al blocco i punti della sorgente da gpu.Built a end (si ferma prima se il tempo è finito).</summary>
+        // punti scelti per i pezzi in costruzione, uno per ottante del nodo (solo thread di Revit)
+        private const int BucketCap = OctaChunk * 6 > PointChunk ? OctaChunk * 6 : PointChunk;
+        private static readonly float[][] _bx = NewBuckets(), _by = NewBuckets(), _bz = NewBuckets();
+        private static readonly byte[][] _bc = NewColorBuckets();
+        private static readonly int[] _bnv = new int[8], _bpts = new int[8];
+
+        private static float[][] NewBuckets() { var r = new float[8][]; for (int i = 0; i < 8; i++) r[i] = new float[BucketCap]; return r; }
+        private static byte[][] NewColorBuckets() { var r = new byte[8][]; for (int i = 0; i < 8; i++) r[i] = new byte[BucketCap * 4]; return r; }
+
+        /// <param name="node">octree: indice del nodo (i punti si dividono per ottante), -1 = un solo gruppo</param>
+        private void BuildRange(TileCpu cpu, TileGpu gpu, int end, Style st, int layerArgb, RenderBudget budget, int node = -1)
+        {
+            EnsureShared();
+            int per = gpu.Points ? PointChunk : OctaChunk;
+            int vpp = gpu.Points ? 1 : 6;
+            float r0 = (float)gpu.Radius;
+            bool split = node >= 0;
+            double cx = split ? _ocx[node] : 0, cy = split ? _ocy[node] : 0, cz = split ? _ocz[node] : 0;
+            for (int o = 0; o < 8; o++) { _bnv[o] = 0; _bpts[o] = 0; }
+            int k = gpu.Built;
+            end = Math.Min(end, cpu.Count);
+            for (; k < end; k++)
+            {
+                if (budget != null && (k & 4095) == 0 && k > gpu.Built && !budget.RefineTime) break;
+                float lx = cpu.Pos[k * 3], ly = cpu.Pos[k * 3 + 1], lz = cpu.Pos[k * 3 + 2];
+                double x, y, z;
+                ToModel(lx, ly, lz, out x, out y, out z);
+                if (st.Clip != null && !st.Clip.Contains(x, y, z)) continue;
+                byte r, g, b, t;
+                if (gpu.Highlight) Style.HighlightColor(cpu, k, layerArgb, out r, out g, out b, out t);
+                else if (!st.Color(cpu, k, z, layerArgb, out r, out g, out b, out t)) continue;
+                int oc = split ? (lx >= cx ? 1 : 0) | (ly >= cy ? 2 : 0) | (lz >= cz ? 4 : 0) : 0;
+                float fx = (float)x, fy = (float)y, fz = (float)z;
+                if (vpp == 1) Put(oc, fx, fy, fz, r, g, b, t);
+                else
+                {
+                    Put(oc, fx + r0, fy, fz, r, g, b, t);
+                    Put(oc, fx - r0, fy, fz, r, g, b, t);
+                    Put(oc, fx, fy + r0, fz, r, g, b, t);
+                    Put(oc, fx, fy - r0, fz, r, g, b, t);
+                    Put(oc, fx, fy, fz + r0, r, g, b, t);
+                    Put(oc, fx, fy, fz - r0, r, g, b, t);
+                }
+                if (++_bpts[oc] >= per) Flush(gpu, oc, k + 1, split);
+            }
+            for (int o = 0; o < 8; o++) Flush(gpu, o, k, split);
+            gpu.Built = Math.Max(gpu.Built, k);
+        }
+
+        private static void Flush(TileGpu gpu, int oc, int srcEnd, bool split)
+        {
+            if (_bpts[oc] == 0) return;
+            VertexBuffer vb = MakeBuffer(oc, _bnv[oc]);
+            gpu.Chunks.Add(new GpuChunk { Vb = vb, Points = _bpts[oc], SrcEnd = srcEnd, Oct = split ? oc : -1 });
+            _bnv[oc] = 0; _bpts[oc] = 0;
+        }
+
+        private static void Put(int oc, float x, float y, float z, byte r, byte g, byte b, byte t)
+        {
+            int nv = _bnv[oc]++;
+            _bx[oc][nv] = x; _by[oc][nv] = y; _bz[oc][nv] = z;
+            byte[] bc = _bc[oc];
+            int o = nv * 4;
+            bc[o] = r; bc[o + 1] = g; bc[o + 2] = b; bc[o + 3] = t;
+        }
+
+        // ------------------------------------------------------------------ scrittura veloce dei vertici
+        // Creare per ogni vertice gli oggetti XYZ / ColorWithTransparency / VertexPositionColored dell'API costa molto
+        // (oggetti nativi con finalizzatore: milioni per nuvola). Dal 2021 il buffer mappato si può scrivere direttamente
+        // (GetMappedHandle). La disposizione dei byte del colore si ricava una volta scrivendo un vertice di prova con l'API.
+
+        private static int _raw;                 // 0 = da verificare, 1 = scrittura diretta, -1 = solo API
+        private static int _stride, _offR, _offG, _offB, _offA;
+        private static bool _alphaOpacity;
+
+        private static unsafe void CalibrateRaw()
+        {
+            _raw = -1;
+            try
+            {
+                int fl = VertexPositionColored.GetSizeInFloats();
+                if (fl < 4) return;
+                int stride = fl * 4;
+                var bytes = new byte[stride];
+                using (var vb = new VertexBuffer(fl))
+                {
+                    vb.Map(fl);
+                    vb.GetVertexStreamPositionColored().AddVertex(new VertexPositionColored(new XYZ(1.5, 2.5, 3.5), new ColorWithTransparency(11, 22, 33, 44)));
+                    IntPtr h = vb.GetMappedHandle();
+                    if (h != IntPtr.Zero) System.Runtime.InteropServices.Marshal.Copy(h, bytes, 0, stride);
+                    vb.Unmap();
+                }
+                if (BitConverter.ToSingle(bytes, 0) != 1.5f || BitConverter.ToSingle(bytes, 4) != 2.5f || BitConverter.ToSingle(bytes, 8) != 3.5f)
+                {
+                    Log.Write("Buffer", "scrittura diretta non disponibile (posizione non riconosciuta): uso l'API");
+                    return;
+                }
+                int oR = -1, oG = -1, oB = -1, oA = -1;
+                bool opacity = false;
+                for (int i = 12; i < stride; i++)
+                {
+                    if (bytes[i] == 11 && oR < 0) oR = i;
+                    else if (bytes[i] == 22 && oG < 0) oG = i;
+                    else if (bytes[i] == 33 && oB < 0) oB = i;
+                    else if (bytes[i] == 44 && oA < 0) { oA = i; opacity = false; }
+                    else if (bytes[i] == 211 && oA < 0) { oA = i; opacity = true; }
+                }
+                if (oR < 0 || oG < 0 || oB < 0)
+                {
+                    Log.Write("Buffer", "scrittura diretta non disponibile (colore non riconosciuto: " + BitConverter.ToString(bytes) + "): uso l'API");
+                    return;
+                }
+                _stride = stride; _offR = oR; _offG = oG; _offB = oB; _offA = oA; _alphaOpacity = opacity;
+                _raw = 1;
+                Log.Write("Buffer", string.Format("scrittura diretta attiva: {0} byte per vertice, colore R{1} G{2} B{3} A{4}{5}", stride, oR, oG, oB, oA, opacity ? " (opacità)" : ""));
+            }
+            catch (Exception ex)
+            {
+                _raw = -1;
+                Log.Error("Buffer (verifica scrittura diretta)", ex);
+            }
+        }
+
+        private static unsafe VertexBuffer MakeBuffer(int oc, int nv)
+        {
+            float[] bxs = _bx[oc], bys = _by[oc], bzs = _bz[oc];
+            byte[] bcs = _bc[oc];
+            if (_raw == 0) CalibrateRaw();
+            int fl = nv * VertexPositionColored.GetSizeInFloats();
+            var vb = new VertexBuffer(fl);
+            vb.Map(fl);
+            if (_raw == 1)
+            {
+                byte* p = (byte*)vb.GetMappedHandle().ToPointer();
+                int stride = _stride, oR = _offR, oG = _offG, oB = _offB, oA = _offA;
+                bool op = _alphaOpacity;
+                for (int i = 0; i < nv; i++, p += stride)
+                {
+                    *(float*)p = bxs[i]; *(float*)(p + 4) = bys[i]; *(float*)(p + 8) = bzs[i];
+                    for (int q = 12; q < stride; q++) p[q] = 0;
+                    int o = i * 4;
+                    p[oR] = bcs[o]; p[oG] = bcs[o + 1]; p[oB] = bcs[o + 2];
+                    if (oA >= 0) p[oA] = op ? (byte)(255 - bcs[o + 3]) : bcs[o + 3];
+                }
+            }
+            else
+            {
+                var list = new List<VertexPositionColored>(nv);
+                for (int i = 0; i < nv; i++)
+                {
+                    int o = i * 4;
+                    list.Add(new VertexPositionColored(new XYZ(bxs[i], bys[i], bzs[i]), new ColorWithTransparency(bcs[o], bcs[o + 1], bcs[o + 2], bcs[o + 3])));
+                }
+                vb.GetVertexStreamPositionColored().AddVertices(list);
+                foreach (VertexPositionColored v in list) { var d = v as IDisposable; if (d != null) d.Dispose(); }
+            }
+            vb.Unmap();
+            return vb;
+        }
+
+        /// <summary>Nuvola illuminata dal pannello Visibilità (mouse sopra il nome)?</summary>
+        public bool Highlighted { get { return string.Equals(CloudHighlight.Folder, Folder, StringComparison.OrdinalIgnoreCase); } }
+
+        private static EffectInstance _effectT;
+        private static double _effectTValue = -1;
+
+        /// <summary>Effetto di disegno: opaco, oppure con la trasparenza dello stile.</summary>
+        private static EffectInstance EffectFor(Style st, bool highlighted)
+        {
+            EnsureShared();
+            double t = highlighted || !st.NeedsTransparentPass ? 0 : st.DrawTransparency;
+            if (t <= 0) return _effect;
+            if (_effectT == null) _effectT = new EffectInstance(VertexFormatBits.PositionColored);
+            if (Math.Abs(_effectTValue - t) > 1e-6) { _effectT.SetTransparency(t); _effectTValue = t; }
+            return _effectT;
+        }
+
+        private static int Draw(TileGpu gpu, int want, EffectInstance effect, int octMask)
+        {
+            int start = 0, drawn = 0;
+            foreach (GpuChunk c in gpu.Chunks)
+            {
+                if (start >= want) break;
+                // ultimo pezzo: solo la parte che serve (i punti sono in ordine casuale, l'inizio è uniforme)
+                int span = c.SrcEnd - start;
+                int n = c.Points;
+                if (c.SrcEnd > want && span > 0) n = Math.Max(1, (int)((long)c.Points * (want - start) / span));
+                if (c.SrcEnd > start) start = c.SrcEnd;
+                if (c.Oct >= 0 && (octMask & (1 << c.Oct)) == 0) continue;
+                drawn += n;
+                if (gpu.Points)
+                    DrawContext.FlushBuffer(c.Vb, c.Points, _pointIb, n * IndexPoint.GetSizeInShortInts(),
+                        _format, effect, PrimitiveType.PointList, 0, n);
+                else
+                    DrawContext.FlushBuffer(c.Vb, c.Points * 6, _octaIb, n * 8 * IndexTriangle.GetSizeInShortInts(),
+                        _format, effect, PrimitiveType.TriangleList, 0, n * 8);
+            }
+            return drawn;
+        }
+
+        // ------------------------------------------------------------------ selezione di un punto (Misura punti)
+
+        /// <summary>Punto caricato più vicino al raggio (entro tol), il più vicino all'osservatore. t = profondità lungo dir.</summary>
+        public bool Pick(XYZ origin, XYZ dir, double tol, Style st, ref double bestT, ref XYZ best)
+        {
+            bool found = false;
+            double tol2 = tol * tol;
+            for (int i = 0; i < Tiles.Length; i++)
+            {
+                TileCpu c = Volatile.Read(ref Cpu[i]);
+                if (c == null) continue;
+                for (int k = 0; k < c.Count; k++)
+                {
+                    double x, y, z;
+                    ToModel(c.Pos[k * 3], c.Pos[k * 3 + 1], c.Pos[k * 3 + 2], out x, out y, out z);
+                    double vx = x - origin.X, vy = y - origin.Y, vz = z - origin.Z;
+                    double t = vx * dir.X + vy * dir.Y + vz * dir.Z;
+                    double px = vx - t * dir.X, py = vy - t * dir.Y, pz = vz - t * dir.Z;
+                    if (px * px + py * py + pz * pz > tol2) continue;
+                    if (t >= bestT) continue;
+                    if (st != null && st.Clip != null && !st.Clip.Contains(x, y, z)) continue;
+                    bestT = t;
+                    best = new XYZ(x, y, z);
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>Libera i buffer grafici (da chiamare sul thread di Revit).</summary>
+        public void DropGpu()
+        {
+            for (int i = 0; i < _gpu.Length; i++)
+            {
+                if (_gpuO[i] != null) { _gpuO[i].Dispose(); _gpuO[i] = null; }
+                if (_gpu[i] != null) { _gpu[i].Dispose(); _gpu[i] = null; }
+            }
+        }
+
+        public void Dispose()
+        {
+            DropGpu();
+            for (int i = 0; i < Cpu.Length; i++) Cpu[i] = null;
+        }
+    }
+
+    /// <summary>Nuvola da illuminare del suo colore (mouse sopra il nome nel pannello Visibilità).</summary>
+    internal static class CloudHighlight
+    {
+        private static volatile string _folder;
+        public static string Folder { get { return _folder; } }
+
+        public static void Set(string folder)
+        {
+            if (string.Equals(_folder, folder, StringComparison.OrdinalIgnoreCase)) return;
+            _folder = folder;
+            Redraw.Request();
+        }
+    }
+
+    /// <summary>Colori automatici delle nuvole (modalità «Nuvola»), stabili per cartella.</summary>
+    internal static class CloudPalette
+    {
+        private static readonly int[] Colors =
+        {
+            System.Drawing.Color.FromArgb(230, 70, 110).ToArgb(), System.Drawing.Color.FromArgb(40, 140, 230).ToArgb(),
+            System.Drawing.Color.FromArgb(60, 180, 90).ToArgb(), System.Drawing.Color.FromArgb(240, 160, 30).ToArgb(),
+            System.Drawing.Color.FromArgb(150, 90, 220).ToArgb(), System.Drawing.Color.FromArgb(20, 180, 180).ToArgb(),
+            System.Drawing.Color.FromArgb(200, 110, 60).ToArgb(), System.Drawing.Color.FromArgb(120, 120, 120).ToArgb()
+        };
+
+        public static int For(string folder)
+        {
+            int h = 0;
+            foreach (char ch in (folder ?? "").ToLowerInvariant()) h = h * 31 + ch;
+            return Colors[(h & 0x7FFFFFFF) % Colors.Length];
+        }
+    }
+
+    /// <summary>Tempo a disposizione in un fotogramma per costruire buffer grafici.</summary>
+    internal sealed class RenderBudget
+    {
+        private readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew();
+        public bool MoreWork;
+        /// <summary>La vista si sta muovendo (orbita, zoom): niente lavoro pesante, si disegna quello che c'è.</summary>
+        public bool Moving;
+        /// <summary>Versioni leggere dopo un cambio di stile: tutta la vista deve aggiornarsi subito.</summary>
+        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 25 : 200); } }
+        /// <summary>Aggiunta di dettaglio: poco per volta e mai mentre ci si muove.</summary>
+        public bool RefineTime { get { return !Moving && _sw.ElapsedMilliseconds < 70; } }
+    }
+
+    /// <summary>
+    /// Zona inquadrata di ogni vista aperta: angoli di zoom (coordinate di modello) e larghezza della finestra in pixel.
+    /// Si legge dall'interfaccia di Revit quando è a riposo (Idling) e si usa durante il disegno.
+    /// </summary>
+    internal static class ZoomCache
+    {
+        public sealed class Entry
+        {
+            public XYZ C0, C1;
+            public int WidthPx;
+        }
+
+        private static readonly ConcurrentDictionary<long, Entry> _map = new ConcurrentDictionary<long, Entry>();
+
+        public static Entry Get(View v)
+        {
+            Entry e;
+            return v != null && _map.TryGetValue(v.Id.Value, out e) ? e : null;
+        }
+
+        /// <summary>Aggiorna le viste aperte; true se qualcosa è cambiato (zoom o spostamento).</summary>
+        public static bool Update(Autodesk.Revit.UI.UIDocument uidoc)
+        {
+            bool changed = false;
+            foreach (Autodesk.Revit.UI.UIView uiv in uidoc.GetOpenUIViews())
+            {
+                IList<XYZ> c = uiv.GetZoomCorners();
+                Autodesk.Revit.DB.Rectangle r = uiv.GetWindowRectangle();
+                var e = new Entry { C0 = c[0], C1 = c[1], WidthPx = Math.Max(1, r.Right - r.Left) };
+                Entry old;
+                long key = uiv.ViewId.Value;
+                if (!_map.TryGetValue(key, out old) || !old.C0.IsAlmostEqualTo(e.C0, 1e-6) || !old.C1.IsAlmostEqualTo(e.C1, 1e-6) || old.WidthPx != e.WidthPx)
+                {
+                    _map[key] = e;
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+    }
+
+    /// <summary>
+    /// Camera della vista per il livello di dettaglio: dimensione di un pixel (piedi) alla distanza di un punto,
+    /// e se un blocco è fuori dall'inquadratura. Direzioni dalla vista, zona inquadrata dagli angoli di zoom.
+    /// </summary>
+    internal sealed class ViewCam
+    {
+        public XYZ Pos, Dir, Up, Right;
+        public bool Perspective;
+        public double HalfW, HalfH, Target;
+        public double PxAtTarget;
+        public bool Valid;
+
+        public static ViewCam From(Camera c, View view)
+        {
+            var v = new ViewCam();
+            try
+            {
+                var v3 = view as View3D;
+                if (v3 != null)
+                {
+                    ViewOrientation3D o = v3.GetOrientation();
+                    v.Dir = o.ForwardDirection.Normalize();
+                    v.Up = o.UpDirection.Normalize();
+                    v.Pos = o.EyePosition;
+                    v.Perspective = v3.IsPerspective;
+                }
+                else
+                {
+                    v.Dir = view.ViewDirection.Negate().Normalize();
+                    v.Up = view.UpDirection.Normalize();
+                    v.Pos = view.Origin;
+                    v.Perspective = false;
+                }
+                v.Right = v.Dir.CrossProduct(v.Up).Normalize();
+
+                ZoomCache.Entry z = ZoomCache.Get(view);
+                if (v.Perspective)
+                {
+                    // ampiezza orizzontale alla distanza del bersaglio, dalla camera di Revit
+                    int px = z != null ? z.WidthPx : 1600;
+                    v.Target = Math.Max(1e-3, Math.Abs(c.TargetDistance));
+                    v.PxAtTarget = Math.Max(1e-6, Math.Abs(c.HorizontalExtent) / px);
+                    v.HalfW = Math.Abs(c.HorizontalExtent) * 0.5;
+                    v.HalfH = Math.Abs(c.VerticalExtent) * 0.5;
+                    v.Valid = true;
+                }
+                else if (z != null)
+                {
+                    // vista parallela: centro e dimensioni della zona inquadrata dagli angoli di zoom
+                    XYZ mid = (z.C0 + z.C1) / 2.0;
+                    XYZ diag = z.C1 - z.C0;
+                    double w = Math.Abs(diag.DotProduct(v.Right)), h = Math.Abs(diag.DotProduct(v.Up));
+                    v.Pos = mid;
+                    v.HalfW = w * 0.5; v.HalfH = h * 0.5;
+                    v.PxAtTarget = Math.Max(1e-6, w / z.WidthPx);
+                    v.Valid = true;
+                }
+            }
+            catch { v.Valid = false; }
+            return v;
+        }
+
+        /// <summary>Dimensione di un pixel alla posizione data; false se il blocco è fuori inquadratura.</summary>
+        public bool PixelSize(double x, double y, double z, double radius, out double px)
+        {
+            px = 0.05;
+            if (!Valid) return true;
+            double dx = x - Pos.X, dy = y - Pos.Y, dz = z - Pos.Z;
+            double depth = dx * Dir.X + dy * Dir.Y + dz * Dir.Z;
+            double u = dx * Right.X + dy * Right.Y + dz * Right.Z;
+            double v = dx * Up.X + dy * Up.Y + dz * Up.Z;
+            if (Perspective)
+            {
+                if (depth < -radius) return false;
+                double d = Math.Max(radius * 0.25, Math.Max(0.1, depth));
+                double scale = d / Target;
+                // margine abbondante: un blocco tagliato per errore lascia un buco ben visibile
+                if (Math.Abs(u) > HalfW * scale * 1.3 + radius * 1.5 || Math.Abs(v) > HalfH * scale * 1.3 + radius * 1.5) return false;
+                px = PxAtTarget * scale;
+            }
+            else
+            {
+                if (Math.Abs(u) > HalfW * 1.15 + radius || Math.Abs(v) > HalfH * 1.15 + radius) return false;
+                px = PxAtTarget;
+            }
+            px = Math.Max(px, 1e-5);
+            return true;
+        }
+    }
+
+    /// <summary>Richiesta di ridisegno della vista, eseguita da Revit nell'evento Idling.</summary>
+    internal static class Redraw
+    {
+        private static int _needed;
+        private static long _lastRequest;
+        public static void Request() { Interlocked.Exchange(ref _needed, 1); Interlocked.Exchange(ref _lastRequest, Environment.TickCount); }
+        /// <summary>Millisecondi dall'ultima richiesta di ridisegno.</summary>
+        public static long SinceLastMs { get { return Environment.TickCount - Interlocked.Read(ref _lastRequest); } }
+        public static bool Take() { return Interlocked.Exchange(ref _needed, 0) == 1; }
+        public static bool Pending { get { return Volatile.Read(ref _needed) == 1; } }
+    }
+
+    // =====================================================================================
+    //  Caricamento in background: legge i blocchi dalla libreria, calcola distanze e normali.
+    //  Non tocca mai l'API di Revit (non è thread-safe): i buffer grafici li costruisce il disegno.
+    // =====================================================================================
+
+    internal static class CloudLoader
+    {
+        private sealed class Job
+        {
+            public CloudLayer Layer;
+            public int Tile, Target;
+            public AnalysisSnapshot Analysis;
+            public int DistKey;
+            public bool Normals;
+            public bool NeedDist;
+        }
+
+        private static readonly ConcurrentQueue<Job> _queue = new ConcurrentQueue<Job>();
+        private static readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
+        private static Thread[] _threads;
+
+        public static void Enqueue(CloudLayer layer, int tile, int target, Style st)
+        {
+            if (Interlocked.CompareExchange(ref layer.Pending[tile], 1, 0) != 0) return;
+            _queue.Enqueue(new Job
+            {
+                Layer = layer, Tile = tile, Target = target,
+                Analysis = st.Mode == DisplayMode.Discrepanze ? st.Analysis : null,
+                DistKey = layer.DistKey(st.Analysis),
+                NeedDist = st.Mode == DisplayMode.Discrepanze && st.Analysis != null,
+                Normals = st.NeedsNormals
+            });
+            EnsureThreads();
+            _signal.Release();
+        }
+
+        /// <summary>Più lettori in parallelo: mentre uno legge dal disco un altro decodifica o calcola distanze.</summary>
+        private static void EnsureThreads()
+        {
+            if (_threads != null) return;
+            int n = Environment.ProcessorCount >= 8 ? 3 : 2;
+            var t = new Thread[n];
+            for (int i = 0; i < n; i++)
+            {
+                t[i] = new Thread(Loop) { IsBackground = true, Name = "PointDeviation loader " + (i + 1), Priority = ThreadPriority.BelowNormal };
+                t[i].Start();
+            }
+            _threads = t;
+        }
+
+        private static int _busy;
+
+        /// <summary>Blocchi in coda (non ancora in lettura).</summary>
+        public static int Queued { get { return _queue.Count; } }
+
+        /// <summary>Ci sono blocchi in coda o in lettura?</summary>
+        public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty; } }
+
+        private static void Loop()
+        {
+            while (true)
+            {
+                Job j;
+                if (!_queue.TryDequeue(out j)) { _signal.Wait(500); continue; }
+                Interlocked.Increment(ref _busy);
+                bool ok = false, changed = false;
+                try { changed = Process(j); ok = true; }
+                catch (Exception ex) { Log.Error("Lettura blocco " + j.Tile + " di " + j.Layer.Name, ex); }
+                finally
+                {
+                    // un blocco che non si riesce a leggere resta segnato (2) e non viene richiesto all'infinito
+                    Interlocked.Exchange(ref j.Layer.Pending[j.Tile], ok ? 0 : 2);
+                    Interlocked.Decrement(ref _busy);
+                    if (changed) Redraw.Request();
+                }
+            }
+        }
+
+        private static readonly ParallelOptions _par = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+
+        private static bool Process(Job j)
+        {
+            CloudLayer L = j.Layer;
+            // richiesta vecchia (la vista si è spostata altrove da tempo): non serve più
+            if (L.IdleMs(j.Tile) > 15000) { Redraw.Request(); return false; }
+            TileEntry t = L.Tiles[j.Tile];
+            TileCpu old = Volatile.Read(ref L.Cpu[j.Tile]);
+            int have = old != null ? old.Count : 0;
+            int target = Math.Min(t.Count, Math.Max(have, j.Target));
+
+            var c = new TileCpu { Count = target };
+            c.Pos = new float[target * 3];
+            c.Rgb = new byte[target * 3];
+            if (old != null)
+            {
+                Array.Copy(old.Pos, c.Pos, have * 3);
+                Array.Copy(old.Rgb, c.Rgb, have * 3);
+            }
+
+            if (target > have)
+            {
+                int R = L.Info.RecordSize;
+                bool fileNormals = L.Info.HasNormals;
+                if (fileNormals)
+                {
+                    c.Nrm = new sbyte[target * 3];
+                    if (old != null && old.Nrm != null) Array.Copy(old.Nrm, c.Nrm, Math.Min(old.Nrm.Length, have * 3));
+                }
+                double sc = L.Info.Scale / 0.3048;
+                var raw = new byte[(target - have) * R];
+                using (var fs = new FileStream(L.PointsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16))
+                {
+                    fs.Position = (t.FirstRecord + have) * R;
+                    int got = LasSource.ReadFully(fs, raw, raw.Length) / R;
+                    target = have + got;
+                    c.Count = target;
+                    for (int k = 0; k < got; k++)
+                    {
+                        int o = k * R, w = (have + k) * 3;
+                        c.Pos[w] = (float)(BitConverter.ToInt32(raw, o) * sc);
+                        c.Pos[w + 1] = (float)(BitConverter.ToInt32(raw, o + 4) * sc);
+                        c.Pos[w + 2] = (float)(BitConverter.ToInt32(raw, o + 8) * sc);
+                        c.Rgb[w] = raw[o + 12]; c.Rgb[w + 1] = raw[o + 13]; c.Rgb[w + 2] = raw[o + 14];
+                        if (fileNormals) { c.Nrm[w] = (sbyte)raw[o + 15]; c.Nrm[w + 1] = (sbyte)raw[o + 16]; c.Nrm[w + 2] = (sbyte)raw[o + 17]; }
+                    }
+                    if (fileNormals) c.NrmCount = target;
+                }
+            }
+
+            // distanze dal modello: quelle già calcolate per la stessa analisi si conservano sempre
+            // (anche mostrando RGB), così riaccendendo l'analisi non si ricalcola nulla
+            if (old != null && old.Dist != null && old.DistKey == j.DistKey)
+            {
+                c.Dist = new float[c.Count];
+                c.DistCount = Math.Min(old.DistCount, c.Count);
+                Array.Copy(old.Dist, c.Dist, c.DistCount);
+                c.DistKey = old.DistKey;
+            }
+            if (j.NeedDist && j.Analysis != null)
+            {
+                if (c.Dist == null || c.DistKey != j.DistKey) { c.Dist = new float[c.Count]; c.DistCount = 0; c.DistKey = j.DistKey; }
+                TriangleBvh bvh = j.Analysis.Bvh;
+                double range = j.Analysis.SearchFt;
+                float[] dist = c.Dist;
+                Parallel.For(c.DistCount, c.Count, _par,
+                    () => { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; return new int[64]; },
+                    (k, state, stack) =>
+                    {
+                        double x, y, z, d;
+                        L.ToModel(c.Pos[k * 3], c.Pos[k * 3 + 1], c.Pos[k * 3 + 2], out x, out y, out z);
+                        dist[k] = bvh.Nearest(x, y, z, range, stack, out d) ? (float)d : float.NaN;
+                        return stack;
+                    },
+                    _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
+                c.DistCount = c.Count;
+            }
+
+            // normali: dal file (formato 2), altrimenti calcolate e ricalcolate quando i punti sono cresciuti molto
+            if (L.Info.HasNormals)
+            {
+                if (c.Nrm == null && old != null && old.Nrm != null) { c.Nrm = old.Nrm; c.NrmCount = Math.Min(old.NrmCount, c.Count); }
+            }
+            else if (j.Normals)
+            {
+                if (old != null && old.Nrm != null && old.NrmCount >= c.Count * 0.6)
+                {
+                    c.Nrm = new sbyte[c.Count * 3];
+                    Array.Copy(old.Nrm, c.Nrm, Math.Min(old.Nrm.Length, c.Nrm.Length));
+                    c.NrmCount = Math.Min(old.NrmCount, c.Count);
+                }
+                else
+                {
+                    c.Nrm = Normals.Compute(c.Pos, c.Count, L.Spacing(j.Tile, c.Count));
+                    c.NrmCount = c.Count;
+                }
+            }
+            else if (old != null && old.Nrm != null)
+            {
+                c.Nrm = old.Nrm.Length >= c.Count * 3 ? old.Nrm : null;
+                c.NrmCount = c.Nrm != null ? Math.Min(old.NrmCount, c.Count) : 0;
+            }
+
+            Volatile.Write(ref L.Cpu[j.Tile], c);
+            return true;
+        }
+    }
+
+    /// <summary>Normali stimate dai punti vicini (piano medio dei vicini in una griglia), per la modalità Normali.</summary>
+    internal static class Normals
+    {
+        public static sbyte[] Compute(float[] pos, int n, double spacing)
+        {
+            var res = new sbyte[n * 3];
+            if (n < 4) return res;
+            double cell = Math.Max(1e-4, spacing * 3.0);
+            var grid = new Dictionary<long, List<int>>();
+            Func<double, long> q = v => (long)Math.Floor(v / cell);
+            for (int i = 0; i < n; i++)
+            {
+                long key = Key(q(pos[i * 3]), q(pos[i * 3 + 1]), q(pos[i * 3 + 2]));
+                List<int> l;
+                if (!grid.TryGetValue(key, out l)) grid[key] = l = new List<int>(8);
+                l.Add(i);
+            }
+
+            Parallel.For(0, n, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, i =>
+            {
+                long gx = q(pos[i * 3]), gy = q(pos[i * 3 + 1]), gz = q(pos[i * 3 + 2]);
+                double sx = 0, sy = 0, sz = 0; int cnt = 0;
+                double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+                for (int a = -1; a <= 1; a++)
+                    for (int b = -1; b <= 1; b++)
+                        for (int c = -1; c <= 1; c++)
+                        {
+                            List<int> l;
+                            if (!grid.TryGetValue(Key(gx + a, gy + b, gz + c), out l)) continue;
+                            foreach (int k in l)
+                            {
+                                if (cnt >= 48) break;
+                                double x = pos[k * 3], y = pos[k * 3 + 1], z = pos[k * 3 + 2];
+                                sx += x; sy += y; sz += z;
+                                xx += x * x; xy += x * y; xz += x * z; yy += y * y; yz += y * z; zz += z * z;
+                                cnt++;
+                            }
+                        }
+                if (cnt < 3) { res[i * 3 + 2] = 127; return; }
+                double mx = sx / cnt, my = sy / cnt, mz = sz / cnt;
+                double cxx = xx / cnt - mx * mx, cxy = xy / cnt - mx * my, cxz = xz / cnt - mx * mz;
+                double cyy = yy / cnt - my * my, cyz = yz / cnt - my * mz, czz = zz / cnt - mz * mz;
+                double nx, ny, nz;
+                SmallestEigenvector(cxx, cxy, cxz, cyy, cyz, czz, out nx, out ny, out nz);
+                if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+                res[i * 3] = (sbyte)Math.Round(nx * 127); res[i * 3 + 1] = (sbyte)Math.Round(ny * 127); res[i * 3 + 2] = (sbyte)Math.Round(nz * 127);
+            });
+            return res;
+        }
+
+        private static long Key(long x, long y, long z)
+        {
+            return ((x & 0x1FFFFF) << 42) | ((y & 0x1FFFFF) << 21) | (z & 0x1FFFFF);
+        }
+
+        /// <summary>Autovettore del minimo autovalore di una matrice simmetrica 3x3 (Jacobi).</summary>
+        internal static void SmallestEigenvector(double a00, double a01, double a02, double a11, double a12, double a22,
+            out double x, out double y, out double z)
+        {
+            double[,] a = { { a00, a01, a02 }, { a01, a11, a12 }, { a02, a12, a22 } };
+            double[,] v = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+            for (int sweep = 0; sweep < 12; sweep++)
+            {
+                double off = Math.Abs(a[0, 1]) + Math.Abs(a[0, 2]) + Math.Abs(a[1, 2]);
+                if (off < 1e-14) break;
+                for (int p = 0; p < 2; p++)
+                    for (int r = p + 1; r < 3; r++)
+                    {
+                        if (Math.Abs(a[p, r]) < 1e-18) continue;
+                        double theta = (a[r, r] - a[p, p]) / (2 * a[p, r]);
+                        double t = Math.Sign(theta) / (Math.Abs(theta) + Math.Sqrt(theta * theta + 1));
+                        if (theta == 0) t = 1;
+                        double c = 1 / Math.Sqrt(t * t + 1), s = t * c;
+                        for (int k = 0; k < 3; k++)
+                        {
+                            double akp = a[k, p], akr = a[k, r];
+                            a[k, p] = c * akp - s * akr; a[k, r] = s * akp + c * akr;
+                        }
+                        for (int k = 0; k < 3; k++)
+                        {
+                            double apk = a[p, k], ark = a[r, k];
+                            a[p, k] = c * apk - s * ark; a[r, k] = s * apk + c * ark;
+                        }
+                        for (int k = 0; k < 3; k++)
+                        {
+                            double vkp = v[k, p], vkr = v[k, r];
+                            v[k, p] = c * vkp - s * vkr; v[k, r] = s * vkp + c * vkr;
+                        }
+                    }
+            }
+            int m = 0;
+            if (a[1, 1] < a[m, m]) m = 1;
+            if (a[2, 2] < a[m, m]) m = 2;
+            x = v[0, m]; y = v[1, m]; z = v[2, m];
+            double len = Math.Sqrt(x * x + y * y + z * z);
+            if (len < 1e-12) { x = 0; y = 0; z = 1; return; }
+            x /= len; y /= len; z /= len;
+        }
+    }
+}

@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>PointDeviation</AssemblyName>
+    <RootNamespace>PointDeviation</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>disable</Nullable>
+    <!-- il motore delle nuvole scrive i punti direttamente nel buffer di Revit -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- Cartella di installazione di Revit 2024: modificala se diversa -->
+    <RevitDir>C:\Program Files\Autodesk\Revit 2024\</RevitDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitDir)RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitDir)RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Icone della barra multifunzione, incorporate nella DLL -->
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Runtime.Serialization" />
+    <EmbeddedResource Include="Resources\*.png">
+      <LogicalName>PointDeviation.Resources.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- Copia DLL e manifest nella cartella Addins di Revit 2024 (chiudi Revit prima di compilare) -->
+  <Target Name="DeployToRevit" AfterTargets="Build">
+    <PropertyGroup>
+      <AddinsDir>$(AppData)\Autodesk\Revit\Addins\2024\</AddinsDir>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(AddinsDir)PointDeviation\" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\PointDeviation.addin" DestinationFolder="$(AddinsDir)" />
+  </Target>
+
+</Project>

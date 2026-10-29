@@ -1,0 +1,265 @@
+PointDeviation - modifiche dopo la revisione del 27/10/2026
+===========================================================
+
+1. Barra multifunzione (App.cs, Commands.cs, DeviationController.cs)
+   L'API di Revit non permette pulsanti a levetta singoli: un ToggleButton puo' stare solo
+   dentro un RadioButtonGroup e non ha la proprieta' IsChecked. Prima della modifica il codice
+   non compilava (IsChecked) e, anche compilato, Revit avrebbe rifiutato i pulsanti all'avvio
+   e la scheda non sarebbe comparsa.
+   Ora On/Off, Section box, Inverti e Legenda sono pulsanti normali; lo stato e' scritto
+   nell'etichetta ("Nuvola visibile/nascosta", "Section box attiva/spenta", "Punti dentro/fuori").
+   Il gruppo RGB / Discrepanze / Quota resta un RadioButtonGroup.
+
+2. Blocchi di punti (CloudRenderer.cs)
+   Gli indici di DirectContext3D sono a 16 bit (IndexPoint.GetSizeInShortInts() = 1), quindi
+   un buffer indirizza al massimo 65.536 vertici. Prima i blocchi erano da 250.000 punti: si
+   sarebbe vista solo una parte della nuvola. Ora i blocchi sono da 65.000 punti.
+   indexCount = punti x GetSizeInShortInts() era gia' corretto (come nell'esempio dell'SDK).
+
+3. Segno delle discrepanze (ModelMeshExtractor.cs)
+   Face.Triangulate() non garantisce che i triangoli seguano la normale esterna della faccia,
+   quindi il segno poteva risultare invertito solo su alcune facce (e "Inverti segno" non
+   bastava). Ora ogni triangolo viene riorientato sulla normale esterna (PlanarFace.FaceNormal
+   per le facce piane, Face.ComputeNormal per quelle curve): positivo = davanti alla superficie.
+
+
+PointDeviation - seconda tornata (27/10/2026)
+=============================================
+
+4. Libreria nuvole (pulsante "Libreria nuvole", file CloudLibrary.cs, CloudConverter.cs, LibraryForm.cs)
+   - Piu' cartelle-libreria: "Aggiungi cartella...", scelta dall'elenco, "Togli dall'elenco".
+     L'elenco e' globale (%AppData%\PointDeviation\libraries.json).
+   - Scheda "+": converte un file LAS, RCP o RCS, oppure una nuvola gia' inserita nel progetto.
+     La conversione si fa una volta sola e produce una cartella <nome>.pdcloud con
+     cloud.json (dati), index.bin (blocchi), points.bin (punti, 0,1 mm) e preview.png.
+   - RCP/RCS: Revit inserisce la nuvola in una transazione che poi annulla, i punti vengono letti
+     a scatole con GetPoints e salvati in un file temporaneo; poi la conversione prosegue in
+     background come per il LAS. Serve un progetto aperto. "Passo minimo" = densita' di lettura.
+   - Ogni scheda: anteprima, data, punti, RGB; "Anteprima" (immagine grande e coordinate),
+     "Inserisci" con: centro su centro, origine su origine interna, coordinate condivise,
+     origine sull'ultima inserita. Tasto destro: apri cartella, elimina.
+   - Il caricamento legge solo la quota di punti necessaria (Impostazioni > Max punti),
+     presa in modo uniforme da tutti i blocchi. Il formato e' gia' pronto per il caricamento
+     in base all'inquadratura (prossimo passo).
+
+5. Profili colore (pulsante "Profili colore", ColorProfiles.cs, ProfileForms.cs, LegendForm.cs)
+   - Tre tipi: gradiente (soglie con colore, sfumate), tolleranza a fasce (entro / avviso /
+     fuori, valori asimmetrici possibili), classi (intervalli con colore ed etichetta).
+   - Opzione "valore assoluto" per planarita' e accuratezza.
+   - Predefiniti: Discrepanza -100/+100, Planarita' 0-150, Tolleranza +-20/+-50, LOA.
+   - Nuovo, modifica (con anteprima della legenda), duplica, elimina, ripristina predefiniti.
+     Doppio clic = usa nel progetto attivo. Salvati in %AppData%\PointDeviation\profiles.json.
+   - L'intervallo del profilo e' anche il raggio di ricerca: oltre, "nessun modello".
+   - Legenda ridimensionabile con tacche ed etichette; statistiche per fascia/classe.
+   - Sostituiscono tolleranza, scala massima e modalita' colore delle impostazioni.
+
+6. Analisi sulla selezione: pulsanti "Analizza selezione" (memorizza la selezione) e
+   "Analizza vista". La selezione resta valida per i ricalcoli finche' non la cambi.
+
+7. Segno delle discrepanze: controllo finale per ogni solido (volume con segno) che orienta
+   i triangoli verso l'esterno qualunque sia la convenzione delle normali di Revit.
+
+Da verificare in Revit (non compilato qui):
+   - nomi dell'API delle nuvole ReCap (PointCloudType.Create con "rcp"/"rcs", Offset, GetPoints)
+     e se le coordinate dei punti ReCap coincidono con quelle originali: controllale
+     nell'Anteprima (sezione "Note di conversione");
+   - verso della trasformazione delle coordinate condivise (prova con make_test_las.py --survey-offset).
+
+
+Terza tornata (27/10/2026)
+==========================
+8.  Gradiente "a specchio": soglie da 0 in su, valgono uguali sotto lo zero; legenda da -max a +max.
+    Nuovo predefinito "Discrepanza a specchio (+-150 mm)".
+9.  Fasce: casella "Simmetrico +-" (i valori negativi seguono i positivi).
+10. Nuovi tipi di profilo, dallo stesso calcolo delle distanze:
+    - Completezza: evidenzia i punti a piu' della soglia da qualunque superficie (parti non modellate);
+    - Interferenze: evidenzia i punti entro la soglia (da entrambi i lati) e, con un altro colore,
+      quelli dentro il modello. Limite: i punti molto all'interno di elementi spessi, oltre la soglia
+      dalla superficie, non vengono rilevati.
+    Per entrambi: altri punti in grigio o nascosti; legenda a schema (parete in sezione con le zone).
+11. Profili di discrepanza: spunta "Mostra la nuvola senza modello". Tolta, i punti senza modello
+    spariscono da vista e legenda (le parti mancanti si controllano con la Completezza).
+12. I nuovi profili predefiniti vengono aggiunti anche a chi ha gia' un profiles.json, una volta sola.
+
+
+Quarta tornata (28/10/2026)
+===========================
+13. Nuvola NATIVA di Revit. Il plugin registra un motore di nuvole di punti (formato .pdcl):
+    la nuvola inserita dalla libreria e' una vera "Nuvola di punti" di Revit, elencata in
+    Gestisci collegamenti > Nuvole di punti, gestibile con nascondi/isola, Visibilita'/Grafica,
+    section box, cancella (= rimuovi; Annulla la riporta). Disegno e livello di dettaglio li fa
+    Revit: niente sfarfallio e niente limite ai punti mostrati.
+    Il motore legge i punti dalla libreria e li colora al volo (RGB, quota, profili, recinti).
+    Per cambiare colori o recinti il plugin scrive una "variante" (.pdcl nella sottocartella
+    varianti della nuvola) e sostituisce il tipo dell'istanza: Revit rilegge i punti.
+    Tolti il disegno sovrapposto (DirectContext3D) e l'elemento in Modelli generici.
+14. Recinti di ritaglio come richiesto: Recinto > Poligono / Rettangolo / Cerchio disegnati sulla
+    vista con barra dei comandi a schermo (BACKSPACE annulla il punto, INVIO conferma, ESC esce,
+    MAIUSC = tieni i punti fuori), Inverti, Gestisci (ritagli salvati con nome, accesi/spenti).
+15. Barra riordinata: Rimuovi nuvola; Visualizzazione = RGB, Quota, On/Off (nasconde nella vista),
+    Aspetto, Impostazioni; Analisi = Mostra analisi, Analizza vista/selezione, Profili, Legenda, Aggiorna.
+16. Interfaccia in inglese se Revit e' in inglese (italiano altrimenti); grafica uniforme.
+17. Colori senza transazioni: la nuvola ha un solo tipo (una voce in Gestisci collegamenti).
+    Il motore legge colori, profilo, recinti e posizione dallo "stato attuale" in memoria a ogni
+    richiesta di punti; cambiando qualcosa il plugin aggiorna lo stato e ridisegna la vista.
+    Nulla compare in Annulla. Se in qualche caso i colori non si aggiornassero: Impostazioni >
+    "Ricarica forzata dei colori" (torna alla sostituzione del tipo, che passa da Annulla).
+    Se sposti o ruoti la nuvola con i comandi di Revit, recinti e distanze si riallineano da soli.
+18. Corretto un errore grave (FatalExecutionEngineError): il motore scriveva i punti nel buffer di
+    Revit come byte, ipotizzando 16 byte per punto. Ora scrive strutture CloudPoint dell'API
+    (serve AllowUnsafeBlocks nel .csproj) e ogni chiamata di Revit al motore e' protetta da errori.
+19. Nuvola disegnata nel posto giusto: Revit non applica l'offset dichiarato dal motore, quindi la
+    nuvola appariva spostata del suo centro mentre il calcolo usava la posizione corretta (punti
+    "verdi" ma lontani dal muro). Ora il centro e' nella trasformazione dell'istanza e l'offset e' zero.
+    Le nuvole inserite con la versione precedente vanno rimosse e reinserite.
+20. Visualizzazione dinamica: i punti vengono consegnati a passate progressive su tutti i blocchi
+    (1/64, 1/16, 1/4, tutti), cosi' quando Revit raggiunge il suo limite ha gia' tutta la nuvola,
+    piu' rada, e non solo una striscia. Densita' richiesta piu' generosa.
+21. "Rimuovi nuvola" funziona davvero: cancella l'istanza inserita dal plugin e il suo tipo
+    (sparisce anche da Gestisci collegamenti e da Visibilita'/Grafica). La nuvola del plugin si
+    riconosce anche dall'estensione .pdcl. Se la rimozione non riesce, compare il motivo.
+22. Tolto "Rimuovi nuvola": la nuvola si toglie da Revit (Canc o Gestisci collegamenti) e il plugin
+    se ne accorge. Corretto l'errore "ElementId cannot be deleted" (anche al reinserimento).
+23. Una nuvola appena inserita parte in RGB, senza analisi ereditata; l'analisi si avvia solo con
+    Analizza vista / Analizza selezione. Lo stesso dopo averla cancellata in Revit.
+24. Pulsanti grigi quando non servono: senza nuvola (RGB, Quota, On/Off, Aspetto, Recinto, Inverti,
+    Gestisci, Analizza) e senza analisi (Mostra analisi, Legenda, Aggiorna).
+25. Recinto: corretto l'errore "Forms that are not enabled cannot be displayed as a modal dialog box".
+26. Profili colore senza "effetto televisore": l'elenco si disegna in memoria e compare tutto insieme,
+    le barre colorate dei profili si calcolano una volta e si riusano.
+27. "Mostra analisi" e' un interruttore (Mostra / Nascondi analisi): nascondendola si torna a RGB o
+    quota e Legenda e Aggiorna diventano grigi.
+
+
+Quinta tornata (28/10/2026): disegno ibrido
+===========================================
+28. La nuvola resta nativa in Revit (Gestisci collegamenti, Visibilita'/Grafica, nascondi, isola,
+    cancella, scarica), ma il motore consegna a Revit solo il contorno tratteggiato dell'ingombro.
+    I punti li disegna il plugin (HybridServer + CloudLayer, DirectContext3D) solo dove l'elemento
+    nativo e' visibile e caricato.
+29. Caricamento in base alla vista: piu' ti avvicini piu' punti compaiono; i blocchi si caricano in
+    background e la vista si aggiorna da sola. Menu Qualita': automatica / media / fine.
+30. Punti ingranditi (piccoli ottaedri: sembrano tondi da ogni direzione e non vanno ricostruiti
+    girando la vista). Aspetto: dimensione punti (0 = un pixel), luminosita', contrasto, trasparenza,
+    contrasto X-ray. Colori, profili e recinti cambiano all'istante, senza passaggi in Annulla.
+31. Modalita': RGB, Normali (orientamento delle superfici, calcolato al volo), X-ray, Nuvola (un colore
+    per nuvola), Quota; l'analisi resta su Mostra/Nascondi analisi.
+32. Piu' nuvole nello stesso progetto; pannello Visibilita' (spunta per vista, colore per nuvola).
+33. Strumenti: Misura punti (clic sui punti -> marcatori su cui si agganciano quote e misure di Revit)
+    e Coordinate di rilievo (le coordinate condivise del progetto diventano quelle della nuvola).
+34. Corretto: finestra Aspetto che non si apriva e barra di Revit che lampeggiava (sfondi trasparenti
+    dietro i cursori). Tolta la "ricarica forzata" (non serve piu').
+35. Livello di dettaglio: direzioni dalla vista, zona inquadrata e dimensione dei pixel dagli angoli
+    di zoom della finestra (aggiornati quando Revit e' a riposo). Corretto l'errore su Camera.Position.
+    Tolti dal file .pdcl i campi non piu' usati.
+
+
+Sesta tornata (28/10/2026): velocita'
+=====================================
+36. Tolto il contorno tratteggiato: il motore non consegna piu' punti a Revit. La nuvola resta in
+    Gestisci collegamenti e Visibilita'/Grafica (per selezionarla: Gestisci collegamenti o il
+    pannello Visibilita').
+37. Punti di un pixel da lontano (6 volte meno lavoro degli ottaedri); i punti grandi solo da vicino,
+    dove sono radi. Limiti di punti piu' bassi (automatica 3 M, media 1,5 M, fine 6 M).
+38. Cambio di modalita'/colori quasi istantaneo: prima si ridisegna tutta la vista con pochi punti per
+    blocco, poi il dettaglio si aggiunge a pezzi senza rifare quelli gia' pronti. Indici dei buffer
+    condivisi, vertici scritti in un colpo solo.
+39. Navigazione fluida: mentre la vista si muove non si costruisce nulla; dopo uno zoom si aspetta che
+    la vista sia ferma; i ridisegni chiesti dal plugin sono al massimo 4 al secondo.
+40. Caricamento a gradini (2048, 4096, 8192... punti per blocco) invece di rileggere a ogni piccolo
+    zoom; richieste vecchie scartate; memoria liberata per le zone fuori vista da tempo.
+41. Analisi: campione per le statistiche ridotto (predefinito 500.000 punti, massimo 800.000), calcoli
+    in background che lasciano libero un processore per Revit.
+
+
+Settima tornata (28/10/2026)
+============================
+42. Trasparenza e X-ray: la trasparenza si applica a tutto il buffer con l'effetto di disegno
+    (EffectInstance.SetTransparency) invece che punto per punto, che Revit ignorava.
+43. Mostra/Nascondi analisi senza ricalcoli: le distanze gia' calcolate restano in memoria anche
+    mostrando RGB; i calcoli in background girano a priorita' piu' bassa di Revit.
+44. Barra: nuovo pannello Visibilita' (Visibilita' acceso/spento + Gestisci, come Regione di ritaglio);
+    Impostazioni spostate nel pannello Analisi; Visualizzazione con Qualita' e Aspetto.
+45. Icone: RGB usa i tre cerchi colorati; Nuvola ha un'icona nuova (due nuvole di colori diversi).
+46. Gestisci visibilita': passando col mouse sul nome, la nuvola si illumina del suo colore.
+47. Quota: descrizione piu' chiara (colori dal basso blu all'alto rosso).
+
+48. Tolti gli avvisi CS0618: ElementId.Value al posto di IntegerValue (Revit 2024).
+49. Trasparenza: cursore 0-100 con risposta uniforme (correzione per la sovrapposizione dei punti:
+    prima fino a 60 cambiava poco e tutto succedeva tra 80 e 90).
+
+
+Ottava tornata (28/10/2026): octree
+===================================
+50. Nuovo formato della libreria (versione 2, octree). Ogni nodo contiene un sottocampione della sua
+    zona (un punto per cella di una griglia 128x128x128 sul cubo del nodo); i figli aggiungono
+    dettaglio; ogni punto sta in un solo nodo. Foglie fino a 30.000 punti.
+    Conversione fuori memoria: griglia di conteggio, pezzi da max 2 milioni di punti costruiti in
+    memoria dall'alto, livelli superiori costruiti dal basso (i punti campionati salgono dai figli).
+    Nuovo file: OctreeBuilder.cs. Verificato su due nuvole di prova: ogni punto in un solo nodo.
+51. Normali calcolate in conversione (piano medio di circa 30-80 vicini) e salvate nel record
+    (18 byte per punto): la modalita' Normali non calcola piu' nulla in Revit.
+52. Disegno: si scende nell'octree dove i punti a schermo sono piu' radi di quanto chiede la qualita',
+    prima le zone piu' grandi a schermo, fino al limite di punti. I nodi si caricano e si costruiscono
+    interi una volta sola: zoomando si aggiungono o tolgono nodi, non si ricostruisce nulla.
+53. Le nuvole gia' convertite (formato 1) continuano a funzionare col metodo di prima; in libreria
+    sono segnate come "formato vecchio". Per l'octree vanno riconvertite dal file originale.
+54. Conversione ReCap: il passo minimo si chiama "Decimazione: passo minimo", con spiegazione.
+55. Gestisci visibilita': riga di diagnostica (punti disegnati, blocchi richiesti/in memoria/in lettura/errori,
+    centro della nuvola nel progetto) e pulsante "Zoom sulla nuvola".
+56. Estrazione ReCap: si aspetta che Revit finisca di caricare la nuvola (numero di punti stabile)
+    prima di leggerla, e ogni zona si rilegge finche' il numero di punti non cresce piu'.
+    Prima si otteneva solo la parte gia' caricata (es. 850 mila punti invece di decine di milioni).
+57. Estrazione ReCap: una zona si divide in 8 anche quando le sue meta' insieme danno piu' punti di lei
+    (Revit non sempre restituisce tutta la densita' su zone grandi), non solo quando arriva al massimo.
+58. Registro di diagnostica in %LOCALAPPDATA%\PointDeviation\PointDeviation.log: errori di disegno, lettura
+    dei blocchi, motore (nuvola caricata/scaricata), creazione delle nuvole, posizione, motivo per cui
+    una nuvola non si disegna in una vista. Pulsante "Registro" in Gestisci visibilita'.
+59. Estrazione ReCap: alle coordinate si somma l'offset del tipo (es. UTM): la nuvola convertita ha le
+    coordinate originali di ReCap e "Coordinate condivise" la mette al posto giusto.
+60. Estrazione ReCap solo da una vista 3D senza riquadro di sezione ne' ritaglio: Revit fornisce solo i
+    punti caricati per la vista attiva (da una pianta si otteneva una fetta di circa 9 x 11 x 4 m).
+    Nel registro: esito di ogni estrazione ed errori di GetPoints. "Da una nuvola gia' inserita" ignora
+    le nuvole del plugin.
+61. Estrazione ReCap: GetPoints restituisce i punti nelle coordinate della nuvola, che per questo file
+    hanno una scala diversa (1 unita' = 2 m) mentre il filtro e' in coordinate di modello. Prima i punti
+    venivano presi come piedi: nuvola rimpicciolita di circa 6,5 volte e quasi tutte le zone scartate
+    (850 mila punti). Ora scala e origine si ricavano confrontando l'ingombro dei punti con quello
+    dell'elemento, e anche il passo chiesto a Revit e' convertito. Scala annotata nelle note e nel registro.
+62. Estrazione ReCap: con un cambio di unita' "tondo" (qui metri -> piedi) l'origine non si sposta: prima
+    uno scarto di campionamento spostava la nuvola di circa 14 cm. Da riconvertire.
+63. Caricamento a scatti (porzioni ogni ~30 s): Revit smetteva di chiamare il plugin a riposo se un
+    blocco finiva di caricarsi subito dopo il controllo. Ora resta attivo per 3 s dopo ogni novita'.
+    Lettori in parallelo (2-3), piu' tempo per costruire i buffer quando la vista e' ferma, ridisegni
+    ogni 150 ms.
+64. Buffer grafici scritti direttamente nella memoria mappata (GetMappedHandle), senza creare milioni
+    di oggetti XYZ/colore dell'API: costruzione molto piu' veloce e niente carico sul garbage collector.
+    La disposizione dei byte si verifica all'avvio con un vertice di prova; se non e' riconosciuta si usa
+    l'API come prima (scritto nel registro).
+65. Densita' doppia (automatica 1 punto per pixel, media 0,5, fine 2) e limiti piu' alti (5 / 2,5 / 10 M).
+    Margini di inquadratura piu' larghi.
+66. Caricamento nell'ordine giusto: prima i blocchi piu' grandi a schermo (al centro e vicini), coda corta
+    (24 blocchi) rivalutata a ogni fotogramma, cosi' girando la vista si carica subito la zona inquadrata.
+    Corretto: le richieste rimaste in coda piu' di 4 s venivano scartate senza ridisegno e quei blocchi
+    restavano a bassa densita' ("quadrotti") finche' non si muoveva la vista.
+67. Densita' uniforme: le foglie dell'octree (che contengono tutti i punti della loro zona) si disegnano solo
+    per la parte che serve, cosi' non spiccano come riquadri densi tra blocchi piu' radi; disegno parziale
+    anche dentro un pezzo di buffer. Densita' raddoppiata (automatica 2 punti per pixel) e limiti 6/3/12 M.
+68. Dimensione adattiva dei punti: appena a schermo si staccano (oltre ~1,5 pixel) diventano piccoli
+    ottaedri con raggio pari a 3/4 della distanza tra i punti, cosi' la superficie resta piena; il raggio
+    si rifa' se cambia molto il numero di punti disegnati del blocco.
+69. Stabilita' girando la vista: ogni blocco tiene due versioni gia' pronte (punti di un pixel e punti grandi),
+    il raggio dei punti grandi dipende solo dalla densita' del blocco (non dalla vista) e si sceglie al volo
+    quale disegnare: punti grandi solo sui blocchi di confine (senza figli gia' disegnabili). Ruotando non si
+    ricostruisce piu' nulla; la versione non usata si libera dopo 15 s.
+70. Come il plugin concorrente (dimensione per livello di Potree): nelle nuvole octree tutti i blocchi si
+    disegnano a punti grandi, con raggio pari a 0,6 volte la distanza tra i punti del proprio livello. I livelli
+    alti hanno punti grandi che coprono tutta la loro zona, i figli aggiungono punti piu' piccoli: niente
+    riquadri a densita' diversa. Servono meno punti: un punto ogni ~2,3 pixel (fine 1,6, media 3,2), limiti
+    3 / 1,5 / 5 M. Dimensione punti 0 = punti di un pixel come prima.
+71. Punti grandi solo sui blocchi di confine: i livelli alti, appena i figli sono disegnati, passano ai punti
+    di un pixel (versione gia' pronta), cosi' da vicino non restano rombi enormi sopra il dettaglio.
+72. Niente piu' zone vuote: i punti di ogni blocco sono divisi per ottante (gli 8 cubetti dei figli). In ogni
+    ottante il blocco usa i punti di un pixel solo se il figlio di quell'ottante e' gia' disegnato, altrimenti i
+    punti grandi. Prima bastava un figlio qualsiasi per far passare tutto il blocco ai punti di un pixel, e le
+    zone dei figli non ancora caricati (o fuori vista) restavano quasi vuote.
