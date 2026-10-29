@@ -549,8 +549,11 @@ namespace PointDeviation
         /// Visita dell'octree per una distanza tra i punti a schermo (target, pixel): si scende nei figli finché i punti
         /// del livello a schermo sono più radi del target, prima le zone più importanti. Restituisce i punti scelti.
         /// </summary>
+        private long _lastActual;
+
         private long SelectOctree(ViewCam cam, double target, long cap, int[] outWant, double[] outPx)
         {
+            long actual = 0;
             int n = Tiles.Length;
             Array.Clear(outWant, 0, n);
             Array.Clear(outPx, 0, n);
@@ -577,8 +580,13 @@ namespace PointDeviation
                     if (sOwn < sWant) cnt = (int)Math.Max(Math.Min(cnt, 512), cnt * (sOwn / sWant) * (sOwn / sWant));
                 }
                 outWant[i] = cnt;
-                total += cnt;
-                if (total >= cap) break; // sicurezza: la chiamata successiva userà una distanza più grande
+                // nel limite conta solo la parte del blocco dentro la finestra: da vicino i blocchi sono più grandi della
+                // vista, e contarli interi esauriva il limite costringendo a punti enormi
+                double bx, by, bz;
+                ToModel(_cx[i], _cy[i], _cz[i], out bx, out by, out bz);
+                total += (long)(cnt * cam.VisibleFraction(bx, by, bz, _rad[i]));
+                actual += cnt;
+                if (total >= cap || actual >= cap * 2) break; // sicurezza: la chiamata successiva userà una distanza più grande
                 if (_nodeSpacing[i] / Math.Max(px, 1e-9) <= target || _childCount[i] == 0) continue;
                 for (int k = 0; k < _childCount[i]; k++)
                 {
@@ -587,7 +595,9 @@ namespace PointDeviation
                     if (NodeVisible(cam, c, out pc)) Push(ref hn, c, Priority(cam, c, pc));
                 }
             }
-            return total;
+            _lastActual = actual;
+            // anche i punti effettivamente costruiti (blocchi interi) hanno un tetto, per la memoria video
+            return Math.Max(total, actual / 2);
         }
 
         /// <summary>
@@ -1462,6 +1472,28 @@ namespace PointDeviation
             catch { v.Valid = false; }
             if (!v.Valid) Log.Warn("Camera", "camera della vista non disponibile: nessun ritaglio per inquadratura");
             return v;
+        }
+
+        /// <summary>
+        /// Frazione (0..1) di una sfera che cade dentro la finestra, approssimata con il quadrato che la contiene.
+        /// Serve a contare nel limite di punti solo la parte di un blocco che si vede davvero.
+        /// </summary>
+        public double VisibleFraction(double x, double y, double z, double radius)
+        {
+            if (!Valid || radius <= 0) return 1;
+            double dx = x - Pos.X, dy = y - Pos.Y, dz = z - Pos.Z;
+            double u = dx * Right.X + dy * Right.Y + dz * Right.Z;
+            double v = dx * Up.X + dy * Up.Y + dz * Up.Z;
+            double w = HalfW, h = HalfH;
+            if (Perspective)
+            {
+                double depth = dx * Dir.X + dy * Dir.Y + dz * Dir.Z;
+                double s = Math.Max(0.1, depth) / Target;
+                u -= OffU * s; v -= OffV * s; w *= s; h *= s;
+            }
+            double ou = Math.Max(0, Math.Min(u + radius, w) - Math.Max(u - radius, -w));
+            double ov = Math.Max(0, Math.Min(v + radius, h) - Math.Max(v - radius, -h));
+            return Math.Max(0.02, Math.Min(1, ou * ov / (4 * radius * radius)));
         }
 
         /// <summary>Distanza dal centro dello schermo, in frazioni di mezza finestra (0 = centro, 1 = bordo).</summary>

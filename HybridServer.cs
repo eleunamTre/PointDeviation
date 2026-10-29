@@ -185,7 +185,7 @@ namespace PointDeviation
                 // livello di dettaglio: punti desiderati per blocco, poi limite complessivo della qualità scelta
                 // con i punti grandi (6 vertici l'uno) bastano molti meno punti
                 long limit = st.PointScale > 0
-                    ? (st.Quality == Quality.Fine ? 6000000 : st.Quality == Quality.Media ? 2000000 : 4000000)
+                    ? (st.Quality == Quality.Fine ? 5000000 : st.Quality == Quality.Media ? 1500000 : 3000000)
                     : (st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000);
                 limit = limit * AdvancedSettings.Current.BudgetPercent / 100;
                 var wants = new List<int[]>();

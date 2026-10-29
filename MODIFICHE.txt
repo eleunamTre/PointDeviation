@@ -304,3 +304,7 @@ Ottava tornata (28/10/2026): octree
     percorso del file con Apri e Cartella; Colori per livello dell'octree; limite di punti in percentuale e tempi
     prima di liberare memoria video e memoria del computer. Salvate per computer in
     %LOCALAPPDATA%\PointDeviation\advanced.json. Le righe periodiche (Stato, Camera, Visibilita') sono ora di livello Debug.
+87. Limite di punti contato sulla parte visibile dei blocchi: da vicino i blocchi sono piu' grandi della finestra e
+    contarli interi esauriva il limite (registro: 3,7 M punti per una finestra di 7 m, distanza tra i punti 7-9 px):
+    i punti diventavano enormi e cambiavano dimensione a ogni scatto della rotella. Tetto separato per i punti
+    costruiti davvero (il doppio del limite), per la memoria video. Limiti con i punti grandi: 3 / 1,5 / 5 M visibili.
