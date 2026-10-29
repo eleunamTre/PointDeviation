@@ -283,3 +283,5 @@ Ottava tornata (28/10/2026): octree
 79. Punti grandi sempre pronti per ogni blocco scelto; un figlio sostituisce il padre nel suo ottante solo
     quando i suoi punti grandi sono completi (prima bastavano i punti di un pixel, e restavano zone puntinate).
 80. Registro: ogni 10 s lo stato degli interruttori di visibilita' della nuvola nella vista (per capire VV).
+81. Diagnostica "Colori per livello" in Gestisci visibilita': ogni livello dell'octree con un colore (punti grandi
+    pieni, punti di un pixel chiari), per vedere quali blocchi si disegnano e dove.
