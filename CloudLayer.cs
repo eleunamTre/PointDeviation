@@ -638,7 +638,7 @@ namespace PointDeviation
                     // punti grandi dove no, così nessuna zona resta vuota mentre i figli arrivano
                     byte cov = CoveredOctants(i, want);
                     _covered[i] = cov;
-                    double radius = 0.6 * OwnSpacing(i, drawN) * st.PointScale / 100.0;
+                    double radius = 0.85 * OwnSpacing(i, drawN) * st.PointScale / 100.0;
                     if (cov != 0) EnsureGpu(_gpu, i, false, 0, cpu, drawN, key, hl, st, argb, budget, now);
                     if (cov != 0xFF) EnsureGpu(_gpuO, i, true, radius, cpu, drawN, key, hl, st, argb, budget, now);
                     continue;

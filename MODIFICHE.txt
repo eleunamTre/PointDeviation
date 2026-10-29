@@ -268,3 +268,5 @@ Ottava tornata (28/10/2026): octree
     parallele potevano mancare: allora non si ritagliava nulla, il limite di punti si esauriva su zone fuori
     vista e in vista restavano buchi diversi a ogni zoom). Ordine di visita: a parita' prima il centro della
     finestra. In Gestisci visibilita' compare "limite di punti raggiunto" quando succede.
+74. Punti grandi un po' piu' grandi (raggio 0,85 volte la distanza tra i punti del livello invece di 0,6):
+    con la nuvola ora uniforme le superfici risultavano ancora puntinate.
