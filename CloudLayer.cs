@@ -394,6 +394,7 @@ namespace PointDeviation
                 if (!NativeClouds.IsLoaded(Folder)) return "nuvola scaricata (Gestisci collegamenti)";
                 if (e.IsHidden(view)) return "elemento nascosto nella vista";
                 if (e.Category != null && view.GetCategoryHidden(e.Category.Id)) return "categoria Nuvole di punti spenta nella vista";
+                if (view.GetCategoryHidden(new ElementId(BuiltInCategory.OST_PointClouds))) return "categoria Nuvole di punti spenta nella vista";
                 if (PointCloudsHiddenInView(view)) return "nuvole di punti spente in Visibilità/Grafica";
                 if (InstanceHiddenByOverrides(view, InstanceId)) return "nuvola spenta nella scheda Nuvole di punti di Visibilità/Grafica";
                 if (view.IsTemporaryHideIsolateActive() &&
@@ -423,6 +424,22 @@ namespace PointDeviation
                     _pcHidden != null, _pcOverrides != null, _pcScanSettings != null));
             }
             catch (Exception ex) { Log.Error("Visibilità (API)", ex); }
+        }
+
+        /// <summary>Diagnostica: stato di tutti gli interruttori di visibilità per questa nuvola in questa vista.</summary>
+        public string VisibilityDiag(View view)
+        {
+            try
+            {
+                Element e = view.Document.GetElement(InstanceId);
+                string cat = e != null && e.Category != null ? e.Category.Name + " (" + e.Category.Id.Value + ")" : "nessuna";
+                return string.Format("categoria {0} nascosta={1}, OST_PointClouds nascosta={2}, ArePointCloudsHidden={3}, spunta nuvola spenta={4}, elemento nascosto={5}, caricata={6}",
+                    cat, e != null && e.Category != null && view.GetCategoryHidden(e.Category.Id),
+                    view.GetCategoryHidden(new ElementId(BuiltInCategory.OST_PointClouds)),
+                    PointCloudsHiddenInView(view), InstanceHiddenByOverrides(view, InstanceId),
+                    e != null && e.IsHidden(view), NativeClouds.IsLoaded(Folder));
+            }
+            catch (Exception ex) { return "errore: " + ex.Message; }
         }
 
         private static bool PointCloudsHiddenInView(View view)
@@ -688,8 +705,10 @@ namespace PointDeviation
                     byte cov = CoveredOctants(i, want);
                     _covered[i] = cov;
                     double radius = 0.85 * OwnSpacing(i, drawN) * st.PointScale / 100.0;
+                    // i punti grandi servono sempre: coprono la zona da soli finché i figli non sono pronti, e un figlio
+                    // «copre» il suo ottante nel padre solo quando ha i suoi punti grandi completi
+                    EnsureGpu(_gpuO, i, true, radius, cpu, drawN, key, hl, st, argb, budget, now);
                     if (cov != 0) EnsureGpu(_gpu, i, false, 0, cpu, drawN, key, hl, st, argb, budget, now);
-                    if (cov != 0xFF) EnsureGpu(_gpuO, i, true, radius, cpu, drawN, key, hl, st, argb, budget, now);
                     continue;
                 }
 
@@ -738,8 +757,8 @@ namespace PointDeviation
                 TileCpu cc = Volatile.Read(ref Cpu[ch]);
                 if (cc == null) continue;
                 int need = Math.Min(cc.Count, want[ch]);
-                TileGpu a = _gpu[ch], b = _gpuO[ch];
-                if ((a != null && a.Chunks.Count > 0 && a.Built >= need) || (b != null && b.Chunks.Count > 0 && b.Built >= need)) res |= 1 << o;
+                TileGpu b = _gpuO[ch];
+                if (b != null && b.Chunks.Count > 0 && b.Built >= need) res |= 1 << o;
             }
             return (byte)res;
         }
@@ -810,7 +829,7 @@ namespace PointDeviation
                     bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
                     if (!hp && !ho) { missing++; continue; }
                     int cov = _covered[i];
-                    // ottanti coperti dai figli: punti di un pixel; gli altri: punti grandi (se una versione manca, l'altra)
+                    // ottanti coperti dai figli: punti di un pixel (se pronti); tutti gli altri: punti grandi
                     int pixMask = hp ? (ho ? cov : 0xFF) : 0;
                     int bigMask = ho ? (0xFF & ~pixMask) : 0;
                     if (pixMask != 0) { gp.LastDraw = now; pts += Draw(gp, want[i], effect, pixMask); }

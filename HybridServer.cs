@@ -22,7 +22,7 @@ namespace PointDeviation
         // ridisegni chiesti da noi: mai più di uno ogni tanto, perché Revit ridisegna tutta la vista (modello compreso)
         private const int MinRefreshMs = 150;
         private const int ZoomSettleMs = 150;
-        private static long _lastRefresh, _zoomTick;
+        private static long _lastRefresh, _zoomTick, _lastVisLog;
         private static bool _zoomDirty;
 
         public static void Register()
@@ -133,6 +133,12 @@ namespace PointDeviation
                 if (view is ViewSheet || view is ViewSchedule) return false;
                 DocumentData d = Data(view);
                 if (d == null || d.Style == null || !d.Style.Visible || d.Layers.Count == 0) return false;
+                long now = Environment.TickCount;
+                if (now - _lastVisLog > 10000)
+                {
+                    _lastVisLog = now;
+                    foreach (CloudLayer l in d.Layers) Log.Write("Visibilità", "«" + l.Name + "» in «" + view.Name + "»: " + l.VisibilityDiag(view));
+                }
                 foreach (CloudLayer l in d.Layers) if (l.VisibleIn(view)) return true;
                 foreach (CloudLayer l in d.Layers) Log.Write("Visibilità", "«" + l.Name + "» non disegnata in «" + view.Name + "»: " + l.HiddenReason(view));
                 return false;

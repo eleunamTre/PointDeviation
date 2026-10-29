@@ -280,3 +280,6 @@ Ottava tornata (28/10/2026): octree
     quando coerenti con l'ampiezza attuale (confronto scritto nel registro ogni 10 s).
 78. Visibilita'/Grafica: la nuvola si spegne anche con l'interruttore generale e con la spunta della singola nuvola
     nella scheda Nuvole di punti (prima solo con la categoria o nascondendo l'elemento).
+79. Punti grandi sempre pronti per ogni blocco scelto; un figlio sostituisce il padre nel suo ottante solo
+    quando i suoi punti grandi sono completi (prima bastavano i punti di un pixel, e restavano zone puntinate).
+80. Registro: ogni 10 s lo stato degli interruttori di visibilita' della nuvola nella vista (per capire VV).
