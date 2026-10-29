@@ -320,3 +320,6 @@ Ottava tornata (28/10/2026): octree
     lavoro; nel fotogramma di Revit resta solo la copia dei dati pronti nella scheda video. I blocchi nuovi dopo un
     movimento arrivano molto prima (prima si costruivano per 150 ms a fotogramma e restavano centinaia "da costruire").
 93. Impostazioni avanzate: finestra piu' grande, il contenuto si vede tutto senza scorrere.
+94. Isteresi nella scelta dei blocchi: un blocco gia' suddiviso resta suddiviso finche' i suoi punti a schermo non
+    diventano chiaramente piu' fitti del necessario (60% della soglia). Prima, ai blocchi vicini alla soglia bastava
+    un piccolo zoom per perdere e riprendere i figli, e tornavano per un attimo i punti grandi del livello sopra.

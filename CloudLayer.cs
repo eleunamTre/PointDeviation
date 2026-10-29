@@ -278,6 +278,7 @@ namespace PointDeviation
         private readonly int[] _firstChild, _childCount;
         private int[] _heap = new int[256];
         private int[] _order = new int[256];          // nodi scelti, dal più importante (ordine di caricamento)
+        private bool[] _wasRefined = new bool[0];      // blocchi suddivisi nell'ultimo fotogramma (isteresi)
         private int _orderN;
         private double[] _heapKey = new double[256];
 
@@ -296,6 +297,7 @@ namespace PointDeviation
             _gpuO = new TileGpu[n];
             _mode = new byte[n];
             BakedP = new Baked[n]; BakedO = new Baked[n];
+            _wasRefined = new bool[n];
             BakePendP = new int[n]; BakePendO = new int[n];
             _covered = new byte[n];
             _ocx = new double[n]; _ocy = new double[n]; _ocz = new double[n];
@@ -533,6 +535,16 @@ namespace PointDeviation
                 total = SelectOctree(cam, target, budget * 3, outWant, outPx);
             }
             StatTarget = target;
+
+            // memoria per l'isteresi: quali blocchi sono stati suddivisi in questo fotogramma
+            for (int i = 0; i < n; i++)
+            {
+                bool refined = false;
+                if (outPx[i] > 0)
+                    for (int k = 0; k < _childCount[i] && !refined; k++)
+                        if (outPx[_firstChild[i] + k] > 0) refined = true;
+                _wasRefined[i] = refined;
+            }
             // distanza effettiva tra i punti disegnati: quella del livello più fitto scelto sotto ogni nodo
             for (int i = n - 1; i >= 0; i--)
             {
@@ -592,7 +604,11 @@ namespace PointDeviation
                 total += (long)(cnt * cam.VisibleFraction(bx, by, bz, _rad[i]));
                 actual += cnt;
                 if (total >= cap || actual >= cap * 2) break; // sicurezza: la chiamata successiva userà una distanza più grande
-                if (_nodeSpacing[i] / Math.Max(px, 1e-9) <= target || _childCount[i] == 0) continue;
+                // isteresi: un blocco già suddiviso resta suddiviso finché i suoi punti a schermo non diventano
+                // chiaramente più fitti del necessario. Senza, ai blocchi vicini alla soglia bastava un piccolo zoom per
+                // perdere e riprendere i figli: a ogni movimento tornavano per un attimo i punti grandi del livello sopra.
+                double ratio = _nodeSpacing[i] / Math.Max(px, 1e-9);
+                if (ratio <= (_wasRefined[i] ? target * 0.6 : target) || _childCount[i] == 0) continue;
                 for (int k = 0; k < _childCount[i]; k++)
                 {
                     int c = _firstChild[i] + k;
