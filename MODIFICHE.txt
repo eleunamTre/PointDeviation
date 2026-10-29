@@ -273,3 +273,10 @@ Ottava tornata (28/10/2026): octree
 75. Niente blocchi a meta': nell'octree ogni blocco si costruisce intero, e un figlio prende il posto del
     padre nel suo ottante solo quando e' completo (prima un figlio costruito per 1/8 bastava, e si vedeva come un
     riquadro piu' rado). Tolleranza piu' ampia nel riconoscere la camera ferma.
+76. Effetto scacchiera e zone mai caricate: i blocchi piu' fitti del necessario (non solo le foglie) si
+    disegnano solo per la parte che serve; prima consumavano il limite di punti e altri blocchi, a caso, restavano
+    senza dettaglio. Limiti 4 / 2 / 6 M con i punti grandi.
+77. Camera: versi di direzione e alto allineati a quelli della vista; centro della finestra dagli angoli di zoom
+    quando coerenti con l'ampiezza attuale (confronto scritto nel registro ogni 10 s).
+78. Visibilita'/Grafica: la nuvola si spegne anche con l'interruttore generale e con la spunta della singola nuvola
+    nella scheda Nuvole di punti (prima solo con la categoria o nascondendo l'elemento).

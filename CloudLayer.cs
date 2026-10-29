@@ -394,11 +394,58 @@ namespace PointDeviation
                 if (!NativeClouds.IsLoaded(Folder)) return "nuvola scaricata (Gestisci collegamenti)";
                 if (e.IsHidden(view)) return "elemento nascosto nella vista";
                 if (e.Category != null && view.GetCategoryHidden(e.Category.Id)) return "categoria Nuvole di punti spenta nella vista";
+                if (PointCloudsHiddenInView(view)) return "nuvole di punti spente in Visibilità/Grafica";
+                if (InstanceHiddenByOverrides(view, InstanceId)) return "nuvola spenta nella scheda Nuvole di punti di Visibilità/Grafica";
                 if (view.IsTemporaryHideIsolateActive() &&
                     !view.IsElementVisibleInTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate, InstanceId)) return "nascosta da Nascondi/Isola temporaneo";
                 return null;
             }
             catch (Exception ex) { return "errore: " + ex.Message; }
+        }
+
+        // Visibilità/Grafica, scheda Nuvole di punti: l'interruttore generale e le spunte per nuvola.
+        // Si leggono per riflessione perché i nomi dell'API cambiano tra le versioni di Revit.
+        private static System.Reflection.PropertyInfo _pcHidden;
+        private static System.Reflection.MethodInfo _pcOverrides, _pcScanSettings;
+        private static bool _pcInit;
+
+        private static void InitPcReflection()
+        {
+            if (_pcInit) return;
+            _pcInit = true;
+            try
+            {
+                _pcHidden = typeof(View).GetProperty("ArePointCloudsHidden");
+                _pcOverrides = typeof(View).GetMethod("GetPointCloudOverrides", Type.EmptyTypes);
+                if (_pcOverrides != null)
+                    _pcScanSettings = _pcOverrides.ReturnType.GetMethod("GetPointCloudScanOverrideSettings", new[] { typeof(ElementId) });
+                Log.Write("Visibilità", string.Format("API: ArePointCloudsHidden {0}, GetPointCloudOverrides {1}, GetPointCloudScanOverrideSettings {2}",
+                    _pcHidden != null, _pcOverrides != null, _pcScanSettings != null));
+            }
+            catch (Exception ex) { Log.Error("Visibilità (API)", ex); }
+        }
+
+        private static bool PointCloudsHiddenInView(View view)
+        {
+            InitPcReflection();
+            try { return _pcHidden != null && (bool)_pcHidden.GetValue(view, null); }
+            catch { return false; }
+        }
+
+        private static bool InstanceHiddenByOverrides(View view, ElementId id)
+        {
+            InitPcReflection();
+            if (_pcOverrides == null || _pcScanSettings == null) return false;
+            try
+            {
+                object ov = _pcOverrides.Invoke(view, null);
+                if (ov == null) return false;
+                object st = _pcScanSettings.Invoke(ov, new object[] { id });
+                if (st == null) return false;
+                System.Reflection.PropertyInfo vis = st.GetType().GetProperty("Visible");
+                return vis != null && !(bool)vis.GetValue(st, null);
+            }
+            catch { return false; }
         }
 
         // ------------------------------------------------------------------ livello di dettaglio
@@ -456,13 +503,15 @@ namespace PointDeviation
                 NodeVisible(cam, i, out px);
                 outPx[i] = px;
                 int cnt = Tiles[i].Count;
-                // foglia: contiene tutti i punti della sua zona, spesso molto più fitti del necessario; se ne disegna
-                // la parte che serve (i punti sono mescolati, quindi l'inizio è un sottocampione uniforme). Così una
-                // foglia non spicca come un riquadro più denso tra i blocchi vicini.
-                if (_childCount[i] == 0 && cnt > 0)
+                // un blocco più fitto di quanto serve a questa distanza se ne disegna solo la parte necessaria (i punti sono
+                // mescolati: l'inizio è un sottocampione uniforme). Vale soprattutto per le foglie, che tengono tutti i punti
+                // della loro zona, ma anche per i figli appena oltre la soglia: così il limite di punti non si esaurisce
+                // su blocchi inutilmente densi lasciandone altri, a caso, senza dettaglio (effetto scacchiera).
+                if (cnt > 0)
                 {
-                    double sLeaf = Math.Sqrt(_area[i] / cnt), sWant = target * px;
-                    if (sLeaf < sWant) cnt = (int)Math.Max(Math.Min(cnt, 512), cnt * (sLeaf / sWant) * (sLeaf / sWant));
+                    double sOwn = _childCount[i] == 0 ? Math.Sqrt(_area[i] / cnt) : _nodeSpacing[i];
+                    double sWant = target * px;
+                    if (sOwn < sWant) cnt = (int)Math.Max(Math.Min(cnt, 512), cnt * (sOwn / sWant) * (sOwn / sWant));
                 }
                 outWant[i] = cnt;
                 total += cnt;
@@ -1209,9 +1258,15 @@ namespace PointDeviation
                 var v = new ViewCam();
                 v.Dir = c.ViewDirection.Normalize();
                 v.Up = c.UpDirection.Normalize();
-                v.Right = v.Dir.CrossProduct(v.Up).Normalize();
                 var v3 = view as View3D;
                 v.Perspective = v3 != null && v3.IsPerspective;
+                // il verso delle direzioni della camera non è documentato: lo si allinea a quello della vista
+                XYZ fwd, up;
+                if (v3 != null) { ViewOrientation3D o = v3.GetOrientation(); fwd = o.ForwardDirection; up = o.UpDirection; }
+                else { fwd = view.ViewDirection.Negate(); up = view.UpDirection; }
+                if (v.Dir.DotProduct(fwd) < 0) v.Dir = v.Dir.Negate();
+                if (v.Up.DotProduct(up) < 0) v.Up = v.Up.Negate();
+                v.Right = v.Dir.CrossProduct(v.Up).Normalize();
                 double hx = Math.Abs(c.HorizontalExtent), vx = Math.Abs(c.VerticalExtent);
                 ZoomCache.Entry z = ZoomCache.Get(view);
                 int widthPx = z != null ? z.WidthPx : 1600;
@@ -1227,8 +1282,19 @@ namespace PointDeviation
                     }
                     else
                     {
-                        // vista parallela: centro della zona inquadrata
-                        v.Pos = c.EyePosition + v.Dir * c.TargetDistance + v.Right * c.HorizontalOffset + v.Up * c.VerticalOffset;
+                        // vista parallela: centro della zona inquadrata. Gli angoli di zoom della finestra lo danno senza
+                        // ambiguità (aggiornati a riposo); la camera serve finché non ci sono o durante uno zoom.
+                        XYZ camCenter = c.EyePosition + v.Right * c.HorizontalOffset + v.Up * c.VerticalOffset;
+                        if (z != null)
+                        {
+                            XYZ mid = (z.C0 + z.C1) / 2.0;
+                            double w = Math.Abs((z.C1 - z.C0).DotProduct(v.Right));
+                            // angoli di zoom coerenti con l'ampiezza attuale (nessuno zoom in corso): si usano quelli
+                            if (Math.Abs(w - hx) < hx * 0.05) v.Pos = mid;
+                            else v.Pos = camCenter;
+                            LogCamera(view, mid, camCenter, w, hx);
+                        }
+                        else v.Pos = camCenter;
                     }
                     v.Valid = true;
                     return v;
@@ -1236,6 +1302,19 @@ namespace PointDeviation
             }
             catch { }
             return FromView(c, view);
+        }
+
+        private static long _lastCamLog;
+
+        /// <summary>Diagnostica: confronto tra il centro dagli angoli di zoom e quello dalla camera (al massimo ogni 10 s).</summary>
+        private static void LogCamera(View view, XYZ zoomMid, XYZ camCenter, double zoomW, double camW)
+        {
+            long now = Environment.TickCount;
+            if (now - _lastCamLog < 10000) return;
+            _lastCamLog = now;
+            Log.Write("Camera", string.Format("«{0}»: centro da zoom {1:F1},{2:F1},{3:F1}  da camera {4:F1},{5:F1},{6:F1}  (distanza {7:F2} ft); ampiezza zoom {8:F1} camera {9:F1} ft",
+                view.Name, zoomMid.X, zoomMid.Y, zoomMid.Z, camCenter.X, camCenter.Y, camCenter.Z,
+                (zoomMid - camCenter).GetLength(), zoomW, camW));
         }
 
         /// <summary>Riserva: direzioni dalla vista e zona inquadrata dagli angoli di zoom della finestra.</summary>
