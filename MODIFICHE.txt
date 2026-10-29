@@ -288,3 +288,7 @@ Ottava tornata (28/10/2026): octree
 82. Conversione: i punti di ogni nodo sono in ordine stratificato (un punto per cella di griglie sempre piu'
     fini sul cubo del nodo) invece che casuale: disegnandone solo una parte la copertura e' piu' uniforme
     (su una nuvola di prova: buco massimo -35%, medio -10%). Vale per le nuvole convertite da ora.
+83. Punti grandi con raggio progressivo: ogni punto prende il raggio adatto alla densita' dei punti che lo
+    precedono nell'ordine a strati (i primi grandi, gli ultimi piccoli). Il buffer di un nodo vale cosi' per qualunque
+    zoom: non si ricostruisce piu' quando cambia il numero di punti disegnati (prima, zoomando, i nodi si
+    rifacevano di continuo e alcuni restavano senza punti grandi, mostrando solo puntini).

@@ -50,6 +50,7 @@ namespace PointDeviation
         public bool Points;            // true = punti di un pixel, false = ottaedri
         public double Radius;          // raggio degli ottaedri (piedi)
         public int RadiusN;            // punti disegnati per cui è stato calcolato il raggio
+        public int FullCount;          // octree: punti dell'intero nodo; > 0 = raggio progressivo (vedi BuildRange)
         public int StyleVersion, GeoVersion, ColorKey;
         public int Built;              // punti della sorgente già esaminati
         public bool Highlight;         // nuvola illuminata dal pannello Visibilità
@@ -706,7 +707,9 @@ namespace PointDeviation
                     // punti grandi dove no, così nessuna zona resta vuota mentre i figli arrivano
                     byte cov = CoveredOctants(i, want);
                     _covered[i] = cov;
-                    double radius = 0.85 * OwnSpacing(i, drawN) * st.PointScale / 100.0;
+                    // raggio di base dal livello del nodo; il raggio di ogni punto dipende poi dalla sua posizione nell'ordine
+                    // a strati (vedi BuildRange), così il buffer vale per qualunque zoom e non va mai ricostruito
+                    double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;
                     // i punti grandi servono sempre: coprono la zona da soli finché i figli non sono pronti, e un figlio
                     // «copre» il suo ottante nel padre solo quando ha i suoi punti grandi completi
                     EnsureGpu(_gpuO, i, true, radius, cpu, drawN, key, hl, st, argb, budget, now);
@@ -734,7 +737,7 @@ namespace PointDeviation
             var ng = new TileGpu
             {
                 StyleVersion = st.Version, GeoVersion = GeoVersion, ColorKey = key, Points = !octa, Highlight = hl,
-                Radius = radius, RadiusN = drawN
+                Radius = radius, RadiusN = drawN, FullCount = octa && IsOctree ? Tiles[i].Count : 0
             };
             // octree: i blocchi sono piccoli e si costruiscono interi (con la scrittura diretta bastano pochi millisecondi);
             // un blocco costruito a metà si vedrebbe come un riquadro più rado dei vicini
@@ -961,6 +964,11 @@ namespace PointDeviation
                 if (vpp == 1) Put(oc, fx, fy, fz, r, g, b, t);
                 else
                 {
+                    // raggio progressivo: i punti sono in ordine a strati, quindi disegnandone i primi k la loro distanza è
+                    // circa quella del nodo intero × √(totale/k). Il k-esimo punto prende il raggio adatto a quella densità:
+                    // i primi grandi, gli ultimi piccoli. Qualunque prefisso si disegni, la superficie resta coperta.
+                    if (gpu.FullCount > 0)
+                        r0 = (float)(gpu.Radius * Math.Min(6.0, Math.Sqrt((double)gpu.FullCount / (k + 1))));
                     Put(oc, fx + r0, fy, fz, r, g, b, t);
                     Put(oc, fx - r0, fy, fz, r, g, b, t);
                     Put(oc, fx, fy + r0, fz, r, g, b, t);
