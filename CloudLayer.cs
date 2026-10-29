@@ -1300,7 +1300,7 @@ namespace PointDeviation
         /// <summary>La vista si sta muovendo (orbita, zoom): niente lavoro pesante, si disegna quello che c'è.</summary>
         public bool Moving;
         /// <summary>Versioni leggere dopo un cambio di stile: tutta la vista deve aggiornarsi subito.</summary>
-        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 30 : 150); } }
+        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 50 : 150); } }
         /// <summary>Aggiunta di dettaglio: poco per volta e mai mentre ci si muove.</summary>
         public bool RefineTime { get { return !Moving && _sw.ElapsedMilliseconds < 70; } }
     }
