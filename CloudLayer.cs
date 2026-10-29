@@ -851,7 +851,7 @@ namespace PointDeviation
         {
             long now = Environment.TickCount;
             EffectInstance effect = EffectFor(st, Highlighted);
-            int nodes = 0, wanted = 0, missing = 0;
+            int nodes = 0, wanted = 0, missing = 0, notLoaded = 0, notBuilt = 0;
             long pts = 0;
             for (int i = 0; i < Tiles.Length; i++)
             {
@@ -861,6 +861,8 @@ namespace PointDeviation
                 {
                     TileGpu gp = _gpu[i], go = _gpuO[i];
                     bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
+                    if (Volatile.Read(ref Cpu[i]) == null) notLoaded++;
+                    else if (go == null || go.StyleVersion != st.Version || go.Built < Math.Min(Cpu[i].Count, want[i])) notBuilt++;
                     if (!hp && !ho) { missing++; continue; }
                     int cov = _covered[i];
                     // ottanti coperti dai figli: punti di un pixel (se pronti); tutti gli altri: punti grandi
@@ -879,12 +881,19 @@ namespace PointDeviation
                 pts += Draw(gpu, want[i], effect, 0xFF);
                 nodes++;
             }
-            StatPoints = pts; StatNodes = nodes; StatWanted = wanted; StatTick = now; StatMissing = missing;
+            StatPoints = pts; StatNodes = nodes; StatWanted = wanted; StatTick = now; StatMissing = missing; StatNotLoaded = notLoaded; StatNotBuilt = notBuilt;
+            if (now - _lastStatLog > 5000)
+            {
+                _lastStatLog = now;
+                Log.Write("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}",
+                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : ""));
+            }
         }
 
         // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
         public long StatPoints;
-        public int StatNodes, StatWanted, StatMissing;
+        public int StatNodes, StatWanted, StatMissing, StatNotLoaded, StatNotBuilt;
+        private long _lastStatLog;
         public long StatTick;
 
         /// <summary>Blocchi in memoria, in coda di lettura e illeggibili.</summary>

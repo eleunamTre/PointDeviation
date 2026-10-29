@@ -278,6 +278,7 @@ namespace PointDeviation
             d[" · formato vecchio"] = " · old format";
             d["Zoom sulla nuvola"] = "Zoom to cloud";
             d["Registro"] = "Log";
+            d[" · da caricare {0}, da costruire {1}"] = " · to load {0}, to build {1}";
             d["Colori per livello"] = "Colors by level";
             d[" · limite di punti raggiunto"] = " · point limit reached";
             d["\nScala nuvola -> modello: {0:F5}"] = "\nCloud -> model scale: {0:F5}";

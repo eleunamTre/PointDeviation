@@ -95,7 +95,8 @@ namespace PointDeviation
                     l.Name, recent ? l.StatPoints : 0, recent ? l.StatNodes : 0, recent ? l.StatWanted : 0,
                     recent ? "" : L.T(" (non disegnata di recente)"),
                     loaded, l.Tiles.Length, pending, failed,
-                    c.X * 0.3048, c.Y * 0.3048, c.Z * 0.3048, (l.IsOctree ? " · octree" : "") + (l.StatBudgetHit ? L.T(" · limite di punti raggiunto") : ""));
+                    c.X * 0.3048, c.Y * 0.3048, c.Z * 0.3048, (l.IsOctree ? " · octree" : "") + (l.StatBudgetHit ? L.T(" · limite di punti raggiunto") : "")
+                    + string.Format(L.T(" · da caricare {0}, da costruire {1}"), l.StatNotLoaded, l.StatNotBuilt));
             }
             catch { }
         }
