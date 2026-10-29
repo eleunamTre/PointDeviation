@@ -36,7 +36,7 @@ namespace PointDeviation
     {
         public VertexBuffer Vb;
         public int Points;
-        public int SrcEnd;
+        public int SrcStart, SrcEnd;  // tratto della sorgente (punti del nodo in ordine) da cui vengono i punti del pezzo
         public int Oct = -1;          // ottante del blocco a cui appartengono i punti (-1 = tutti)
     }
 
@@ -51,6 +51,7 @@ namespace PointDeviation
         public double Radius;          // raggio degli ottaedri (piedi)
         public int RadiusN;            // punti disegnati per cui è stato calcolato il raggio
         public int FullCount;          // octree: punti dell'intero nodo; > 0 = raggio progressivo (vedi BuildRange)
+        public readonly int[] OctEnd = new int[8]; // fine del tratto di sorgente dell'ultimo pezzo di ogni ottante
         public int StyleVersion, GeoVersion, ColorKey;
         public int Built;              // punti della sorgente già esaminati
         public bool Highlight;         // nuvola illuminata dal pannello Visibilità
@@ -61,6 +62,7 @@ namespace PointDeviation
             foreach (GpuChunk c in Chunks) try { c.Vb.Dispose(); } catch { }
             Chunks.Clear();
             Built = 0;
+            Array.Clear(OctEnd, 0, OctEnd.Length);
         }
     }
 
@@ -1024,7 +1026,8 @@ namespace PointDeviation
         {
             if (_bpts[oc] == 0) return;
             VertexBuffer vb = MakeBuffer(oc, _bnv[oc]);
-            gpu.Chunks.Add(new GpuChunk { Vb = vb, Points = _bpts[oc], SrcEnd = srcEnd, Oct = split ? oc : -1 });
+            gpu.Chunks.Add(new GpuChunk { Vb = vb, Points = _bpts[oc], SrcStart = gpu.OctEnd[oc], SrcEnd = srcEnd, Oct = split ? oc : -1 });
+            gpu.OctEnd[oc] = srcEnd;
             _bnv[oc] = 0; _bpts[oc] = 0;
         }
 
@@ -1148,18 +1151,21 @@ namespace PointDeviation
             return _effectT;
         }
 
+        /// <summary>
+        /// Disegna i primi «want» punti del nodo (in ordine a strati). Ogni pezzo sa da quale tratto della sorgente vengono
+        /// i suoi punti: i pezzi dei vari ottanti si riempiono a ritmi diversi, quindi ognuno si valuta per conto suo.
+        /// </summary>
         private static int Draw(TileGpu gpu, int want, EffectInstance effect, int octMask)
         {
-            int start = 0, drawn = 0;
+            int drawn = 0;
             foreach (GpuChunk c in gpu.Chunks)
             {
-                if (start >= want) break;
-                // ultimo pezzo: solo la parte che serve (i punti sono in ordine casuale, l'inizio è uniforme)
-                int span = c.SrcEnd - start;
-                int n = c.Points;
-                if (c.SrcEnd > want && span > 0) n = Math.Max(1, (int)((long)c.Points * (want - start) / span));
-                if (c.SrcEnd > start) start = c.SrcEnd;
                 if (c.Oct >= 0 && (octMask & (1 << c.Oct)) == 0) continue;
+                if (c.SrcStart >= want) continue;
+                int n = c.Points;
+                int span = c.SrcEnd - c.SrcStart;
+                // pezzo a cavallo del limite: solo la sua parte iniziale (l'ordine a strati la rende uniforme)
+                if (c.SrcEnd > want && span > 0) n = Math.Max(1, (int)((long)c.Points * (want - c.SrcStart) / span));
                 drawn += n;
                 if (gpu.Points)
                     DrawContext.FlushBuffer(c.Vb, c.Points, _pointIb, n * IndexPoint.GetSizeInShortInts(),

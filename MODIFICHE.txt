@@ -296,3 +296,7 @@ Ottava tornata (28/10/2026): octree
     visita a meta' (restavano blocchi scelti a caso tra quelli alla stessa distanza: i quadrati sparsi visti con
     Colori per livello) si aumenta in modo uniforme la distanza tra i punti finche' il totale rientra. Verificato
     simulando la scelta dei blocchi sull'indice della nuvola di prova: livelli sempre completi.
+85. Corretto il disegno parziale dei nodi divisi per ottante: i pezzi di buffer si chiudono in momenti diversi per
+    ottante, e disegnando solo i primi punti di un nodo il ciclo si fermava al primo pezzo oltre il limite, saltando
+    gli altri ottanti. Era la causa dei riquadri pieni accanto a riquadri vuoti (stato: tutti i blocchi costruiti e
+    disegnati, ma con pochi punti). Ora ogni pezzo sa da quale tratto di punti viene e si valuta per conto suo.
