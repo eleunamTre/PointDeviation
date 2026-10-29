@@ -74,7 +74,7 @@ namespace PointDeviation
                 }
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
                 // Revit ci richiama subito invece che dopo una lunga pausa
-                if (_zoomDirty || Redraw.Pending || CloudLoader.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
+                if (_zoomDirty || Redraw.Pending || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
             catch { }
         }

@@ -316,3 +316,7 @@ Ottava tornata (28/10/2026): octree
 91. Niente piu' punti enormi a ogni movimento: un figlio copre il suo ottante nel padre quando ha almeno meta' dei
     punti che servono (prima il 100%: a ogni piccolo movimento il numero voluto cambiava, il figlio risultava
     incompleto e tornavano i punti grandi del padre, che poi si rimpicciolivano piano piano).
+92. Vertici preparati in background: posizioni, colori, ottanti e raggio dei punti si calcolano su 2-3 thread di
+    lavoro; nel fotogramma di Revit resta solo la copia dei dati pronti nella scheda video. I blocchi nuovi dopo un
+    movimento arrivano molto prima (prima si costruivano per 150 ms a fotogramma e restavano centinaia "da costruire").
+93. Impostazioni avanzate: finestra piu' grande, il contenuto si vede tutto senza scorrere.

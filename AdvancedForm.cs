@@ -36,7 +36,7 @@ namespace PointDeviation
         {
             Text = L.T("Impostazioni avanzate");
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(700, 470);
+            ClientSize = new Size(760, 600);
             MinimizeBox = false;
             ShowInTaskbar = false;
             BackColor = UiTheme.Surface;

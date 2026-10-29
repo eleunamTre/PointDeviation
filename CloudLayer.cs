@@ -258,6 +258,9 @@ namespace PointDeviation
         private readonly TileGpu[] _gpu;              // punti di un pixel
         private readonly TileGpu[] _gpuO;             // punti grandi (ottaedri), raggio fisso dalla densità del blocco
         private readonly byte[] _mode;                // 1 = si disegnano i punti grandi
+        internal readonly Baked[] BakedP, BakedO;     // vertici preparati in background, pronti da copiare nella scheda video
+        internal readonly int[] BakePendP, BakePendO; // 1 = preparazione in coda
+        internal volatile int CurrentStyleVersion;
         private readonly byte[] _covered;             // octree: ottanti in cui un figlio è già disegnabile (bit)
         private readonly double[] _ocx, _ocy, _ocz;   // octree: centro del cubo del nodo (locali, piedi)
         private readonly int[] _want;                 // punti desiderati per blocco (massimo tra le viste recenti)
@@ -292,6 +295,8 @@ namespace PointDeviation
             _gpu = new TileGpu[n];
             _gpuO = new TileGpu[n];
             _mode = new byte[n];
+            BakedP = new Baked[n]; BakedO = new Baked[n];
+            BakePendP = new int[n]; BakePendO = new int[n];
             _covered = new byte[n];
             _ocx = new double[n]; _ocy = new double[n]; _ocz = new double[n];
             _want = new int[n];
@@ -708,6 +713,7 @@ namespace PointDeviation
         /// </summary>
         public void Prepare(Style st, RenderBudget budget, int[] want, double[] px)
         {
+            CurrentStyleVersion = st.Version;
             long now = Environment.TickCount;
             int argb = LayerArgb(st);
 
@@ -770,10 +776,41 @@ namespace PointDeviation
         private void EnsureGpu(TileGpu[] arr, int i, bool octa, double radius, TileCpu cpu, int drawN, int key, bool hl,
             Style st, int argb, RenderBudget budget, long now)
         {
+            if (_raw == 0) CalibrateRaw();
             TileGpu gpu = arr[i];
             bool stale = gpu == null || gpu.StyleVersion != st.Version || gpu.GeoVersion != GeoVersion
                 || gpu.ColorKey != key || gpu.Highlight != hl
                 || (octa && Math.Abs(gpu.Radius - radius) > radius * 0.35);
+
+            // octree con scrittura diretta: i vertici si preparano in background (calcolo di posizioni, colori, ottanti) e
+            // qui si copiano soltanto nella scheda video, che costa pochissimo. Il fotogramma non aspetta mai il calcolo.
+            if (IsOctree && _raw == 1)
+            {
+                int need = Math.Min(drawN, cpu.Count);
+                if (!stale && gpu.Built >= need) return;
+                Baked[] barr = octa ? BakedO : BakedP;
+                Baked bk = Volatile.Read(ref barr[i]);
+                if (bk != null && bk.StyleVersion == st.Version && bk.GeoVersion == GeoVersion && bk.ColorKey == key && bk.Highlight == hl
+                    && bk.Points == !octa && Math.Abs(bk.Radius - radius) <= radius * 0.35 + 1e-12 && bk.Built >= need)
+                {
+                    if (!budget.CoarseTime) { budget.MoreWork = true; return; }
+                    TileGpu up = Upload(bk);
+                    up.LastDraw = now;
+                    if (gpu != null) gpu.Dispose();
+                    arr[i] = up;
+                    Volatile.Write(ref barr[i], null);
+                    return;
+                }
+                // da preparare: intanto resta quello che c'era (anche se di uno stile o di una densità precedente)
+                if (CloudBaker.Queued < 48)
+                    CloudBaker.Enqueue(new BakeJob
+                    {
+                        Layer = this, Node = i, Octa = octa, Radius = radius, UpTo = Math.Max(need, gpu != null && !stale ? gpu.Built : 0),
+                        Key = key, Highlight = hl, Style = st, Argb = argb
+                    });
+                return;
+            }
+
             if (!stale) return;
             if (!budget.CoarseTime) { budget.MoreWork = true; return; }
             var ng = new TileGpu
@@ -839,6 +876,7 @@ namespace PointDeviation
         /// <summary>Fase 2: aggiunge punti ai blocchi già pronti finché c'è tempo in questo fotogramma.</summary>
         public void Refine(Style st, RenderBudget budget, int[] want)
         {
+            if (IsOctree && _raw == 1) return; // i blocchi si preparano interi in background (EnsureGpu)
             int argb = LayerArgb(st);
             bool both = IsOctree && st.PointScale > 0;
             int count = IsOctree ? _orderN : Tiles.Length;
@@ -1052,6 +1090,111 @@ namespace PointDeviation
             byte[] bc = _bc[oc];
             int o = nv * 4;
             bc[o] = r; bc[o + 1] = g; bc[o + 2] = b; bc[o + 3] = t;
+        }
+
+        // ------------------------------------------------------------------ preparazione in background
+
+        /// <summary>Copia nella scheda video i vertici già preparati (solo memcpy: pochissimo tempo nel fotogramma).</summary>
+        private static TileGpu Upload(Baked bk)
+        {
+            EnsureShared();
+            var g = new TileGpu
+            {
+                StyleVersion = bk.StyleVersion, GeoVersion = bk.GeoVersion, ColorKey = bk.ColorKey, Points = bk.Points,
+                Highlight = bk.Highlight, Radius = bk.Radius, FullCount = bk.FullCount
+            };
+            int fl = VertexPositionColored.GetSizeInFloats();
+            foreach (BakedChunk c in bk.Chunks)
+            {
+                int floats = c.Verts * fl;
+                var vb = new VertexBuffer(floats);
+                vb.Map(floats);
+                System.Runtime.InteropServices.Marshal.Copy(c.Data, 0, vb.GetMappedHandle(), c.Verts * _stride);
+                vb.Unmap();
+                g.Chunks.Add(new GpuChunk { Vb = vb, Points = c.Points, SrcStart = c.SrcStart, SrcEnd = c.SrcEnd, Oct = c.Oct });
+            }
+            g.Built = bk.Built;
+            return g;
+        }
+
+        /// <summary>
+        /// Prepara (su un thread di lavoro) i vertici di un nodo: stessa logica di BuildRange, ma scritta in memoria
+        /// normale con la disposizione dei byte del buffer grafico, pronta per essere copiata.
+        /// </summary>
+        internal unsafe Baked Bake(BakeJob j)
+        {
+            TileCpu cpu = Volatile.Read(ref Cpu[j.Node]);
+            if (cpu == null) return null;
+            Style st = j.Style;
+            int node = j.Node;
+            bool octa = j.Octa;
+            int per = octa ? OctaChunk : PointChunk, vpp = octa ? 6 : 1, stride = _stride;
+            int oR = _offR, oG = _offG, oB = _offB, oA = _offA;
+            bool op = _alphaOpacity;
+            int upTo = Math.Min(j.UpTo, cpu.Count);
+            int full = Tiles[node].Count;
+            var bk = new Baked
+            {
+                StyleVersion = st.Version, GeoVersion = GeoVersion, ColorKey = j.Key, Highlight = j.Highlight, Points = !octa,
+                Radius = j.Radius, FullCount = octa ? full : 0
+            };
+            var buf = new byte[8][];
+            var nv = new int[8]; var np = new int[8]; var start = new int[8];
+            double cx = _ocx[node], cy = _ocy[node], cz = _ocz[node];
+            for (int k = 0; k < upTo; k++)
+            {
+                float lx = cpu.Pos[k * 3], ly = cpu.Pos[k * 3 + 1], lz = cpu.Pos[k * 3 + 2];
+                double x, y, z;
+                ToModel(lx, ly, lz, out x, out y, out z);
+                if (st.Clip != null && !st.Clip.Contains(x, y, z)) continue;
+                byte r, g, b, t;
+                if (j.Highlight) Style.HighlightColor(cpu, k, j.Argb, out r, out g, out b, out t);
+                else if (st.DebugLevels) { CloudDebug.LevelColor(Tiles[node].Level, !octa, out r, out g, out b); t = 0; }
+                else if (!st.Color(cpu, k, z, j.Argb, out r, out g, out b, out t)) continue;
+                int oc = (lx >= cx ? 1 : 0) | (ly >= cy ? 2 : 0) | (lz >= cz ? 4 : 0);
+                if (buf[oc] == null) buf[oc] = new byte[per * vpp * stride];
+                byte a = op ? (byte)(255 - t) : t;
+                float fx = (float)x, fy = (float)y, fz = (float)z;
+                fixed (byte* p0 = buf[oc])
+                {
+                    if (vpp == 1) Vert(p0, ref nv[oc], stride, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
+                    else
+                    {
+                        float r0 = (float)(j.Radius * Math.Min(2.5, Math.Sqrt((double)full / (k + 1))));
+                        Vert(p0, ref nv[oc], stride, fx + r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx - r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx, fy + r0, fz, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx, fy - r0, fz, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx, fy, fz + r0, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx, fy, fz - r0, oR, oG, oB, oA, r, g, b, a);
+                    }
+                }
+                if (++np[oc] >= per) { BakeFlush(bk, buf, nv, np, start, oc, k + 1, stride); }
+            }
+            for (int o = 0; o < 8; o++) BakeFlush(bk, buf, nv, np, start, o, upTo, stride);
+            bk.Built = upTo;
+            return bk;
+        }
+
+        private static unsafe void Vert(byte* p0, ref int nv, int stride, float x, float y, float z, int oR, int oG, int oB, int oA,
+            byte r, byte g, byte b, byte a)
+        {
+            byte* p = p0 + nv * stride;
+            *(float*)p = x; *(float*)(p + 4) = y; *(float*)(p + 8) = z;
+            for (int q = 12; q < stride; q++) p[q] = 0;
+            p[oR] = r; p[oG] = g; p[oB] = b;
+            if (oA >= 0) p[oA] = a;
+            nv++;
+        }
+
+        private static void BakeFlush(Baked bk, byte[][] buf, int[] nv, int[] np, int[] start, int oc, int srcEnd, int stride)
+        {
+            if (np[oc] == 0) return;
+            var data = new byte[nv[oc] * stride];
+            Buffer.BlockCopy(buf[oc], 0, data, 0, data.Length);
+            bk.Chunks.Add(new BakedChunk { Data = data, Verts = nv[oc], Points = np[oc], Oct = oc, SrcStart = start[oc], SrcEnd = srcEnd });
+            start[oc] = srcEnd;
+            nv[oc] = 0; np[oc] = 0;
         }
 
         // ------------------------------------------------------------------ scrittura veloce dei vertici
@@ -1270,6 +1413,97 @@ namespace PointDeviation
             if (string.Equals(_folder, folder, StringComparison.OrdinalIgnoreCase)) return;
             _folder = folder;
             Redraw.Request();
+        }
+    }
+
+    /// <summary>Vertici di un nodo preparati in background, nella disposizione del buffer grafico.</summary>
+    internal sealed class Baked
+    {
+        public int StyleVersion, GeoVersion, ColorKey, Built, FullCount;
+        public bool Points, Highlight;
+        public double Radius;
+        public readonly List<BakedChunk> Chunks = new List<BakedChunk>();
+    }
+
+    internal sealed class BakedChunk
+    {
+        public byte[] Data;
+        public int Verts, Points, Oct, SrcStart, SrcEnd;
+    }
+
+    internal sealed class BakeJob
+    {
+        public CloudLayer Layer;
+        public int Node, UpTo, Key, Argb;
+        public bool Octa, Highlight;
+        public double Radius;
+        public Style Style;
+    }
+
+    /// <summary>
+    /// Preparazione dei vertici in background (2-3 thread): il calcolo pesante esce dal fotogramma di Revit, che deve solo
+    /// copiare i dati pronti nella scheda video. Le richieste di uno stile superato si scartano.
+    /// </summary>
+    internal static class CloudBaker
+    {
+        private static readonly ConcurrentQueue<BakeJob> _queue = new ConcurrentQueue<BakeJob>();
+        private static readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
+        private static Thread[] _threads;
+        private static int _busy;
+
+        public static int Queued { get { return _queue.Count; } }
+        public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty; } }
+
+        public static void Enqueue(BakeJob j)
+        {
+            int[] pend = j.Octa ? j.Layer.BakePendO : j.Layer.BakePendP;
+            if (Interlocked.CompareExchange(ref pend[j.Node], 1, 0) != 0) return;
+            _queue.Enqueue(j);
+            if (_threads == null)
+            {
+                int n = Environment.ProcessorCount >= 8 ? 3 : 2;
+                var t = new Thread[n];
+                for (int i = 0; i < n; i++)
+                {
+                    t[i] = new Thread(Loop) { IsBackground = true, Name = "PointDeviation baker " + (i + 1), Priority = ThreadPriority.BelowNormal };
+                    t[i].Start();
+                }
+                _threads = t;
+            }
+            _signal.Release();
+        }
+
+        private static void Loop()
+        {
+            while (true)
+            {
+                BakeJob j;
+                if (!_queue.TryDequeue(out j)) { _signal.Wait(500); continue; }
+                Interlocked.Increment(ref _busy);
+                bool done = false;
+                Baked[] dest = j.Octa ? j.Layer.BakedO : j.Layer.BakedP;
+                int[] pend = j.Octa ? j.Layer.BakePendO : j.Layer.BakePendP;
+                try
+                {
+                    // stile cambiato nel frattempo: la richiesta non serve più
+                    if (j.Style.Version == j.Layer.CurrentStyleVersion)
+                    {
+                        Baked bk = j.Layer.Bake(j);
+                        if (bk != null)
+                        {
+                            Volatile.Write(ref dest[j.Node], bk);
+                            done = true;
+                        }
+                    }
+                }
+                catch (Exception ex) { Log.Error("Preparazione blocco " + j.Node, ex); }
+                finally
+                {
+                    Interlocked.Exchange(ref pend[j.Node], 0);
+                    Interlocked.Decrement(ref _busy);
+                    if (done) Redraw.Request();
+                }
+            }
         }
     }
 
