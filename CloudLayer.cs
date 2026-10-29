@@ -1019,7 +1019,7 @@ namespace PointDeviation
                     // circa quella del nodo intero × √(totale/k). Il k-esimo punto prende il raggio adatto a quella densità:
                     // i primi grandi, gli ultimi piccoli. Qualunque prefisso si disegni, la superficie resta coperta.
                     if (gpu.FullCount > 0)
-                        r0 = (float)(gpu.Radius * Math.Min(6.0, Math.Sqrt((double)gpu.FullCount / (k + 1))));
+                        r0 = (float)(gpu.Radius * Math.Min(2.5, Math.Sqrt((double)gpu.FullCount / (k + 1))));
                     Put(oc, fx + r0, fy, fz, r, g, b, t);
                     Put(oc, fx - r0, fy, fz, r, g, b, t);
                     Put(oc, fx, fy + r0, fz, r, g, b, t);
