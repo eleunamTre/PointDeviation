@@ -80,6 +80,7 @@ namespace PointDeviation
         public double ZMin, ZRange = 1;
         public Dictionary<string, int> CloudColors;
         public AnalysisSnapshot Analysis;
+        public bool DebugLevels;      // diagnostica: colori per livello dell'octree
 
         private const int LutSize = 4096;
         private byte[] _lut;
@@ -124,7 +125,8 @@ namespace PointDeviation
                 ZMin = zmin,
                 ZRange = Math.Max(1e-6, zmax - zmin),
                 CloudColors = new Dictionary<string, int>(s.CloudColors ?? new Dictionary<string, int>(), StringComparer.OrdinalIgnoreCase),
-                Analysis = analysis
+                Analysis = analysis,
+                DebugLevels = CloudDebug.Levels
             };
             // analisi chiesta ma non disponibile: colori della scansione
             if (st.Mode == DisplayMode.Discrepanze && analysis == null) st.Mode = DisplayMode.Rgb;
@@ -952,6 +954,7 @@ namespace PointDeviation
                 if (st.Clip != null && !st.Clip.Contains(x, y, z)) continue;
                 byte r, g, b, t;
                 if (gpu.Highlight) Style.HighlightColor(cpu, k, layerArgb, out r, out g, out b, out t);
+                else if (st.DebugLevels && split) { CloudDebug.LevelColor(Tiles[node].Level, gpu.Points, out r, out g, out b); t = 0; }
                 else if (!st.Color(cpu, k, z, layerArgb, out r, out g, out b, out t)) continue;
                 int oc = split ? (lx >= cx ? 1 : 0) | (ly >= cy ? 2 : 0) | (lz >= cz ? 4 : 0) : 0;
                 float fx = (float)x, fy = (float)y, fz = (float)z;
@@ -1165,6 +1168,28 @@ namespace PointDeviation
         {
             DropGpu();
             for (int i = 0; i < Cpu.Length; i++) Cpu[i] = null;
+        }
+    }
+
+    /// <summary>
+    /// Diagnostica: colora i punti per livello dell'octree (punti grandi a colori pieni, punti di un pixel più chiari),
+    /// per vedere quali blocchi si stanno disegnando e dove.
+    /// </summary>
+    internal static class CloudDebug
+    {
+        public static volatile bool Levels;
+
+        private static readonly byte[,] Palette =
+        {
+            { 230, 25, 75 }, { 245, 130, 48 }, { 255, 225, 25 }, { 60, 180, 75 }, { 66, 212, 244 },
+            { 67, 99, 216 }, { 145, 30, 180 }, { 240, 50, 230 }, { 128, 128, 0 }, { 0, 128, 128 }, { 128, 0, 0 }, { 0, 0, 117 }
+        };
+
+        public static void LevelColor(int level, bool pixelPoints, out byte r, out byte g, out byte b)
+        {
+            int i = Math.Max(0, level) % Palette.GetLength(0);
+            r = Palette[i, 0]; g = Palette[i, 1]; b = Palette[i, 2];
+            if (pixelPoints) { r = (byte)((r + 255) / 2); g = (byte)((g + 255) / 2); b = (byte)((b + 255) / 2); }
         }
     }
 

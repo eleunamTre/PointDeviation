@@ -278,6 +278,7 @@ namespace PointDeviation
             d[" · formato vecchio"] = " · old format";
             d["Zoom sulla nuvola"] = "Zoom to cloud";
             d["Registro"] = "Log";
+            d["Colori per livello"] = "Colors by level";
             d[" · limite di punti raggiunto"] = " · point limit reached";
             d["\nScala nuvola -> modello: {0:F5}"] = "\nCloud -> model scale: {0:F5}";
             d["Per leggere una nuvola ReCap apri una vista 3D (Revit fornisce solo i punti della vista attiva: in pianta o in sezione si otterrebbe solo una fetta)."] = "To read a ReCap cloud, open a 3D view (Revit only provides the points of the active view: in a plan or section you would get only a slice).";
