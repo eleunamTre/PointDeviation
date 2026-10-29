@@ -278,6 +278,10 @@ namespace PointDeviation
             d[" · formato vecchio"] = " · old format";
             d["Zoom sulla nuvola"] = "Zoom to cloud";
             d["Registro"] = "Log";
+            d["Apre il file di registro del plugin (per segnalare un problema)."] = "Opens the plugin log file (to report a problem).";
+            d["Registro di diagnostica, colori per livello, limite di punti e memoria. Valgono per questo computer."] = "Diagnostic log, colors by level, point limit and memory. Apply to this computer.";
+            d["Impostazioni\navanzate"] = "Advanced\nsettings";
+            d["Gestione"] = "Manage";
             d["Impostazioni avanzate"] = "Advanced settings";
             d["Chiudi"] = "Close";
             d["Il registro aiuta a capire cosa succede quando qualcosa non va: caricamento delle nuvole, errori di disegno e di lettura, posizionamento."] = "The log helps understand what happens when something goes wrong: cloud loading, drawing and reading errors, placement.";

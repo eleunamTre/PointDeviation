@@ -308,3 +308,5 @@ Ottava tornata (28/10/2026): octree
     contarli interi esauriva il limite (registro: 3,7 M punti per una finestra di 7 m, distanza tra i punti 7-9 px):
     i punti diventavano enormi e cambiavano dimensione a ogni scatto della rotella. Tetto separato per i punti
     costruiti davvero (il doppio del limite), per la memoria video. Limiti con i punti grandi: 3 / 1,5 / 5 M visibili.
+88. Barra: nuovo pannello Impostazioni in fondo, con Avanzate e Registro (apre il file di registro); tolto Avanzate da
+    Visualizzazione.

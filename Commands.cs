@@ -203,6 +203,25 @@ namespace PointDeviation
     }
 
     [Transaction(TransactionMode.ReadOnly)]
+    public class OpenLogCommand : IExternalCommand
+    {
+        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(Log.FilePath))
+                {
+                    System.IO.Directory.CreateDirectory(Log.Folder);
+                    System.IO.File.AppendAllText(Log.FilePath, "");
+                }
+                System.Diagnostics.Process.Start("notepad.exe", "\"" + Log.FilePath + "\"");
+                return Result.Succeeded;
+            }
+            catch (Exception ex) { message = ex.Message; return Result.Failed; }
+        }
+    }
+
+    [Transaction(TransactionMode.ReadOnly)]
     public class AppearanceCommand : IExternalCommand
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)

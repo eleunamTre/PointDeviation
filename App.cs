@@ -165,9 +165,7 @@ namespace PointDeviation
             var qData = new ComboBoxData("Quality") { ToolTip = L.T("Quanti punti disegnare: Automatica si adatta alla vista, Media alleggerisce, Fine mostra più dettaglio.") };
             PushButtonData appData = Push("Appearance", "Aspetto", asm, typeof(AppearanceCommand), "appearance",
                 "Dimensione dei punti, luminosità, contrasto, trasparenza e contrasto X-ray.");
-            PushButtonData advData = Push("Advanced", "Avanzate", asm, typeof(AdvancedCommand), "settings",
-                "Impostazioni avanzate: registro di diagnostica, colori per livello, limite di punti e memoria.");
-            IList<RibbonItem> stack = pDisplay.AddStackedItems(qData, appData, advData);
+            IList<RibbonItem> stack = pDisplay.AddStackedItems(qData, appData);
             _quality = stack[0] as Autodesk.Revit.UI.ComboBox;
             if (_quality != null)
             {
@@ -234,6 +232,13 @@ namespace PointDeviation
                 "Imposta le coordinate condivise del progetto su quelle originali della nuvola selezionata."));
             pTools.AddItem(Push("Measure", "Misura\npunti", asm, typeof(MeasureCommand), "measure",
                 "Clicca sui punti della nuvola: vengono creati dei marcatori a cui si agganciano quote e misure di Revit."));
+
+            // ---------------------------------------------------------- Impostazioni del plugin
+            RibbonPanel pManage = app.CreateRibbonPanel(tabName, L.T("Impostazioni"));
+            pManage.AddItem(Push("Advanced", "Avanzate", asm, typeof(AdvancedCommand), "settings",
+                "Registro di diagnostica, colori per livello, limite di punti e memoria. Valgono per questo computer."));
+            pManage.AddItem(Push("OpenLog", "Registro", asm, typeof(OpenLogCommand), "legend",
+                "Apre il file di registro del plugin (per segnalare un problema)."));
         }
 
         // ------------------------------------------------------------------ icone incorporate nella DLL
