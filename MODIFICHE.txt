@@ -263,3 +263,8 @@ Ottava tornata (28/10/2026): octree
     ottante il blocco usa i punti di un pixel solo se il figlio di quell'ottante e' gia' disegnato, altrimenti i
     punti grandi. Prima bastava un figlio qualsiasi per far passare tutto il blocco ai punti di un pixel, e le
     zone dei figli non ancora caricati (o fuori vista) restavano quasi vuote.
+73. Inquadratura esatta: posizione, direzione, ampiezza e spostamento della finestra dalla camera di
+    DirectContext3D di ogni fotogramma (prima dagli angoli di zoom letti a riposo, che nelle viste 3D
+    parallele potevano mancare: allora non si ritagliava nulla, il limite di punti si esauriva su zone fuori
+    vista e in vista restavano buchi diversi a ogni zoom). Ordine di visita: a parita' prima il centro della
+    finestra. In Gestisci visibilita' compare "limite di punti raggiunto" quando succede.

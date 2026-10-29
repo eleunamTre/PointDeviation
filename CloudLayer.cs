@@ -437,13 +437,14 @@ namespace PointDeviation
             Array.Clear(outWant, 0, n);
             Array.Clear(outPx, 0, n);
             _orderN = 0;
+            StatBudgetHit = false;
             // pixel tra due punti: con i punti grandi ogni punto copre più pixel, quindi ne servono molti meno
             double target = st.PointScale > 0
                 ? (st.Quality == Quality.Fine ? 1.6 : st.Quality == Quality.Media ? 3.2 : 2.3)
                 : 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
             int hn = 0;
             double px;
-            if (NodeVisible(cam, 0, out px)) Push(ref hn, 0, _nodeSpacing[0] / px);
+            if (NodeVisible(cam, 0, out px)) Push(ref hn, 0, Priority(cam, 0, px));
             else Log.Write("LOD", "«" + Name + "»: la nuvola è fuori dall'inquadratura della vista");
             long total = 0;
             while (hn > 0)
@@ -465,13 +466,13 @@ namespace PointDeviation
                 }
                 outWant[i] = cnt;
                 total += cnt;
-                if (total >= budget) break;
-                if (key <= target || _childCount[i] == 0) continue;
+                if (total >= budget) { StatBudgetHit = true; break; }
+                if (_nodeSpacing[i] / Math.Max(px, 1e-9) <= target || _childCount[i] == 0) continue;
                 for (int k = 0; k < _childCount[i]; k++)
                 {
                     int c = _firstChild[i] + k;
                     double pc;
-                    if (NodeVisible(cam, c, out pc)) Push(ref hn, c, _nodeSpacing[c] / pc);
+                    if (NodeVisible(cam, c, out pc)) Push(ref hn, c, Priority(cam, c, pc));
                 }
             }
 
@@ -488,6 +489,21 @@ namespace PointDeviation
                 _effSpacing[i] = e;
             }
         }
+
+        /// <summary>
+        /// Ordine di visita: prima i blocchi con i punti più radi a schermo; a parità (viste parallele: tutti i blocchi
+        /// dello stesso livello) prima quelli vicini al centro della finestra, così se si arriva al limite di punti
+        /// manca il dettaglio ai bordi e non in zone a caso.
+        /// </summary>
+        private double Priority(ViewCam cam, int i, double px)
+        {
+            double cx, cy, cz;
+            ToModel(_cx[i], _cy[i], _cz[i], out cx, out cy, out cz);
+            double d = Math.Min(1.5, cam.CenterDistance(cx, cy, cz));
+            return _nodeSpacing[i] / Math.Max(px, 1e-9) * (1.3 - 0.2 * d);
+        }
+
+        public bool StatBudgetHit;
 
         private bool NodeVisible(ViewCam cam, int i, out double px)
         {
@@ -1177,7 +1193,47 @@ namespace PointDeviation
         public double PxAtTarget;
         public bool Valid;
 
+        public double OffU, OffV;      // prospettiva: centro della finestra rispetto all'asse (alla distanza del bersaglio)
+
         public static ViewCam From(Camera c, View view)
+        {
+            // camera di DirectContext3D: posizione, direzioni e ampiezza esatte di questo fotogramma
+            try
+            {
+                var v = new ViewCam();
+                v.Dir = c.ViewDirection.Normalize();
+                v.Up = c.UpDirection.Normalize();
+                v.Right = v.Dir.CrossProduct(v.Up).Normalize();
+                var v3 = view as View3D;
+                v.Perspective = v3 != null && v3.IsPerspective;
+                double hx = Math.Abs(c.HorizontalExtent), vx = Math.Abs(c.VerticalExtent);
+                ZoomCache.Entry z = ZoomCache.Get(view);
+                int widthPx = z != null ? z.WidthPx : 1600;
+                if (hx > 1e-9 && vx > 1e-9)
+                {
+                    v.HalfW = hx * 0.5; v.HalfH = vx * 0.5;
+                    v.PxAtTarget = Math.Max(1e-6, hx / widthPx);
+                    v.Target = Math.Max(1e-3, Math.Abs(c.TargetDistance));
+                    if (v.Perspective)
+                    {
+                        v.Pos = c.EyePosition;
+                        v.OffU = c.HorizontalOffset; v.OffV = c.VerticalOffset;
+                    }
+                    else
+                    {
+                        // vista parallela: centro della zona inquadrata
+                        v.Pos = c.EyePosition + v.Dir * c.TargetDistance + v.Right * c.HorizontalOffset + v.Up * c.VerticalOffset;
+                    }
+                    v.Valid = true;
+                    return v;
+                }
+            }
+            catch { }
+            return FromView(c, view);
+        }
+
+        /// <summary>Riserva: direzioni dalla vista e zona inquadrata dagli angoli di zoom della finestra.</summary>
+        private static ViewCam FromView(Camera c, View view)
         {
             var v = new ViewCam();
             try
@@ -1203,7 +1259,6 @@ namespace PointDeviation
                 ZoomCache.Entry z = ZoomCache.Get(view);
                 if (v.Perspective)
                 {
-                    // ampiezza orizzontale alla distanza del bersaglio, dalla camera di Revit
                     int px = z != null ? z.WidthPx : 1600;
                     v.Target = Math.Max(1e-3, Math.Abs(c.TargetDistance));
                     v.PxAtTarget = Math.Max(1e-6, Math.Abs(c.HorizontalExtent) / px);
@@ -1213,7 +1268,6 @@ namespace PointDeviation
                 }
                 else if (z != null)
                 {
-                    // vista parallela: centro e dimensioni della zona inquadrata dagli angoli di zoom
                     XYZ mid = (z.C0 + z.C1) / 2.0;
                     XYZ diag = z.C1 - z.C0;
                     double w = Math.Abs(diag.DotProduct(v.Right)), h = Math.Abs(diag.DotProduct(v.Up));
@@ -1224,7 +1278,25 @@ namespace PointDeviation
                 }
             }
             catch { v.Valid = false; }
+            if (!v.Valid) Log.Write("Camera", "camera della vista non disponibile: nessun ritaglio per inquadratura");
             return v;
+        }
+
+        /// <summary>Distanza dal centro dello schermo, in frazioni di mezza finestra (0 = centro, 1 = bordo).</summary>
+        public double CenterDistance(double x, double y, double z)
+        {
+            if (!Valid) return 0;
+            double dx = x - Pos.X, dy = y - Pos.Y, dz = z - Pos.Z;
+            double u = dx * Right.X + dy * Right.Y + dz * Right.Z;
+            double v = dx * Up.X + dy * Up.Y + dz * Up.Z;
+            double s = 1;
+            if (Perspective)
+            {
+                double depth = dx * Dir.X + dy * Dir.Y + dz * Dir.Z;
+                s = Math.Max(0.1, depth) / Target;
+                u -= OffU * s; v -= OffV * s;
+            }
+            return Math.Max(Math.Abs(u) / (HalfW * s), Math.Abs(v) / (HalfH * s));
         }
 
         /// <summary>Dimensione di un pixel alla posizione data; false se il blocco è fuori inquadratura.</summary>
@@ -1241,6 +1313,7 @@ namespace PointDeviation
                 if (depth < -radius) return false;
                 double d = Math.Max(radius * 0.25, Math.Max(0.1, depth));
                 double scale = d / Target;
+                u -= OffU * scale; v -= OffV * scale;
                 // margine abbondante: un blocco tagliato per errore lascia un buco ben visibile
                 if (Math.Abs(u) > HalfW * scale * 1.3 + radius * 1.5 || Math.Abs(v) > HalfH * scale * 1.3 + radius * 1.5) return false;
                 px = PxAtTarget * scale;
