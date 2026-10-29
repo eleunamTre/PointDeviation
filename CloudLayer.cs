@@ -800,12 +800,15 @@ namespace PointDeviation
                 if ((mask & (1 << o)) == 0) continue;
                 int ch = c++;
                 if (want[ch] <= 0) continue;
-                // il figlio copre il suo ottante solo quando è completo: altrimenti si vedrebbe un riquadro rado
+                // il figlio copre il suo ottante quando ha almeno metà dei punti che servono: grazie all'ordine a strati e al
+                // raggio progressivo anche una parte copre tutta la zona. Pretendere il 100% faceva tornare i punti grandi
+                // del padre a ogni piccolo movimento della camera (il numero di punti voluti cambia di poco, il figlio
+                // risultava «incompleto» finché non si aggiungevano i punti mancanti).
                 TileCpu cc = Volatile.Read(ref Cpu[ch]);
                 if (cc == null) continue;
                 int need = Math.Min(cc.Count, want[ch]);
                 TileGpu b = _gpuO[ch];
-                if (b != null && b.Chunks.Count > 0 && b.Built >= need) res |= 1 << o;
+                if (b != null && b.Chunks.Count > 0 && (b.Built >= need / 2 || b.Built >= cc.Count)) res |= 1 << o;
             }
             return (byte)res;
         }

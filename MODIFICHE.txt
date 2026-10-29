@@ -313,3 +313,6 @@ Ottava tornata (28/10/2026): octree
 89. Raggio progressivo limitato a 2,5 volte quello del livello (prima 6): i primissimi punti di ogni blocco non
     diventano piu' rombi enormi sopra il dettaglio.
 90. Tolto il pulsante Registro dalla barra (il registro si apre da Impostazioni > Avanzate).
+91. Niente piu' punti enormi a ogni movimento: un figlio copre il suo ottante nel padre quando ha almeno meta' dei
+    punti che servono (prima il 100%: a ogni piccolo movimento il numero voluto cambiava, il figlio risultava
+    incompleto e tornavano i punti grandi del padre, che poi si rimpicciolivano piano piano).
