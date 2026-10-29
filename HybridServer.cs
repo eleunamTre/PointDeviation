@@ -93,7 +93,7 @@ namespace PointDeviation
             bool changed = !_lastCam.TryGetValue(id, out old);
             if (!changed)
                 for (int i = 0; i < sig.Length; i++)
-                    if (Math.Abs(sig[i] - old[i]) > 1e-7 * Math.Max(1.0, Math.Abs(old[i]))) { changed = true; break; }
+                    if (Math.Abs(sig[i] - old[i]) > 1e-5 * Math.Max(1.0, Math.Abs(old[i]))) { changed = true; break; }
             _lastCam[id] = sig;
             if (changed)
             {

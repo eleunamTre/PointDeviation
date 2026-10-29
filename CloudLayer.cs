@@ -666,7 +666,9 @@ namespace PointDeviation
                 StyleVersion = st.Version, GeoVersion = GeoVersion, ColorKey = key, Points = !octa, Highlight = hl,
                 Radius = radius, RadiusN = drawN
             };
-            int coarse = Math.Min(drawN, Math.Max(512, drawN / 8));
+            // octree: i blocchi sono piccoli e si costruiscono interi (con la scrittura diretta bastano pochi millisecondi);
+            // un blocco costruito a metà si vedrebbe come un riquadro più rado dei vicini
+            int coarse = IsOctree ? drawN : Math.Min(drawN, Math.Max(512, drawN / 8));
             BuildRange(cpu, ng, coarse, st, argb, null, IsOctree ? i : -1);
             if (gpu != null) gpu.Dispose();
             ng.LastDraw = now;
@@ -683,8 +685,12 @@ namespace PointDeviation
                 if ((mask & (1 << o)) == 0) continue;
                 int ch = c++;
                 if (want[ch] <= 0) continue;
+                // il figlio copre il suo ottante solo quando è completo: altrimenti si vedrebbe un riquadro rado
+                TileCpu cc = Volatile.Read(ref Cpu[ch]);
+                if (cc == null) continue;
+                int need = Math.Min(cc.Count, want[ch]);
                 TileGpu a = _gpu[ch], b = _gpuO[ch];
-                if ((a != null && a.Chunks.Count > 0) || (b != null && b.Chunks.Count > 0)) res |= 1 << o;
+                if ((a != null && a.Chunks.Count > 0 && a.Built >= need) || (b != null && b.Chunks.Count > 0 && b.Built >= need)) res |= 1 << o;
             }
             return (byte)res;
         }
@@ -743,7 +749,7 @@ namespace PointDeviation
         {
             long now = Environment.TickCount;
             EffectInstance effect = EffectFor(st, Highlighted);
-            int nodes = 0, wanted = 0;
+            int nodes = 0, wanted = 0, missing = 0;
             long pts = 0;
             for (int i = 0; i < Tiles.Length; i++)
             {
@@ -753,7 +759,7 @@ namespace PointDeviation
                 {
                     TileGpu gp = _gpu[i], go = _gpuO[i];
                     bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
-                    if (!hp && !ho) continue;
+                    if (!hp && !ho) { missing++; continue; }
                     int cov = _covered[i];
                     // ottanti coperti dai figli: punti di un pixel; gli altri: punti grandi (se una versione manca, l'altra)
                     int pixMask = hp ? (ho ? cov : 0xFF) : 0;
@@ -771,12 +777,12 @@ namespace PointDeviation
                 pts += Draw(gpu, want[i], effect, 0xFF);
                 nodes++;
             }
-            StatPoints = pts; StatNodes = nodes; StatWanted = wanted; StatTick = now;
+            StatPoints = pts; StatNodes = nodes; StatWanted = wanted; StatTick = now; StatMissing = missing;
         }
 
         // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
         public long StatPoints;
-        public int StatNodes, StatWanted;
+        public int StatNodes, StatWanted, StatMissing;
         public long StatTick;
 
         /// <summary>Blocchi in memoria, in coda di lettura e illeggibili.</summary>
@@ -1135,7 +1141,7 @@ namespace PointDeviation
         /// <summary>La vista si sta muovendo (orbita, zoom): niente lavoro pesante, si disegna quello che c'è.</summary>
         public bool Moving;
         /// <summary>Versioni leggere dopo un cambio di stile: tutta la vista deve aggiornarsi subito.</summary>
-        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 25 : 200); } }
+        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 30 : 150); } }
         /// <summary>Aggiunta di dettaglio: poco per volta e mai mentre ci si muove.</summary>
         public bool RefineTime { get { return !Moving && _sw.ElapsedMilliseconds < 70; } }
     }

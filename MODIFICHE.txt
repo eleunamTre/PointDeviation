@@ -270,3 +270,6 @@ Ottava tornata (28/10/2026): octree
     finestra. In Gestisci visibilita' compare "limite di punti raggiunto" quando succede.
 74. Punti grandi un po' piu' grandi (raggio 0,85 volte la distanza tra i punti del livello invece di 0,6):
     con la nuvola ora uniforme le superfici risultavano ancora puntinate.
+75. Niente blocchi a meta': nell'octree ogni blocco si costruisce intero, e un figlio prende il posto del
+    padre nel suo ottante solo quando e' completo (prima un figlio costruito per 1/8 bastava, e si vedeva come un
+    riquadro piu' rado). Tolleranza piu' ampia nel riconoscere la camera ferma.
