@@ -137,10 +137,10 @@ namespace PointDeviation
                 if (now - _lastVisLog > 10000)
                 {
                     _lastVisLog = now;
-                    foreach (CloudLayer l in d.Layers) Log.Write("Visibilità", "«" + l.Name + "» in «" + view.Name + "»: " + l.VisibilityDiag(view));
+                    foreach (CloudLayer l in d.Layers) Log.Debug("Visibilità", "«" + l.Name + "» in «" + view.Name + "»: " + l.VisibilityDiag(view));
                 }
                 foreach (CloudLayer l in d.Layers) if (l.VisibleIn(view)) return true;
-                foreach (CloudLayer l in d.Layers) Log.Write("Visibilità", "«" + l.Name + "» non disegnata in «" + view.Name + "»: " + l.HiddenReason(view));
+                foreach (CloudLayer l in d.Layers) Log.Debug("Visibilità", "«" + l.Name + "» non disegnata in «" + view.Name + "»: " + l.HiddenReason(view));
                 return false;
             }
             catch { return false; }
@@ -187,6 +187,7 @@ namespace PointDeviation
                 long limit = st.PointScale > 0
                     ? (st.Quality == Quality.Fine ? 6000000 : st.Quality == Quality.Media ? 2000000 : 4000000)
                     : (st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000);
+                limit = limit * AdvancedSettings.Current.BudgetPercent / 100;
                 var wants = new List<int[]>();
                 var pxs = new List<double[]>();
                 var visible = new List<CloudLayer>();

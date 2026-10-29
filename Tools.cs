@@ -160,24 +160,7 @@ namespace PointDeviation
             var bottom = new System.Windows.Forms.Panel { Dock = DockStyle.Bottom, Height = 58, Padding = new Padding(8, 4, 8, 4) };
             var zoom = new Button { Text = L.T("Zoom sulla nuvola"), AutoSize = true, Dock = DockStyle.Right };
             zoom.Click += (s, e) => ZoomTo();
-            var log = new Button { Text = L.T("Registro"), AutoSize = true, Dock = DockStyle.Right };
-            log.Click += (s, e) =>
-            {
-                try
-                {
-                    if (!System.IO.File.Exists(Log.FilePath)) Log.Write("Registro", "aperto");
-                    System.Diagnostics.Process.Start("notepad.exe", "\"" + Log.FilePath + "\"");
-                }
-                catch { }
-            };
-            _diag.Dock = DockStyle.Fill;
-            _diag.ForeColor = UiTheme.Muted;
-            bottom.Controls.Add(_diag);
             bottom.Controls.Add(zoom);
-            bottom.Controls.Add(log);
-            var dbg = new System.Windows.Forms.CheckBox { Text = L.T("Colori per livello"), AutoSize = true, Dock = DockStyle.Right, Checked = CloudDebug.Levels };
-            dbg.CheckedChanged += (s, e) => { CloudDebug.Levels = dbg.Checked; DeviationController.Apply(Job.Recolor); };
-            bottom.Controls.Add(dbg);
             Controls.Add(_list);
             Controls.Add(hint);
             Controls.Add(bottom);

@@ -165,7 +165,9 @@ namespace PointDeviation
             var qData = new ComboBoxData("Quality") { ToolTip = L.T("Quanti punti disegnare: Automatica si adatta alla vista, Media alleggerisce, Fine mostra più dettaglio.") };
             PushButtonData appData = Push("Appearance", "Aspetto", asm, typeof(AppearanceCommand), "appearance",
                 "Dimensione dei punti, luminosità, contrasto, trasparenza e contrasto X-ray.");
-            IList<RibbonItem> stack = pDisplay.AddStackedItems(qData, appData);
+            PushButtonData advData = Push("Advanced", "Avanzate", asm, typeof(AdvancedCommand), "settings",
+                "Impostazioni avanzate: registro di diagnostica, colori per livello, limite di punti e memoria.");
+            IList<RibbonItem> stack = pDisplay.AddStackedItems(qData, appData, advData);
             _quality = stack[0] as Autodesk.Revit.UI.ComboBox;
             if (_quality != null)
             {

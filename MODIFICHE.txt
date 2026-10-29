@@ -300,3 +300,7 @@ Ottava tornata (28/10/2026): octree
     ottante, e disegnando solo i primi punti di un nodo il ciclo si fermava al primo pezzo oltre il limite, saltando
     gli altri ottanti. Era la causa dei riquadri pieni accanto a riquadri vuoti (stato: tutti i blocchi costruiti e
     disegnati, ma con pochi punti). Ora ogni pezzo sa da quale tratto di punti viene e si valuta per conto suo.
+86. Impostazioni avanzate (Visualizzazione > Avanzate): registro con livello (Errori, Avvisi, Info, Debug),
+    percorso del file con Apri e Cartella; Colori per livello dell'octree; limite di punti in percentuale e tempi
+    prima di liberare memoria video e memoria del computer. Salvate per computer in
+    %LOCALAPPDATA%\PointDeviation\advanced.json. Le righe periodiche (Stato, Camera, Visibilita') sono ora di livello Debug.

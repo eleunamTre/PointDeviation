@@ -438,6 +438,17 @@ namespace PointDeviation
             _profiles.Show(new WindowOwner(_mainWindow));
         }
 
+        private static AdvancedForm _advanced;
+
+        public static void ShowAdvanced(UIApplication app)
+        {
+            Init(app);
+            if (_advanced != null && !_advanced.IsDisposed) { _advanced.Show(); _advanced.Activate(); return; }
+            _advanced = new AdvancedForm();
+            _advanced.FormClosed += (s, e) => { _advanced = null; };
+            _advanced.Show(new WindowOwner(_mainWindow));
+        }
+
         public static void ShowAppearance(UIApplication app)
         {
             Init(app);

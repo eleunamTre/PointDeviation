@@ -702,12 +702,13 @@ namespace PointDeviation
             int argb = LayerArgb(st);
 
             // fuori vista (o modo non usato) da un po': si libera la memoria
+            long gpuKeep = AdvancedSettings.Current.GpuKeepSeconds * 1000L, memKeep = AdvancedSettings.Current.MemKeepSeconds * 1000L;
             for (int i = 0; i < Tiles.Length; i++)
             {
                 TileGpu g = _gpu[i], o = _gpuO[i];
-                if (g != null && now - g.LastDraw > 15000) { g.Dispose(); _gpu[i] = null; }
-                if (o != null && now - o.LastDraw > 15000) { o.Dispose(); _gpuO[i] = null; }
-                if (want[i] <= 0 && _gpu[i] == null && _gpuO[i] == null && Cpu[i] != null && now - _wantTick[i] > 60000 && Volatile.Read(ref Pending[i]) == 0) Cpu[i] = null;
+                if (g != null && now - g.LastDraw > gpuKeep) { g.Dispose(); _gpu[i] = null; }
+                if (o != null && now - o.LastDraw > gpuKeep) { o.Dispose(); _gpuO[i] = null; }
+                if (want[i] <= 0 && _gpu[i] == null && _gpuO[i] == null && Cpu[i] != null && now - _wantTick[i] > memKeep && Volatile.Read(ref Pending[i]) == 0) Cpu[i] = null;
             }
 
             // blocchi in vista, dal più importante (octree: più grande a schermo) al meno importante
@@ -887,7 +888,7 @@ namespace PointDeviation
             if (now - _lastStatLog > 5000)
             {
                 _lastStatLog = now;
-                Log.Write("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}",
+                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}",
                     Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : ""));
             }
         }
@@ -1408,7 +1409,7 @@ namespace PointDeviation
             long now = Environment.TickCount;
             if (now - _lastCamLog < 10000) return;
             _lastCamLog = now;
-            Log.Write("Camera", string.Format("«{0}»: centro da zoom {1:F1},{2:F1},{3:F1}  da camera {4:F1},{5:F1},{6:F1}  (distanza {7:F2} ft); ampiezza zoom {8:F1} camera {9:F1} ft",
+            Log.Debug("Camera", string.Format("«{0}»: centro da zoom {1:F1},{2:F1},{3:F1}  da camera {4:F1},{5:F1},{6:F1}  (distanza {7:F2} ft); ampiezza zoom {8:F1} camera {9:F1} ft",
                 view.Name, zoomMid.X, zoomMid.Y, zoomMid.Z, camCenter.X, camCenter.Y, camCenter.Z,
                 (zoomMid - camCenter).GetLength(), zoomW, camW));
         }
@@ -1459,7 +1460,7 @@ namespace PointDeviation
                 }
             }
             catch { v.Valid = false; }
-            if (!v.Valid) Log.Write("Camera", "camera della vista non disponibile: nessun ritaglio per inquadratura");
+            if (!v.Valid) Log.Warn("Camera", "camera della vista non disponibile: nessun ritaglio per inquadratura");
             return v;
         }
 

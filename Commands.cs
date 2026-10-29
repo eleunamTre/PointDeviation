@@ -193,6 +193,16 @@ namespace PointDeviation
     }
 
     [Transaction(TransactionMode.ReadOnly)]
+    public class AdvancedCommand : IExternalCommand
+    {
+        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+        {
+            UIApplication app = commandData.Application;
+            return CmdHelper.Run(app, ref message, () => DeviationController.ShowAdvanced(app));
+        }
+    }
+
+    [Transaction(TransactionMode.ReadOnly)]
     public class AppearanceCommand : IExternalCommand
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
