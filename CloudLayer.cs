@@ -513,7 +513,7 @@ namespace PointDeviation
             StatBudgetHit = false;
             // pixel tra due punti: con i punti grandi ogni punto copre più pixel, quindi ne servono molti meno
             double target = st.PointScale > 0
-                ? (st.Quality == Quality.Fine ? 1.6 : st.Quality == Quality.Media ? 3.2 : 2.3)
+                ? (st.Quality == Quality.Fine ? 2.0 : st.Quality == Quality.Media ? 3.6 : 2.8)
                 : 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
 
             double px0;
@@ -810,7 +810,10 @@ namespace PointDeviation
                     && bk.Points == !octa && Math.Abs(bk.Radius - radius) <= radius * 0.35 + 1e-12 && bk.Built >= need)
                 {
                     if (!budget.CoarseTime) { budget.MoreWork = true; return; }
+                    var usw = System.Diagnostics.Stopwatch.StartNew();
                     TileGpu up = Upload(bk);
+                    CloudBaker.UploadTicks += usw.ElapsedTicks;
+                    CloudBaker.UploadPoints += bk.Built;
                     up.LastDraw = now;
                     if (gpu != null) gpu.Dispose();
                     arr[i] = up;
@@ -955,8 +958,12 @@ namespace PointDeviation
             if (now - _lastStatLog > 5000)
             {
                 _lastStatLog = now;
-                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}",
-                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : ""));
+                double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                long bp = Interlocked.Exchange(ref CloudBaker.BakePoints, 0), bt = Interlocked.Exchange(ref CloudBaker.BakeTicks, 0);
+                long up = CloudBaker.UploadPoints, ut = CloudBaker.UploadTicks;
+                CloudBaker.UploadPoints = 0; CloudBaker.UploadTicks = 0;
+                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; preparati {8:N0} punti in {9:F0} ms (somma dei thread), copiati {10:N0} punti in {11:F0} ms",
+                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "", bp, bt * f, up, ut * f));
             }
         }
 
@@ -1469,6 +1476,8 @@ namespace PointDeviation
 
         public static int Queued { get { return _queue.Count; } }
         public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty; } }
+        public static long BakeTicks, BakePoints;         // diagnostica: tempo e punti preparati
+        public static long UploadTicks, UploadPoints;     // diagnostica: tempo e punti copiati nella scheda video
 
         public static void Enqueue(BakeJob j)
         {
@@ -1477,7 +1486,7 @@ namespace PointDeviation
             _queue.Enqueue(j);
             if (_threads == null)
             {
-                int n = Environment.ProcessorCount >= 8 ? 3 : 2;
+                int n = Math.Max(2, Math.Min(6, Environment.ProcessorCount - 2));
                 var t = new Thread[n];
                 for (int i = 0; i < n; i++)
                 {
@@ -1504,9 +1513,12 @@ namespace PointDeviation
                     // stile cambiato nel frattempo: la richiesta non serve più
                     if (j.Style.Version == j.Layer.CurrentStyleVersion)
                     {
+                        var sw = System.Diagnostics.Stopwatch.StartNew();
                         Baked bk = j.Layer.Bake(j);
                         if (bk != null)
                         {
+                            Interlocked.Add(ref BakeTicks, sw.ElapsedTicks);
+                            Interlocked.Add(ref BakePoints, bk.Built);
                             Volatile.Write(ref dest[j.Node], bk);
                             done = true;
                         }
@@ -1550,7 +1562,7 @@ namespace PointDeviation
         /// <summary>La vista si sta muovendo (orbita, zoom): niente lavoro pesante, si disegna quello che c'è.</summary>
         public bool Moving;
         /// <summary>Versioni leggere dopo un cambio di stile: tutta la vista deve aggiornarsi subito.</summary>
-        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 50 : 150); } }
+        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 50 : 250); } }
         /// <summary>Aggiunta di dettaglio: poco per volta e mai mentre ci si muove.</summary>
         public bool RefineTime { get { return !Moving && _sw.ElapsedMilliseconds < 70; } }
     }
