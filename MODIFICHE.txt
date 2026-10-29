@@ -326,3 +326,5 @@ Ottava tornata (28/10/2026): octree
 95. Riempimento piu' rapido dopo una rotazione: piu' thread di preparazione (fino a 6), piu' tempo per copiare i
     blocchi pronti a vista ferma, distanza tra i punti un po' maggiore (automatica 2,8 px, fine 2,0, media 3,6): circa
     un terzo di punti in meno con la stessa copertura. Registro Debug: tempi di preparazione e di copia.
+96. I blocchi scelti tengono pronte entrambe le versioni (punti grandi e di un pixel) anche quando ne usano una sola:
+    allontanando lo zoom i padri non restano piu' per qualche istante con i soli puntini in attesa dei punti grandi.

@@ -933,6 +933,11 @@ namespace PointDeviation
                 if (IsOctree && st.PointScale > 0)
                 {
                     TileGpu gp = _gpu[i], go = _gpuO[i];
+                    // un blocco scelto tiene pronte entrambe le versioni anche se in questo momento ne usa una sola:
+                    // prima i punti grandi di un padre coperto dai figli venivano liberati dopo 15 s, e allontanando lo
+                    // zoom il padre restava per un po' con i soli puntini, poi i punti grandi tornavano tutti insieme
+                    if (gp != null) gp.LastDraw = now;
+                    if (go != null) go.LastDraw = now;
                     bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
                     if (Volatile.Read(ref Cpu[i]) == null) notLoaded++;
                     else if (go == null || go.StyleVersion != st.Version || go.Built < Math.Min(Cpu[i].Count, want[i])) notBuilt++;
