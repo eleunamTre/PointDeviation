@@ -292,3 +292,7 @@ Ottava tornata (28/10/2026): octree
     precedono nell'ordine a strati (i primi grandi, gli ultimi piccoli). Il buffer di un nodo vale cosi' per qualunque
     zoom: non si ricostruisce piu' quando cambia il numero di punti disegnati (prima, zoomando, i nodi si
     rifacevano di continuo e alcuni restavano senza punti grandi, mostrando solo puntini).
+84. Limite di punti senza scacchiera: se con la densita' chiesta i punti superano il limite, invece di fermare la
+    visita a meta' (restavano blocchi scelti a caso tra quelli alla stessa distanza: i quadrati sparsi visti con
+    Colori per livello) si aumenta in modo uniforme la distanza tra i punti finche' il totale rientra. Verificato
+    simulando la scelta dei blocchi sull'indice della nuvola di prova: livelli sempre completi.

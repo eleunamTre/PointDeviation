@@ -501,50 +501,31 @@ namespace PointDeviation
         private void DesiredOctree(ViewCam cam, Style st, int[] outWant, double[] outPx, long budget)
         {
             int n = Tiles.Length;
-            Array.Clear(outWant, 0, n);
-            Array.Clear(outPx, 0, n);
-            _orderN = 0;
             StatBudgetHit = false;
             // pixel tra due punti: con i punti grandi ogni punto copre più pixel, quindi ne servono molti meno
             double target = st.PointScale > 0
                 ? (st.Quality == Quality.Fine ? 1.6 : st.Quality == Quality.Media ? 3.2 : 2.3)
                 : 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
-            int hn = 0;
-            double px;
-            if (NodeVisible(cam, 0, out px)) Push(ref hn, 0, Priority(cam, 0, px));
-            else Log.Write("LOD", "«" + Name + "»: la nuvola è fuori dall'inquadratura della vista");
-            long total = 0;
-            while (hn > 0)
+
+            double px0;
+            if (!NodeVisible(cam, 0, out px0))
             {
-                double key;
-                int i = Pop(ref hn, out key);
-                if (_orderN == _order.Length) Array.Resize(ref _order, _orderN * 2);
-                _order[_orderN++] = i;
-                NodeVisible(cam, i, out px);
-                outPx[i] = px;
-                int cnt = Tiles[i].Count;
-                // un blocco più fitto di quanto serve a questa distanza se ne disegna solo la parte necessaria (i punti sono
-                // mescolati: l'inizio è un sottocampione uniforme). Vale soprattutto per le foglie, che tengono tutti i punti
-                // della loro zona, ma anche per i figli appena oltre la soglia: così il limite di punti non si esaurisce
-                // su blocchi inutilmente densi lasciandone altri, a caso, senza dettaglio (effetto scacchiera).
-                if (cnt > 0)
-                {
-                    double sOwn = _childCount[i] == 0 ? Math.Sqrt(_area[i] / cnt) : _nodeSpacing[i];
-                    double sWant = target * px;
-                    if (sOwn < sWant) cnt = (int)Math.Max(Math.Min(cnt, 512), cnt * (sOwn / sWant) * (sOwn / sWant));
-                }
-                outWant[i] = cnt;
-                total += cnt;
-                if (total >= budget) { StatBudgetHit = true; break; }
-                if (_nodeSpacing[i] / Math.Max(px, 1e-9) <= target || _childCount[i] == 0) continue;
-                for (int k = 0; k < _childCount[i]; k++)
-                {
-                    int c = _firstChild[i] + k;
-                    double pc;
-                    if (NodeVisible(cam, c, out pc)) Push(ref hn, c, Priority(cam, c, pc));
-                }
+                Array.Clear(outWant, 0, n); Array.Clear(outPx, 0, n); _orderN = 0;
+                Log.Write("LOD", "«" + Name + "»: la nuvola è fuori dall'inquadratura della vista");
+                return;
             }
 
+            // Se con la densità chiesta i punti superano il limite, non ci si ferma a metà della visita (resterebbero
+            // blocchi scelti a caso tra quelli alla stessa distanza: scacchiera), ma si rarefà in modo uniforme tutta la
+            // vista, aumentando la distanza tra i punti finché il totale rientra nel limite.
+            long total = SelectOctree(cam, target, budget * 3, outWant, outPx);
+            for (int iter = 0; iter < 8 && total > budget; iter++)
+            {
+                StatBudgetHit = true;
+                target *= Math.Sqrt((double)total / budget) * 1.05;
+                total = SelectOctree(cam, target, budget * 3, outWant, outPx);
+            }
+            StatTarget = target;
             // distanza effettiva tra i punti disegnati: quella del livello più fitto scelto sotto ogni nodo
             for (int i = n - 1; i >= 0; i--)
             {
@@ -557,6 +538,54 @@ namespace PointDeviation
                 }
                 _effSpacing[i] = e;
             }
+        }
+
+        /// <summary>Distanza tra i punti a schermo usata nell'ultimo fotogramma (pixel).</summary>
+        public double StatTarget;
+
+        /// <summary>
+        /// Visita dell'octree per una distanza tra i punti a schermo (target, pixel): si scende nei figli finché i punti
+        /// del livello a schermo sono più radi del target, prima le zone più importanti. Restituisce i punti scelti.
+        /// </summary>
+        private long SelectOctree(ViewCam cam, double target, long cap, int[] outWant, double[] outPx)
+        {
+            int n = Tiles.Length;
+            Array.Clear(outWant, 0, n);
+            Array.Clear(outPx, 0, n);
+            _orderN = 0;
+            int hn = 0;
+            double px;
+            if (NodeVisible(cam, 0, out px)) Push(ref hn, 0, Priority(cam, 0, px));
+            long total = 0;
+            while (hn > 0)
+            {
+                double key;
+                int i = Pop(ref hn, out key);
+                if (_orderN == _order.Length) Array.Resize(ref _order, _orderN * 2);
+                _order[_orderN++] = i;
+                NodeVisible(cam, i, out px);
+                outPx[i] = px;
+                int cnt = Tiles[i].Count;
+                // un blocco più fitto di quanto serve a questa distanza se ne disegna solo la parte necessaria
+                // (i punti sono in ordine a strati: l'inizio copre tutto il blocco in modo uniforme)
+                if (cnt > 0)
+                {
+                    double sOwn = _childCount[i] == 0 ? Math.Sqrt(_area[i] / cnt) : _nodeSpacing[i];
+                    double sWant = target * px;
+                    if (sOwn < sWant) cnt = (int)Math.Max(Math.Min(cnt, 512), cnt * (sOwn / sWant) * (sOwn / sWant));
+                }
+                outWant[i] = cnt;
+                total += cnt;
+                if (total >= cap) break; // sicurezza: la chiamata successiva userà una distanza più grande
+                if (_nodeSpacing[i] / Math.Max(px, 1e-9) <= target || _childCount[i] == 0) continue;
+                for (int k = 0; k < _childCount[i]; k++)
+                {
+                    int c = _firstChild[i] + k;
+                    double pc;
+                    if (NodeVisible(cam, c, out pc)) Push(ref hn, c, Priority(cam, c, pc));
+                }
+            }
+            return total;
         }
 
         /// <summary>
