@@ -278,6 +278,13 @@ namespace PointDeviation
         private readonly int[] _firstChild, _childCount;
         private int[] _heap = new int[256];
         private int[] _order = new int[256];          // nodi scelti, dal più importante (ordine di caricamento)
+        // raggio progressivo dei punti grandi: i primi punti dell'ordine a strati coprono di più, ma al massimo così
+        // (era 2,5: quando di un blocco si disegnava solo l'inizio si vedevano rombi enormi)
+        private const double ProgressiveCap = 1.6;
+        public bool Moving;                            // camera in movimento in questo fotogramma (impostato dal server)
+        private double _stableTarget;                  // distanza tra i punti a schermo usata finora (pixel)
+        private byte[] _wantedOct = new byte[0];       // octree: ottanti con un figlio scelto (pronto o no)
+        private bool[] _coarse = new bool[0];          // octree: blocco molto più rado del necessario a schermo
         private bool[] _wasRefined = new bool[0];      // blocchi suddivisi nell'ultimo fotogramma (isteresi)
         private int _orderN;
         private double[] _heapKey = new double[256];
@@ -298,6 +305,8 @@ namespace PointDeviation
             _mode = new byte[n];
             BakedP = new Baked[n]; BakedO = new Baked[n];
             _wasRefined = new bool[n];
+            _wantedOct = new byte[n];
+            _coarse = new bool[n];
             BakePendP = new int[n]; BakePendO = new int[n];
             _covered = new byte[n];
             _ocx = new double[n]; _ocy = new double[n]; _ocz = new double[n];
@@ -527,13 +536,40 @@ namespace PointDeviation
             // Se con la densità chiesta i punti superano il limite, non ci si ferma a metà della visita (resterebbero
             // blocchi scelti a caso tra quelli alla stessa distanza: scacchiera), ma si rarefà in modo uniforme tutta la
             // vista, aumentando la distanza tra i punti finché il totale rientra nel limite.
-            long total = SelectOctree(cam, target, budget * 3, outWant, outPx);
-            for (int iter = 0; iter < 8 && total > budget; iter++)
+            //
+            // La distanza scelta è stabile nel tempo: mentre la camera si muove resta quella dell'ultimo fotogramma (la
+            // dimensione dei punti non salta a ogni scatto della rotella; per un attimo si può superare il limite), da
+            // ferma si avvicina a quella giusta al massimo del 25% per fotogramma.
+            double baseTarget = target;
+            long total;
+            if (Moving && _stableTarget > 0)
             {
-                StatBudgetHit = true;
-                target *= Math.Sqrt((double)total / budget) * 1.05;
+                target = Math.Max(baseTarget, _stableTarget);
                 total = SelectOctree(cam, target, budget * 3, outWant, outPx);
+                StatBudgetHit = total > budget;
             }
+            else
+            {
+                total = SelectOctree(cam, target, budget * 3, outWant, outPx);
+                for (int iter = 0; iter < 8 && total > budget; iter++)
+                {
+                    StatBudgetHit = true;
+                    target *= Math.Sqrt((double)total / budget) * 1.05;
+                    total = SelectOctree(cam, target, budget * 3, outWant, outPx);
+                }
+                if (_stableTarget > 0)
+                {
+                    double t = Math.Max(_stableTarget / 1.25, Math.Min(_stableTarget * 1.25, target));
+                    t = Math.Max(baseTarget, t);
+                    if (Math.Abs(t - target) > 1e-6 * target)
+                    {
+                        target = t;
+                        total = SelectOctree(cam, target, budget * 3, outWant, outPx);
+                        Redraw.Request(); // si continua ad avvicinarsi nei fotogrammi successivi
+                    }
+                }
+            }
+            _stableTarget = target;
             StatTarget = target;
 
             // memoria per l'isteresi: quali blocchi sono stati suddivisi in questo fotogramma
@@ -773,7 +809,11 @@ namespace PointDeviation
                     // se il figlio non è ancora pronto. Così i punti grandi compaiono solo dove sono la grana definitiva e
                     // non si vedono più gonfiarsi a ogni movimento: al massimo per un attimo la zona è più rada.
                     byte cov = WantedOctants(i, want);
-                    _covered[i] = cov;
+                    _wantedOct[i] = cov;
+                    _covered[i] = CoveredOctants(i, want);
+                    // blocco molto più rado di quanto serve a schermo (antenati lontani dal livello giusto): i suoi punti
+                    // grandi sarebbero enormi, quindi dove manca ancora il figlio si mostra a punti piccoli
+                    _coarse[i] = px[i] > 0 && _nodeSpacing[i] / px[i] > 2.5 * Math.Max(StatTarget, 1.0);
                     // raggio di base dal livello del nodo; il raggio di ogni punto dipende poi dalla sua posizione nell'ordine
                     // a strati (vedi BuildRange), così il buffer vale per qualunque zoom e non va mai ricostruito
                     double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;
@@ -1006,11 +1046,14 @@ namespace PointDeviation
                     bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
                     if (Volatile.Read(ref Cpu[i]) == null) notLoaded++;
                     else if (go == null || go.StyleVersion != st.Version || go.Built < Math.Min(Cpu[i].Count, want[i])
-                        || (_covered[i] != 0 && !hp)) notBuilt++;
+                        || (_wantedOct[i] != 0 && !hp)) notBuilt++;
                     if (!hp && !ho) { missing++; continue; }
-                    int cov = _covered[i];
-                    // ottanti con un figlio scelto: punti piccoli (il figlio, appena pronto, aggiunge la grana fine);
-                    // gli altri: punti grandi. Se una versione manca ancora si usa l'altra, meglio che un buco.
+                    // Ottanti con il figlio già pronto: punti piccoli (la grana la dà il figlio). Ottanti con il figlio scelto
+                    // ma non ancora pronto: resta la versione stabile di prima, i punti grandi del blocco, che al massimo
+                    // sono il doppio di quelli giusti (un livello sopra); solo per i blocchi molto più radi del necessario
+                    // si usano i punti piccoli, per non mostrare rombi enormi. Ottanti senza figli scelti: punti grandi.
+                    // Se una versione manca ancora si usa l'altra, meglio che un buco.
+                    int cov = _covered[i] | (_coarse[i] ? _wantedOct[i] : 0);
                     int pixMask = hp ? (ho ? cov : 0xFF) : 0;
                     int bigMask = ho ? (0xFF & ~pixMask) : 0;
                     if (pixMask != 0) { gp.LastDraw = now; pts += Draw(gp, want[i], effect, pixMask); }
@@ -1155,7 +1198,7 @@ namespace PointDeviation
                     // circa quella del nodo intero × √(totale/k). Il k-esimo punto prende il raggio adatto a quella densità:
                     // i primi grandi, gli ultimi piccoli. Qualunque prefisso si disegni, la superficie resta coperta.
                     if (gpu.FullCount > 0)
-                        r0 = (float)(gpu.Radius * Math.Min(2.5, Math.Sqrt((double)gpu.FullCount / (k + 1))));
+                        r0 = (float)(gpu.Radius * Math.Min(ProgressiveCap, Math.Sqrt((double)gpu.FullCount / (k + 1))));
                     Put(oc, fx + r0, fy, fz, r, g, b, t);
                     Put(oc, fx - r0, fy, fz, r, g, b, t);
                     Put(oc, fx, fy + r0, fz, r, g, b, t);
@@ -1269,7 +1312,7 @@ namespace PointDeviation
                     if (vpp == 1) Vert(p0, ref nv[oc], stride, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
                     else
                     {
-                        float r0 = (float)(j.Radius * Math.Min(2.5, Math.Sqrt((double)full / (k + 1))));
+                        float r0 = (float)(j.Radius * Math.Min(ProgressiveCap, Math.Sqrt((double)full / (k + 1))));
                         Vert(p0, ref nv[oc], stride, fx + r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
                         Vert(p0, ref nv[oc], stride, fx - r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
                         Vert(p0, ref nv[oc], stride, fx, fy + r0, fz, oR, oG, oB, oA, r, g, b, a);
@@ -1604,7 +1647,8 @@ namespace PointDeviation
                 try
                 {
                     // stile cambiato nel frattempo: la richiesta non serve più
-                    if (j.Style.Version == j.Layer.CurrentStyleVersion)
+                    // nodo uscito dalla vista mentre era in coda (rotazione veloce): non si prepara
+                    if (j.Style.Version == j.Layer.CurrentStyleVersion && j.Layer.IdleMs(j.Node) < 2000)
                     {
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         Baked bk = j.Layer.Bake(j);

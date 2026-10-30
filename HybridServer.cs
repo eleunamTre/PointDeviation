@@ -185,7 +185,7 @@ namespace PointDeviation
                 // livello di dettaglio: punti desiderati per blocco, poi limite complessivo della qualità scelta
                 // con i punti grandi (6 vertici l'uno) bastano molti meno punti
                 long limit = st.PointScale > 0
-                    ? (st.Quality == Quality.Fine ? 5000000 : st.Quality == Quality.Media ? 1500000 : 3000000)
+                    ? (st.Quality == Quality.Fine ? 7000000 : st.Quality == Quality.Media ? 2500000 : 4500000)
                     : (st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000);
                 limit = limit * AdvancedSettings.Current.BudgetPercent / 100;
                 var wants = new List<int[]>();
@@ -197,8 +197,12 @@ namespace PointDeviation
                     if (!l.VisibleIn(view)) continue;
                     var w = new int[l.Tiles.Length];
                     var px = new double[l.Tiles.Length];
+                    l.Moving = budget.Moving;
                     l.Desired(cam, st, w, px, limit);
-                    foreach (int x in w) total += x;
+                    // l'octree rispetta il limite da solo (con la parte visibile dei blocchi e una distanza stabile tra i
+                    // punti): la riduzione proporzionale qui sotto accorciava tutti i blocchi in modo diverso a ogni
+                    // fotogramma e lasciava solo i primi punti, quelli più grandi (punti che si gonfiano in movimento)
+                    if (!l.IsOctree) foreach (int x in w) total += x;
                     wants.Add(w); pxs.Add(px);
                     visible.Add(l);
                 }

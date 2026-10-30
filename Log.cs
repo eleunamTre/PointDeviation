@@ -78,7 +78,7 @@ namespace PointDeviation
         /// <summary>Limite di punti disegnati, in percentuale del valore della qualità scelta.</summary>
         [DataMember] public int BudgetPercent = 100;
         /// <summary>Secondi fuori vista prima di liberare la memoria della scheda video e quella del computer.</summary>
-        [DataMember] public int GpuKeepSeconds = 15;
+        [DataMember] public int GpuKeepSeconds = 45;
         [DataMember] public int MemKeepSeconds = 60;
 
         private static AdvancedSettings _current;
@@ -107,7 +107,7 @@ namespace PointDeviation
         {
             if (LogLevel < LogLevel.Spento || LogLevel > LogLevel.Debug) LogLevel = LogLevel.Info;
             BudgetPercent = Math.Max(25, Math.Min(400, BudgetPercent == 0 ? 100 : BudgetPercent));
-            GpuKeepSeconds = Math.Max(2, Math.Min(600, GpuKeepSeconds == 0 ? 15 : GpuKeepSeconds));
+            GpuKeepSeconds = Math.Max(2, Math.Min(600, GpuKeepSeconds == 0 ? 45 : GpuKeepSeconds));
             MemKeepSeconds = Math.Max(5, Math.Min(3600, MemKeepSeconds == 0 ? 60 : MemKeepSeconds));
             return this;
         }

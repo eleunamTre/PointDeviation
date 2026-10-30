@@ -337,3 +337,16 @@ Ottava tornata (28/10/2026): octree
     grana definitiva. Mentre i figli arrivano la zona puo' essere per un attimo piu' rada, ma non cambia dimensione.
     Le due versioni del nodo (punti grandi e punti piccoli) si preparano insieme in un solo passaggio, cosi' quella
     a punti piccoli e' gia' pronta quando si zooma.
+99. Punti stabili durante il movimento (dal registro: «limite raggiunto», distanza punti 2,8 -> 4,4 px):
+    - il server riduceva in proporzione i punti di tutti i blocchi quando il totale superava il limite: ogni blocco
+      mostrava solo i suoi primi punti, i piu' grandi, e la riduzione cambiava a ogni fotogramma. Per l'octree non si
+      fa piu' (il limite lo gestisce gia' la scelta dei blocchi, sulla parte visibile);
+    - la distanza tra i punti scelta per il limite resta ferma mentre la camera si muove e da ferma cambia al
+      massimo del 25% per fotogramma;
+    - limiti con i punti grandi alzati: Fine 7 M, Auto 4,5 M, Media 2,5 M;
+    - raggio progressivo massimo 1,6 volte (era 2,5);
+    - dove il figlio scelto non e' ancora pronto resta la versione di prima (punti grandi del padre, al massimo il
+      doppio); solo i blocchi molto piu' radi del necessario passano ai punti piccoli;
+    - i nodi usciti dalla vista mentre erano in coda non si preparano piu';
+    - i blocchi fuori vista restano nella scheda video 45 s invece di 15 (Avanzate > Prestazioni, per chi ha gia'
+      salvato le impostazioni il valore resta quello salvato).
