@@ -39,20 +39,21 @@ namespace PointDeviation
         {
             edge = 0;
             if (count <= 0) return;
-            // lato massimo: il più piccolo (da MinEdgeFt in su) per cui la stima dei triangoli resta nel limite
+            // lato massimo: il più piccolo (da MinEdgeFt in su) per cui i pezzi, contati esattamente, restano nel limite.
+            // (Una stima approssimata restava sotto il vero numero: si arrivava al tetto di sicurezza e i triangoli
+            // rimasti restavano interi, con riquadri enormi che rallentavano tutta la ricerca.)
             double L = MinEdgeFt;
-            for (int iter = 0; iter < 40; iter++)
+            for (int iter = 0; iter < 60; iter++)
             {
-                double est = 0, L2 = L * L;
-                for (int t = 0; t < count && est <= SplitBudget; t++)
+                double L2 = L * L;
+                long total = 0;
+                for (int t = 0; t < count && total <= SplitBudget; t++)
                 {
-                    double e, area;
-                    EdgeArea(v, t, out e, out area);
-                    if (e <= L) { est += 1; continue; }
-                    est += Math.Max(e / L, area / (0.2 * L2)) + 1; // area media dei pezzi ~0,2 L² (bisezione)
+                    int o = t * 9;
+                    total += Pieces(v[o], v[o + 1], v[o + 2], v[o + 3], v[o + 4], v[o + 5], v[o + 6], v[o + 7], v[o + 8], L2, 0);
                 }
-                if (est <= SplitBudget) break;
-                L *= 1.35;
+                if (total <= SplitBudget) break;
+                L *= 1.2;
             }
             edge = L;
             var outV = new List<double>(Math.Min(SplitBudget, count * 4) * 9);
@@ -71,7 +72,7 @@ namespace PointDeviation
                     // lato più lungo: ab (0-1), bc (1-2), ca (2-0)
                     double lab = D2(q, 0, 1), lbc = D2(q, 1, 2), lca = D2(q, 2, 0);
                     double m = Math.Max(lab, Math.Max(lbc, lca));
-                    if (m <= L * L || outV.Count / 9 + stack.Count > SplitBudget * 2) { outV.AddRange(q); continue; }
+                    if (m <= L * L || outV.Count / 9 + stack.Count > SplitBudget * 3) { outV.AddRange(q); continue; }
                     int i0, i1, i2; // i0-i1 è il lato da dividere, i2 il vertice opposto
                     if (m == lab) { i0 = 0; i1 = 1; i2 = 2; } else if (m == lbc) { i0 = 1; i1 = 2; i2 = 0; } else { i0 = 2; i1 = 0; i2 = 1; }
                     double mx = (q[i0 * 3] + q[i1 * 3]) * 0.5, my = (q[i0 * 3 + 1] + q[i1 * 3 + 1]) * 0.5, mz = (q[i0 * 3 + 2] + q[i1 * 3 + 2]) * 0.5;
@@ -84,6 +85,30 @@ namespace PointDeviation
             }
             v = outV.ToArray();
             count = v.Length / 9;
+        }
+
+        /// <summary>Numero di pezzi della bisezione sul lato più lungo finché ogni lato è al massimo √L2.</summary>
+        private static long Pieces(double ax, double ay, double az, double bx, double by, double bz, double cx, double cy, double cz, double L2, int depth)
+        {
+            double ab = (bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az);
+            double bc = (cx - bx) * (cx - bx) + (cy - by) * (cy - by) + (cz - bz) * (cz - bz);
+            double ca = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy) + (az - cz) * (az - cz);
+            double m = Math.Max(ab, Math.Max(bc, ca));
+            if (m <= L2 || depth > 48) return 1;
+            if (m == ab)
+            {
+                double mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz = (az + bz) * 0.5;
+                return Pieces(ax, ay, az, mx, my, mz, cx, cy, cz, L2, depth + 1) + Pieces(mx, my, mz, bx, by, bz, cx, cy, cz, L2, depth + 1);
+            }
+            if (m == bc)
+            {
+                double mx = (bx + cx) * 0.5, my = (by + cy) * 0.5, mz = (bz + cz) * 0.5;
+                return Pieces(ax, ay, az, bx, by, bz, mx, my, mz, L2, depth + 1) + Pieces(ax, ay, az, mx, my, mz, cx, cy, cz, L2, depth + 1);
+            }
+            {
+                double mx = (cx + ax) * 0.5, my = (cy + ay) * 0.5, mz = (cz + az) * 0.5;
+                return Pieces(ax, ay, az, bx, by, bz, mx, my, mz, L2, depth + 1) + Pieces(mx, my, mz, bx, by, bz, cx, cy, cz, L2, depth + 1);
+            }
         }
 
         private static void EdgeArea(double[] v, int t, out double maxEdge, out double area)
