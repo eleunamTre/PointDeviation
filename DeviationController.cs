@@ -230,6 +230,7 @@ namespace PointDeviation
             {
                 // tolta l'ultima nuvola: si dimentica anche l'analisi
                 AnalysisRegistry.Remove(d.Key);
+                DistPrefetch.Stop();
                 d.SetDistances(null);
                 d.Cloud = null;
                 d.Settings.Display = d.Settings.LastViewMode;
@@ -591,6 +592,7 @@ namespace PointDeviation
 
                     // nuova nuvola: l'analisi precedente non vale per lei, si riparte dai colori della scansione
                     AnalysisRegistry.Remove(data.Key);
+                    DistPrefetch.Stop();
                     data.SetDistances(null);
                     data.Cloud = null;
                     data.ComputedMm = 0;
@@ -607,6 +609,7 @@ namespace PointDeviation
                     NativeSync.RemoveAll(doc, data);
                     data.SyncLayers(doc);
                     AnalysisRegistry.Remove(data.Key);
+                    DistPrefetch.Stop();
                     data.SetDistances(null);
                     data.Cloud = null;
                     Status(L.T("Nuvola rimossa."));
