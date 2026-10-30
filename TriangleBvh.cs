@@ -29,6 +29,22 @@ namespace PointDeviation
 
         public int TriangleCount { get { return _idx.Length; } }
 
+        /// <summary>
+        /// Impronta della geometria (indipendente dall'ordine dei triangoli): stessa geometria del modello, stessa
+        /// impronta anche in un'altra sessione. Serve a ritrovare le distanze salvate su disco.
+        /// </summary>
+        public ulong Signature()
+        {
+            ulong sum = (ulong)_idx.Length;
+            foreach (int t in _idx)
+            {
+                ulong h = 1469598103934665603UL;
+                for (int j = 0; j < 9; j++) h = DistCache.Mix(h, (ulong)(long)Math.Round(_v[t * 9 + j] * 1e4));
+                sum += h;
+            }
+            return sum == 0 ? 1 : sum;
+        }
+
         public TriangleBvh(double[] vertices, int triangleCount)
         {
             _v = vertices;

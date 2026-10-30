@@ -688,7 +688,7 @@ namespace PointDeviation
 
             // versione unica anche tra sessioni diverse
             data.AnalysisVersion = Math.Max(data.AnalysisVersion + 1, (int)((DateTime.UtcNow - new DateTime(2026, 1, 1)).TotalSeconds));
-            AnalysisRegistry.Set(data.Key, new AnalysisSnapshot { Bvh = bvh, SearchFt = searchFt, Version = data.AnalysisVersion });
+            AnalysisRegistry.Set(data.Key, new AnalysisSnapshot { Bvh = bvh, SearchFt = searchFt, Version = data.AnalysisVersion, Signature = bvh.Signature() });
 
             // statistiche su un campione uniforme di tutte le nuvole; i punti disegnati calcolano le distanze da soli
             data.Cloud = data.BuildSample(Math.Max(100000, Math.Min(s.MaxPoints, 800000)));

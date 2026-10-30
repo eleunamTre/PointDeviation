@@ -81,6 +81,7 @@ namespace PointDeviation
         public TriangleBvh Bvh;
         public double SearchFt;
         public int Version;
+        public ulong Signature;   // impronta della geometria (TriangleBvh.Signature), per le distanze salvate su disco
     }
 
     internal static class AnalysisRegistry

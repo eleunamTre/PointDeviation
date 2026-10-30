@@ -356,6 +356,24 @@ namespace PointDeviation
 
         public string Name { get { return Info.Name; } }
 
+        // distanze salvate su disco per l'analisi attuale (vedi DistCache)
+        private DistCache _distCache;
+        private AnalysisSnapshot _distCacheFor;
+        private readonly object _distCacheLock = new object();
+
+        public DistCache GetDistCache(AnalysisSnapshot an)
+        {
+            if (an == null || !IsOctree) return null;
+            lock (_distCacheLock)
+            {
+                if (_distCacheFor == an) return _distCache;
+                if (_distCache != null) _distCache.Close();
+                _distCacheFor = an;
+                _distCache = DistCache.Open(this, an);
+                return _distCache;
+            }
+        }
+
         /// <summary>Distanza tra i punti disegnati in un blocco (piedi): octree = livello più fitto scelto, altrimenti densità del blocco.</summary>
         public double DrawSpacing(int tile, int n)
         {
@@ -776,6 +794,8 @@ namespace PointDeviation
             CurrentStyleVersion = st.Version;
             long now = Environment.TickCount;
             int argb = LayerArgb(st);
+            // modalità discrepanze: le distanze di tutta la nuvola si calcolano (e si salvano) in background
+            if (IsOctree && st.Mode == DisplayMode.Discrepanze && st.Analysis != null) DistPrefetch.Ensure(this, st.Analysis);
 
             // fuori vista (o modo non usato) da un po': si libera la memoria
             long gpuKeep = AdvancedSettings.Current.GpuKeepSeconds * 1000L, memKeep = AdvancedSettings.Current.MemKeepSeconds * 1000L;
@@ -2126,6 +2146,10 @@ namespace PointDeviation
             if (j.NeedDist && j.Analysis != null)
             {
                 if (c.Dist == null || c.DistKey != j.DistKey) { c.Dist = new float[c.Count]; c.DistCount = 0; c.DistKey = j.DistKey; }
+                // prima quelle già salvate su disco (stessa analisi in un altro momento, o calcolate in background)
+                DistCache dc = L.GetDistCache(j.Analysis);
+                if (dc != null) c.DistCount = dc.Read(j.Tile, t.FirstRecord, c.DistCount, c.Count, c.Dist);
+                int calcFrom = c.DistCount;
                 TriangleBvh bvh = j.Analysis.Bvh;
                 double range = j.Analysis.SearchFt;
                 float[] dist = c.Dist;
@@ -2140,6 +2164,7 @@ namespace PointDeviation
                     },
                     _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
                 c.DistCount = c.Count;
+                if (dc != null && calcFrom < c.Count) dc.Write(j.Tile, t.FirstRecord, calcFrom, c.Count, c.Dist);
             }
 
             // normali: dal file (formato 2), altrimenti calcolate e ricalcolate quando i punti sono cresciuti molto

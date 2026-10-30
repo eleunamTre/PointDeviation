@@ -354,3 +354,11 @@ Ottava tornata (28/10/2026): octree
      vecchi non si disegna se un suo antenato ha gia' quelli nuovi, e un figlio copre il padre solo quando ha lo stile
      attuale. La vista passa al nuovo stile tutta insieme, prima rada (livelli alti, calcolati per primi) e poi sempre
      piu' fitta, invece che a blocchi RGB e blocchi colorati mescolati.
+101. Distanze dell'analisi salvate su disco, accanto alla nuvola (cartella «analisi», 2 byte per punto, circa 100 MB
+     per 48 M di punti). Prima le distanze stavano solo nei blocchi in memoria: un blocco mai visto andava calcolato
+     e uno liberato dopo 60 s fuori vista andava ricalcolato, per questo a ogni zoom sembrava rifare l'analisi.
+     - In modalita' discrepanze le distanze di tutta la nuvola si calcolano in background, dai livelli grossolani ai
+       fini, quando il caricamento della vista e' fermo; nel registro: «distanze di tutta la nuvola pronte».
+     - L'analisi si riconosce da un'impronta della geometria del modello, della distanza massima e della posizione
+       della nuvola: rifacendo la stessa analisi, anche dopo aver chiuso il progetto, le distanze si rileggono.
+       Se il modello cambia l'impronta cambia e si ricalcola. Si tengono le 4 analisi piu' recenti per nuvola.
