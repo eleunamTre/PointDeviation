@@ -455,3 +455,9 @@ Ottava tornata (28/10/2026): octree
 119. Eliminando una nuvola dalla libreria la si toglie anche dai progetti aperti in cui e' inserita (tipo e istanze,
      quindi sparisce anche da Gestisci collegamenti), poi si chiudono i file delle distanze salvate e si cancella la
      cartella (con qualche tentativo, nel caso un file sia ancora in uso).
+120. Correzione delle conversioni in background (registro: «Controls created on one thread cannot be parented to a
+     control on a different thread», finestra bianca e Revit bloccato): le notifiche venivano riportate con il
+     contesto di sincronizzazione di chi accodava; con gli RCP l'accodamento arriva da un evento di Revit e quel
+     contesto mandava gli aggiornamenti della Libreria (e l'avviso finale) su un thread di lavoro. Ora passano da un
+     controllo invisibile creato sul thread dell'interfaccia di Revit; la Libreria si protegge comunque se chiamata da
+     un altro thread. Nuvola non trovata dal motore (cartella eliminata): avviso nel registro invece di errore.

@@ -223,6 +223,12 @@ namespace PointDeviation
             public IPointCloudAccess CreatePointCloudAccess(string identifier)
             {
                 try { var a = new PdAccess(identifier); Log.Write("Motore", "nuvola caricata: " + identifier); return a; }
+                catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException)
+                {
+                    // nuvola eliminata o spostata: Revit la mostra come non trovata in Gestisci collegamenti
+                    Log.Warn("Motore", "nuvola non trovata: " + identifier);
+                    return null;
+                }
                 catch (Exception ex) { Log.Error("Motore " + identifier, ex); return null; }
             }
 

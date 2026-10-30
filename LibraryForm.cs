@@ -109,6 +109,7 @@ namespace PointDeviation
             _search.TextChanged += (s, e) => RefreshCards();
 
             DeviationController.ActiveChanged += OnActive;
+            ConversionQueue.InitUi(); // la finestra nasce sul thread dell'interfaccia di Revit
             ConversionQueue.Changed += OnJob;
             FormClosed += (s, e) => ConversionQueue.Changed -= OnJob;
             FormClosing += (s, e) =>
@@ -130,6 +131,7 @@ namespace PointDeviation
         private void OnJob(ConversionJob job)
         {
             if (IsDisposed) return;
+            if (InvokeRequired) { OnUi(() => OnJob(job)); return; }
             bool here = string.Equals(SafeFull(job.Folder), SafeFull(CurrentFolder ?? ""), StringComparison.OrdinalIgnoreCase);
             _background.Visible = ConversionQueue.Busy;
             if (!job.Active) { if (here) RefreshCards(); UpdateQueueStatus(); return; }

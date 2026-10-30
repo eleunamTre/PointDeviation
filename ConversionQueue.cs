@@ -35,7 +35,7 @@ namespace PointDeviation
     {
         private static readonly object _lock = new object();
         private static readonly List<ConversionJob> _jobs = new List<ConversionJob>();
-        private static SynchronizationContext _ui;
+        private static Control _ui;      // controllo invisibile creato sul thread dell'interfaccia di Revit
         private static int _nextId;
         private static bool _running;
 
@@ -46,10 +46,23 @@ namespace PointDeviation
 
         public static bool Busy { get { lock (_lock) return _jobs.Exists(j => j.Active); } }
 
+        /// <summary>
+        /// Da chiamare sul thread dell'interfaccia di Revit (comandi, finestra Libreria): le notifiche delle conversioni
+        /// vengono riportate su quel thread attraverso un controllo invisibile. (Prima si usava il contesto di
+        /// sincronizzazione di chi accodava: per gli RCP l'accodamento arriva da un evento di Revit, dove quel contesto
+        /// non è quello dell'interfaccia, e la Libreria veniva aggiornata da un altro thread: errore e Revit bloccato.)
+        /// </summary>
+        public static void InitUi()
+        {
+            if (_ui != null && !_ui.IsDisposed) return;
+            var c = new Control();
+            IntPtr h = c.Handle; // crea la finestra sul thread corrente
+            _ui = c;
+        }
+
         public static ConversionJob Enqueue(Func<IPointSource> make, string name, string folder, string rawToDelete)
         {
-            // contesto del thread dell'interfaccia (chi accoda è la finestra Libreria, sul thread di Revit)
-            if (_ui == null) _ui = SynchronizationContext.Current;
+            InitUi();
             var job = new ConversionJob { Make = make, Name = name, Folder = folder, RawToDelete = rawToDelete, Phase = L.T("In coda"), State = ConversionState.InCoda };
             lock (_lock)
             {
@@ -145,9 +158,10 @@ namespace PointDeviation
 
         private static void Post(Action a)
         {
-            SynchronizationContext ui = _ui;
-            if (ui == null) return;
-            ui.Post(_ => { try { a(); } catch (Exception ex) { Log.Error("Conversione (interfaccia)", ex); } }, null);
+            Control ui = _ui;
+            if (ui == null || ui.IsDisposed) return;
+            try { ui.BeginInvoke((Action)(() => { try { a(); } catch (Exception ex) { Log.Error("Conversione (interfaccia)", ex); } })); }
+            catch (Exception ex) { Log.Error("Conversione (avviso)", ex); }
         }
     }
 

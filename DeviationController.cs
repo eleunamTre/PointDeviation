@@ -344,6 +344,7 @@ namespace PointDeviation
             _uiapp = app;
             _mainWindow = app.MainWindowHandle;
             ApiQueue.Init();
+            ConversionQueue.InitUi();
 
             if (_event == null)
             {
