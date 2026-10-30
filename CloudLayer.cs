@@ -544,9 +544,11 @@ namespace PointDeviation
                     object ov = _pcOverrides.Invoke(view, null);
                     object st = ov != null ? _pcScanSettings.Invoke(ov, new object[] { InstanceId }) : null;
                     if (st != null)
+                    {
                         foreach (System.Reflection.PropertyInfo pi in st.GetType().GetProperties())
                             if (pi.GetIndexParameters().Length == 0)
                                 try { sb.Append(", nuvola.").Append(pi.Name).Append('=').Append(pi.GetValue(st, null)); } catch { }
+                    }
                     else sb.Append(", impostazioni della nuvola: nessuna");
                 }
             }
