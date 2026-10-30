@@ -108,6 +108,9 @@ namespace PointDeviation
                 DeviationController.SettingsChanged -= OnActive;
             };
             Reload(DeviationController.Current.ProfileId);
+            // barre calcolate prima della prima visualizzazione: prima si vedeva solo il profilo attivo e gli altri
+            // comparivano dopo, mentre l'elenco calcolava i colori riga per riga
+            WarmUp(120, 16);
         }
 
         private void OnActive()
@@ -199,12 +202,22 @@ namespace PointDeviation
         // barre già calcolate, per profilo e dimensione: ridisegnare l'elenco non ricalcola più i colori pixel per pixel
         private static readonly Dictionary<string, Bitmap> _bars = new Dictionary<string, Bitmap>();
 
+        // creare il serializzatore costa decine di millisecondi: uno solo, riusato
+        private static readonly System.Runtime.Serialization.Json.DataContractJsonSerializer _ser =
+            new System.Runtime.Serialization.Json.DataContractJsonSerializer(typeof(ColorProfile));
+
+        /// <summary>Prepara le barre di tutti i profili prima di mostrare la finestra (niente righe che compaiono una alla volta).</summary>
+        internal static void WarmUp(int w, int h)
+        {
+            try { foreach (ColorProfile p in ProfileStore.All) BarImage(p, w, h); } catch { }
+        }
+
         private static Bitmap BarImage(ColorProfile p, int w, int h)
         {
             string key;
             using (var ms = new System.IO.MemoryStream())
             {
-                new System.Runtime.Serialization.Json.DataContractJsonSerializer(typeof(ColorProfile)).WriteObject(ms, p);
+                _ser.WriteObject(ms, p);
                 key = Convert.ToBase64String(ms.ToArray()) + "|" + w + "x" + h;
             }
             Bitmap bmp;

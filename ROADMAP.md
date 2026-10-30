@@ -9,7 +9,7 @@ Le immagini sferiche delle stazioni di scansione (negli E57 sono nella sezione i
 orientamento; negli RCP nelle scansioni) mostrate in Revit: elenco delle stazioni e apertura della panoramica
 in una vista dedicata di Revit (vista 3D prospettica creata per la stazione, camera nel punto di scansione).
 
-## 1c. Conversioni in background
+## 1c. Conversioni in background – fatto
 Coda di conversioni indipendente dalla finestra Libreria: ogni nuvola in conversione compare come scheda
 «bloccata» con il proprio avanzamento, la finestra si può chiudere e Revit resta utilizzabile. LAS ed E57
 interamente in background; RCP: la lettura attraverso Revit resta sul thread di Revit (come oggi), la
@@ -22,7 +22,7 @@ Esiste già come profilo colori «Completezza»: evidenzia i punti a più di una
 - quantità per zona (punti, superficie stimata), esportabile.
 
 ## 3. Interfaccia
-- Eliminare i ricaricamenti visibili all'apertura delle finestre (es. Analisi: compare prima solo il
+- (fatto per Profili colore) Eliminare i ricaricamenti visibili all'apertura delle finestre (es. Analisi: compare prima solo il
   profilo attivo, poi gli altri): costruire il contenuto prima di mostrare la finestra.
 - Armonizzare scelte grafiche e icone (stile, spessori, colori, dimensioni 16/32) su tutta la barra.
 

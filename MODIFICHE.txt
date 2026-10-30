@@ -480,3 +480,6 @@ Ottava tornata (28/10/2026): octree
 125. Diagnostica per la spunta della singola nuvola in V/G (non risulta ne' come elemento nascosto ne' nelle impostazioni
      dell'istanza): a livello Debug il registro elenca gli elementi modificati da ogni operazione («[Modifiche]») e le
      impostazioni lette anche sul tipo della nuvola.
+126. Profili colore: le barre di tutti i profili si preparano prima di mostrare la finestra (prima compariva solo il
+     profilo attivo e gli altri dopo, mentre l'elenco calcolava le barre riga per riga) e il serializzatore usato per
+     riconoscerle si crea una volta sola.
