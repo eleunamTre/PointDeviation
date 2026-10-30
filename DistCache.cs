@@ -209,6 +209,65 @@ namespace PointDeviation
         }
     }
 
+    /// <summary>
+    /// Calcolo delle distanze di un gruppo di punti: i punti si ordinano lungo una curva che segue lo spazio (Morton),
+    /// così ogni punto parte dal triangolo trovato per il precedente, che è vicino, e la ricerca nell'albero dei
+    /// triangoli si riduce a pochi passi. I punti di un nodo sono in ordine a strati (sparsi), da qui l'ordinamento.
+    /// </summary>
+    internal static class DistCompute
+    {
+        private const int Chunk = 1024;
+
+        /// <summary>xyz: coordinate di modello (3 per punto); i risultati vanno in dist[offset + k].</summary>
+        public static void Run(TriangleBvh bvh, double range, double[] xyz, float[] dist, int offset, ParallelOptions par, ThreadPriority prio)
+        {
+            int n = xyz.Length / 3;
+            if (n == 0) return;
+            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            for (int k = 0; k < n; k++)
+            {
+                double x = xyz[k * 3], y = xyz[k * 3 + 1], z = xyz[k * 3 + 2];
+                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                if (y < minY) minY = y; if (y > maxY) maxY = y;
+                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+            }
+            double ext = Math.Max(1e-9, Math.Max(maxX - minX, Math.Max(maxY - minY, maxZ - minZ)));
+            double f = 1023.0 / ext;
+            var keys = new uint[n];
+            var idx = new int[n];
+            for (int k = 0; k < n; k++)
+            {
+                idx[k] = k;
+                keys[k] = Part((uint)((xyz[k * 3] - minX) * f)) | (Part((uint)((xyz[k * 3 + 1] - minY) * f)) << 1) | (Part((uint)((xyz[k * 3 + 2] - minZ) * f)) << 2);
+            }
+            Array.Sort(keys, idx);
+            int chunks = (n + Chunk - 1) / Chunk;
+            Parallel.For(0, chunks, par, () => { Thread.CurrentThread.Priority = prio; return new int[64]; }, (c, state, stack) =>
+            {
+                int hint = -1;
+                int end = Math.Min(n, (c + 1) * Chunk);
+                for (int q = c * Chunk; q < end; q++)
+                {
+                    int k = idx[q];
+                    double d;
+                    dist[offset + k] = bvh.Nearest(xyz[k * 3], xyz[k * 3 + 1], xyz[k * 3 + 2], range, stack, ref hint, out d) ? (float)d : float.NaN;
+                }
+                return stack;
+            }, _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
+        }
+
+        // 10 bit per asse distribuiti ogni 3 bit
+        private static uint Part(uint v)
+        {
+            v = Math.Min(v, 1023u);
+            v = (v | (v << 16)) & 0x030000FF;
+            v = (v | (v << 8)) & 0x0300F00F;
+            v = (v | (v << 4)) & 0x030C30C3;
+            v = (v | (v << 2)) & 0x09249249;
+            return v;
+        }
+    }
+
     /// <summary>Esito del calcolo delle distanze di una nuvola.</summary>
     internal sealed class DistRunResult
     {
@@ -324,18 +383,14 @@ namespace PointDeviation
                         fs.Position = (t.FirstRecord + from) * R;
                         int got = LasSource.ReadFully(fs, raw, raw.Length) / R;
                         var dist = new float[t.Count];
-                        TriangleBvh bvh = an.Bvh;
-                        double range = an.SearchFt;
-                        ThreadPriority prio = foreground ? ThreadPriority.Normal : ThreadPriority.BelowNormal;
-                        Parallel.For(0, got, par, () => { Thread.CurrentThread.Priority = prio; return new int[64]; }, (k, state, stack) =>
+                        var xyz = new double[got * 3];
+                        for (int k = 0; k < got; k++)
                         {
                             int o = k * R;
-                            double x, y, z, d;
                             L.ToModel(BitConverter.ToInt32(raw, o) * sc, BitConverter.ToInt32(raw, o + 4) * sc, BitConverter.ToInt32(raw, o + 8) * sc,
-                                out x, out y, out z);
-                            dist[from + k] = bvh.Nearest(x, y, z, range, stack, out d) ? (float)d : float.NaN;
-                            return stack;
-                        }, _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
+                                out xyz[k * 3], out xyz[k * 3 + 1], out xyz[k * 3 + 2]);
+                        }
+                        DistCompute.Run(an.Bvh, an.SearchFt, xyz, dist, from, par, foreground ? ThreadPriority.Normal : ThreadPriority.BelowNormal);
                         dc.Write(i, t.FirstRecord, from, from + got, dist);
                         res.Computed += got;
                         doneAll += got;

@@ -9,7 +9,7 @@ namespace PointDeviation
         {
             d["Analisi delle discrepanze"] = "Deviation analysis";
             d["Calcolo delle distanze dal modello..."] = "Computing distances from the model...";
-            d["Continua in background"] = "Continue in background";
+            d["Naviga subito"] = "Navigate now";
             d["Impossibile salvare le distanze accanto alla nuvola (controlla di poter scrivere nella cartella della libreria)."] = "Cannot save distances next to the cloud (check that the library folder is writable).";
             d["Analisi non completata"] = "Analysis not completed";
             d["Analisi completata"] = "Analysis completed";
@@ -20,7 +20,7 @@ namespace PointDeviation
             d["Punti con una superficie del modello entro la distanza massima: {0:F0}%."] = "Points with a model surface within the maximum distance: {0:F0}%.";
             d["Nessun punto vicino al modello: controlla la posizione della nuvola, la distanza massima o gli elementi analizzati."] = "No point near the model: check the cloud position, the maximum distance or the analyzed elements.";
             d[", circa {0:F0} s alla fine"] = ", about {0:F0} s left";
-            d["«{0}»: {1:N0} di {2:N0} punti ({3:F0}%){4}"] = "«{0}»: {1:N0} of {2:N0} points ({3:F0}%){4}";
+            d["«{0}»\n{1:N0} di {2:N0} punti ({3:F0}%){4}"] = "«{0}»\n{1:N0} of {2:N0} points ({3:F0}%){4}";
             d["Ci sono più nuvole: seleziona quella da usare come riferimento e riprova."] = "There are several clouds: select the one to use as reference and try again.";
             d["Clicca sui punti della nuvola  |  INVIO o ESC termina"] = "Click points on the cloud  |  ENTER or ESC to finish";
             d["Contrasto X-ray"] = "X-ray contrast";

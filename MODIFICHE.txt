@@ -377,3 +377,6 @@ Ottava tornata (28/10/2026): octree
        «disegnati 0, da costruire 218»). Ora si liberano solo i blocchi non scelti per la vista;
      - maschere dei punti grandi/piccoli aggiornate anche per i blocchi in attesa di distanze o normali;
      - i blocchi piu' radi di 2 volte il necessario (era 2,5) usano i punti piccoli dove il figlio non e' pronto.
+104. Calcolo delle distanze piu' veloce: i punti di ogni nodo si ordinano lungo una curva che segue lo spazio
+     (Morton) e ogni punto parte dal triangolo trovato per il precedente, che limita subito la ricerca (prima: 48,5 M
+     di punti in 95 s). Finestra di avanzamento: testo su due righe (non piu' tagliato), pulsante «Naviga subito».

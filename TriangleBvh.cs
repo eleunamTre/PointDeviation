@@ -132,12 +132,34 @@ namespace PointDeviation
         /// </summary>
         public bool Nearest(double px, double py, double pz, double maxDist, int[] stack, out double signedDist)
         {
+            int hint = -1;
+            return Nearest(px, py, pz, maxDist, stack, ref hint, out signedDist);
+        }
+
+        /// <summary>
+        /// Come sopra, partendo dal triangolo «hint» (il più vicino al punto precedente, se vicino nello spazio): la sua
+        /// distanza limita subito la ricerca e si scartano quasi tutti i rami. All'uscita hint è il triangolo trovato.
+        /// </summary>
+        public bool Nearest(double px, double py, double pz, double maxDist, int[] stack, ref int hint, out double signedDist)
+        {
             signedDist = double.NaN;
             if (_nodes.Length == 0) return false;
 
             double best2 = maxDist * maxDist;
             int bestTri = -1;
             double bestDot = 0.0;
+            if (hint >= 0)
+            {
+                double hx, hy, hz;
+                ClosestPointOnTriangle(px, py, pz, hint, out hx, out hy, out hz);
+                double dx = px - hx, dy = py - hy, dz = pz - hz;
+                double d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 < best2)
+                {
+                    best2 = d2; bestTri = hint;
+                    bestDot = dx * _n[hint * 3] + dy * _n[hint * 3 + 1] + dz * _n[hint * 3 + 2];
+                }
+            }
             int sp = 0;
             stack[sp++] = 0;
 
@@ -175,7 +197,8 @@ namespace PointDeviation
                 }
             }
 
-            if (bestTri < 0) return false;
+            if (bestTri < 0) { hint = -1; return false; }
+            hint = bestTri;
             double dist = Math.Sqrt(best2);
             signedDist = bestDot >= 0.0 ? dist : -dist;
             return true;

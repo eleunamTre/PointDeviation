@@ -18,10 +18,10 @@ namespace PointDeviation
         private readonly List<CloudLayer> _layers;
         private readonly AnalysisSnapshot _an;
         private readonly Label _title = new Label { AutoSize = false, Height = 26, Dock = DockStyle.Top, Font = new Font("Segoe UI Semibold", 11f) };
-        private readonly Label _detail = new Label { AutoSize = false, Height = 22, Dock = DockStyle.Top, ForeColor = UiTheme.Muted };
+        private readonly Label _detail = new Label { AutoSize = false, Height = 40, Dock = DockStyle.Top, ForeColor = UiTheme.Muted };
         private readonly ProgressBar _bar = new ProgressBar { Dock = DockStyle.Top, Height = 18, Minimum = 0, Maximum = 1000 };
         private readonly Label _result = new Label { AutoSize = false, Dock = DockStyle.Fill, Padding = new Padding(0, 10, 0, 0) };
-        private readonly Button _button = new Button { Width = 190, Height = 30, Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
+        private readonly Button _button = new Button { Width = 200, Height = 30, Anchor = AnchorStyles.Right | AnchorStyles.Bottom };
         private volatile bool _cancel;
         private bool _done;
         private readonly Stopwatch _sw = new Stopwatch();
@@ -33,7 +33,7 @@ namespace PointDeviation
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;
-            ClientSize = new Size(520, 210);
+            ClientSize = new Size(560, 236);
 
             var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 14, 18, 8) };
             body.Controls.Add(_result);
@@ -50,7 +50,7 @@ namespace PointDeviation
 
             _title.Text = L.T("Calcolo delle distanze dal modello...");
             _detail.Text = "";
-            _button.Text = L.T("Continua in background");
+            _button.Text = L.T("Naviga subito");
             _button.Click += (s, e) => { if (_done) Close(); else { _cancel = true; Close(); } };
             UiTheme.Apply(this, _button);
             _title.Font = new Font("Segoe UI Semibold", 11f);
@@ -159,7 +159,7 @@ namespace PointDeviation
                     _bar.Value = Math.Max(0, Math.Min(_bar.Maximum, (int)(f * _bar.Maximum)));
                     double sec = _sw.Elapsed.TotalSeconds;
                     string eta = f > 0.03 && f < 1 ? string.Format(L.T(", circa {0:F0} s alla fine"), sec / f - sec) : "";
-                    _detail.Text = string.Format(L.T("«{0}»: {1:N0} di {2:N0} punti ({3:F0}%){4}"), name, done, all, f * 100, eta);
+                    _detail.Text = string.Format(L.T("«{0}»\n{1:N0} di {2:N0} punti ({3:F0}%){4}"), name, done, all, f * 100, eta);
                 }));
             }
             catch { }

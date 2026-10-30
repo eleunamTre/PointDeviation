@@ -2161,16 +2161,17 @@ namespace PointDeviation
                 TriangleBvh bvh = j.Analysis.Bvh;
                 double range = j.Analysis.SearchFt;
                 float[] dist = c.Dist;
-                Parallel.For(c.DistCount, c.Count, _par,
-                    () => { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; return new int[64]; },
-                    (k, state, stack) =>
+                int m = c.Count - calcFrom;
+                if (m > 0)
+                {
+                    var xyz = new double[m * 3];
+                    for (int k = 0; k < m; k++)
                     {
-                        double x, y, z, d;
-                        L.ToModel(c.Pos[k * 3], c.Pos[k * 3 + 1], c.Pos[k * 3 + 2], out x, out y, out z);
-                        dist[k] = bvh.Nearest(x, y, z, range, stack, out d) ? (float)d : float.NaN;
-                        return stack;
-                    },
-                    _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
+                        int s3 = (calcFrom + k) * 3;
+                        L.ToModel(c.Pos[s3], c.Pos[s3 + 1], c.Pos[s3 + 2], out xyz[k * 3], out xyz[k * 3 + 1], out xyz[k * 3 + 2]);
+                    }
+                    DistCompute.Run(bvh, range, xyz, dist, calcFrom, _par, ThreadPriority.BelowNormal);
+                }
                 c.DistCount = c.Count;
                 if (dc != null && calcFrom < c.Count) dc.Write(j.Tile, t.FirstRecord, calcFrom, c.Count, c.Dist);
             }
