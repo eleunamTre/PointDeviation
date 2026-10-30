@@ -381,7 +381,7 @@ namespace PointDeviation
         /// Calcola (o ritrova sul disco) le distanze di tutti i punti della nuvola. progress(fatti, totale) viene chiamata
         /// dopo ogni nodo; cancelled() interrompe tra un nodo e l'altro.
         /// </summary>
-        public static DistRunResult Run(CloudLayer L, AnalysisSnapshot an, bool foreground, Func<bool> cancelled, Action<long, long> progress)
+        public static DistRunResult Run(CloudLayer L, AnalysisSnapshot an, bool foreground, Func<bool> cancelled, Action<long, long> progress, long stopAt = long.MaxValue)
         {
             DistCache dc = L.GetDistCache(an);
             if (dc == null) return null;
@@ -424,6 +424,8 @@ namespace PointDeviation
                             while (true)
                             {
                                 if (cancelled != null && cancelled()) return;
+                                // calcolo in primo piano dei soli livelli principali: ci si ferma a stopAt punti
+                                if (Interlocked.Read(ref doneAll) >= stopAt) return;
                                 int oi = Interlocked.Increment(ref next);
                                 if (oi >= n) return;
                                 int i = order[oi];
@@ -471,6 +473,13 @@ namespace PointDeviation
                 res.Gc2 = GC.CollectionCount(2) - gc0;
                 res.Threads = workers;
                 if (cancelled != null && cancelled()) return res;
+                if (Interlocked.Read(ref doneAll) < res.Total)
+                {
+                    // fermato prima della fine (stopAt): il resto lo completa il calcolo in background
+                    bool all = true;
+                    for (int i = 0; i < n && all; i++) if (dc.Done(i) < L.Tiles[i].Count) all = false;
+                    if (!all) return res;
+                }
                 res.Finished = true;
                 lock (_lock) { _targets.Remove(L); _finished[L] = an; }
                 return res;

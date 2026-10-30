@@ -15,6 +15,7 @@ namespace PointDeviation
     /// </summary>
     internal sealed class AnalysisProgressForm : Form
     {
+        private const double ForegroundShare = 0.3; // frazione dei punti calcolata con la finestra aperta
         private readonly List<CloudLayer> _layers;
         private readonly AnalysisSnapshot _an;
         private readonly Label _title = new Label { AutoSize = false, Height = 26, Dock = DockStyle.Top, Font = new Font("Segoe UI Semibold", 11f) };
@@ -73,30 +74,37 @@ namespace PointDeviation
 
         private void Work()
         {
-            long total = 0, reused = 0, computed = 0, surface = 0, counted = 0;
+            long total = 0, reused = 0, computed = 0, surface = 0, counted = 0, remaining = 0;
             string error = null;
             try
             {
                 var totals = new long[_layers.Count];
                 for (int k = 0; k < _layers.Count; k++) foreach (TileEntry t in _layers[k].Tiles) totals[k] += t.Count;
-                long all = 0; foreach (long x in totals) all += x;
+                // In primo piano solo i livelli principali (la parte più grossolana della nuvola, una frazione dei punti
+                // distribuita in modo uniforme): bastano per navigare quasi a ogni zoom. Il dettaglio fine si completa in
+                // background, e dove serve prima lo calcola la vista stessa.
+                var stops = new long[_layers.Count];
+                long all = 0;
+                for (int k = 0; k < _layers.Count; k++) { stops[k] = (long)(totals[k] * ForegroundShare); all += stops[k]; }
                 long before = 0;
                 long lastUi = 0;
                 for (int k = 0; k < _layers.Count && !_cancel; k++)
                 {
                     CloudLayer l = _layers[k];
-                    long b0 = before;
+                    long b0 = before, stop = stops[k];
                     DistRunResult r = DistPrefetch.Run(l, _an, true, () => _cancel, (done, tot) =>
                     {
                         long now = _sw.ElapsedMilliseconds;
-                        if (now - lastUi < 80 && done < tot) return;
+                        if (now - lastUi < 80 && done < stop) return;
                         lastUi = now;
-                        Ui(b0 + done, all, l.Name);
-                    });
+                        Ui(b0 + Math.Min(done, stop), all, l.Name);
+                    }, stop);
                     if (r == null) { error = L.T("Impossibile salvare le distanze accanto alla nuvola (controlla di poter scrivere nella cartella della libreria)."); break; }
                     total += r.Total; reused += r.Reused; computed += r.Computed;
+                    remaining += Math.Max(0, r.Total - r.Reused - r.Computed);
+                    if (!r.Finished) DistPrefetch.Ensure(l, _an); // il resto in background
                     Log.Write("Analisi", string.Format("«{0}»: {4} thread, per thread lettura {1:F1} s, calcolo {2:F1} s, scrittura {3:F1} s; raccolte memoria (gen 2) {5}", l.Name, r.ReadMs / 1000, r.ComputeMs / 1000, r.WriteMs / 1000, r.Threads, r.Gc2));
-                    before += totals[k];
+                    before += stop;
                 }
                 if (!_cancel && error == null)
                     foreach (CloudLayer l in _layers)
@@ -115,8 +123,8 @@ namespace PointDeviation
             if (_cancel) return;
 
             double sec = _sw.Elapsed.TotalSeconds;
-            Log.Write("Analisi", string.Format("distanze di {0:N0} punti pronte in {1:F1} s ({2:N0} calcolate, {3:N0} ritrovate){4}",
-                total, sec, computed, reused, error != null ? ", errore: " + error : ""));
+            Log.Write("Analisi", string.Format("distanze di {0:N0} punti pronte in {1:F1} s ({2:N0} calcolate, {3:N0} ritrovate, {5:N0} lasciate al background){4}",
+                total - remaining, sec, computed, reused, error != null ? ", errore: " + error : "", remaining));
             try
             {
                 BeginInvoke((Action)(() =>
@@ -133,8 +141,11 @@ namespace PointDeviation
                     }
                     _title.Text = L.T("Analisi completata");
                     _title.ForeColor = Color.FromArgb(39, 130, 70);
-                    _detail.Text = string.Format(L.T("{0:N0} punti in {1:F1} s"), total, sec);
-                    string txt = reused >= total
+                    _detail.Text = string.Format(L.T("{0:N0} punti in {1:F1} s"), total - remaining, sec);
+                    string txt = remaining > 0
+                        ? string.Format(L.T("Livelli principali pronti: puoi navigare. Il dettaglio fine ({0:F0}% dei punti) si completa in background, circa {1:F0} s."),
+                            100.0 * remaining / Math.Max(1, total), computed > 0 ? remaining / (computed / Math.Max(0.1, sec)) * 1.2 : 0)
+                        : reused >= total
                         ? L.T("Distanze ritrovate da un'analisi precedente identica: nessun calcolo necessario.")
                         : reused > 0
                             ? string.Format(L.T("{0:N0} distanze calcolate, {1:N0} ritrovate da un'analisi precedente."), computed, reused)

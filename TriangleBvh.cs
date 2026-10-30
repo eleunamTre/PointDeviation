@@ -19,8 +19,8 @@ namespace PointDeviation
             public int Start, Count;
         }
 
-        private readonly double[] _v;      // 9 double per triangolo
-        private readonly double[] _n;      // 3 double per triangolo (normale unitaria)
+        private double[] _v;               // 9 double per triangolo (dopo la costruzione: nell'ordine delle foglie)
+        private double[] _n;               // 3 double per triangolo (normale unitaria)
         private readonly double[] _cen;    // baricentri
         private readonly double[] _keys;
         private readonly int[] _idx;
@@ -196,6 +196,21 @@ namespace PointDeviation
             if (_idx.Length > 0) Build(0, _idx.Length);
             _nodes = _list.ToArray();
             _list.Clear();
+
+            // triangoli riordinati come le foglie dell'albero: i triangoli di una foglia (e delle foglie vicine) sono
+            // contigui in memoria, e la ricerca non salta in giro per centinaia di MB a ogni triangolo
+            int m = _idx.Length;
+            var v2 = new double[m * 9];
+            var n2 = new double[m * 3];
+            for (int k = 0; k < m; k++)
+            {
+                int t = _idx[k];
+                Array.Copy(_v, t * 9, v2, k * 9, 9);
+                Array.Copy(_n, t * 3, n2, k * 3, 3);
+                _idx[k] = k;
+            }
+            _v = v2; _n = n2;
+            _keys = null;
         }
 
         private int Build(int start, int count)

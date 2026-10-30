@@ -7,6 +7,7 @@ namespace PointDeviation
     {
         static partial void FillEnglish(Dictionary<string, string> d)
         {
+            d["Livelli principali pronti: puoi navigare. Il dettaglio fine ({0:F0}% dei punti) si completa in background, circa {1:F0} s."] = "Main levels ready: you can navigate. The fine detail ({0:F0}% of points) is completed in the background, about {1:F0} s.";
             d["Analisi delle discrepanze"] = "Deviation analysis";
             d["Calcolo delle distanze dal modello..."] = "Computing distances from the model...";
             d["Naviga subito"] = "Navigate now";

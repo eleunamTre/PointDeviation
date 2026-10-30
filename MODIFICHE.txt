@@ -411,3 +411,8 @@ Ottava tornata (28/10/2026): octree
      fila) e i triangoli rimasti restavano interi: i loro riquadri enormi allargavano tutti i rami dell'albero di
      ricerca, e la ricerca restava lenta (circa 20 microsecondi per punto). Tetto di sicurezza portato a 3 volte il
      limite, ma con il conteggio esatto non si raggiunge.
+111. Analisi: 36,9 s per 48,5 M di punti dopo la suddivisione completa (era 95 s). Inoltre:
+     - la finestra calcola in primo piano solo i livelli principali (30% dei punti, distribuiti in modo uniforme su
+       tutta la nuvola), che bastano per navigare quasi a ogni zoom; il dettaglio fine si completa in background e
+       l'esito indica la parte rimasta e il tempo stimato;
+     - i triangoli si riordinano in memoria come le foglie dell'albero di ricerca (meno salti in memoria).
