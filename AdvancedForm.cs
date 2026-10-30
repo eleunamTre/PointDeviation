@@ -23,6 +23,8 @@ namespace PointDeviation
         private readonly NumericUpDown _budget = new NumericUpDown { Minimum = 25, Maximum = 400, Increment = 25, Width = 80 };
         private readonly NumericUpDown _gpuKeep = new NumericUpDown { Minimum = 2, Maximum = 600, Width = 80 };
         private readonly NumericUpDown _memKeep = new NumericUpDown { Minimum = 5, Maximum = 3600, Width = 80 };
+        private readonly ComboBox _profile = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 330 };
+        private readonly Label _profileInfo = new Label { AutoSize = true, MaximumSize = new Size(520, 0), ForeColor = UiTheme.Muted, Margin = new Padding(0, 6, 0, 4) };
         private readonly System.Windows.Forms.CheckBox _fullWait = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -155,6 +157,11 @@ namespace PointDeviation
         {
             var p = Stack();
             p.Controls.Add(Title(L.T("Prestazioni")));
+            _profile.Items.Add(string.Format(L.T("Automatico (questo computer: {0})"), L.T(Hardware.Detected.ToString())));
+            foreach (string n in new[] { "Leggero", "Medio", "Potente", "Personalizzato" }) _profile.Items.Add(L.T(n));
+            _profile.SelectedIndexChanged += (s, e) => ShowProfile();
+            p.Controls.Add(Row(L.T("Profilo"), _profile));
+            p.Controls.Add(_profileInfo);
             p.Controls.Add(Row(L.T("Limite di punti disegnati (% della qualità scelta)"), _budget));
             p.Controls.Add(Note(L.T("Più punti danno più dettaglio ma chiedono più memoria video e rendono la navigazione meno fluida.")));
             p.Controls.Add(Row(L.T("Libera la memoria video dopo (secondi fuori vista)"), _gpuKeep));
@@ -164,6 +171,23 @@ namespace PointDeviation
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
             return p;
+        }
+
+        /// <summary>Mostra i valori del profilo scelto; si modificano solo con «Personalizzato».</summary>
+        private void ShowProfile()
+        {
+            var prof = (HardwareProfile)Math.Max(0, _profile.SelectedIndex);
+            bool custom = prof == HardwareProfile.Personalizzato;
+            _budget.Enabled = _gpuKeep.Enabled = _memKeep.Enabled = custom;
+            PerfValues v = PerfValues.For(prof == HardwareProfile.Automatico || custom ? Hardware.Detected : prof);
+            if (!custom)
+            {
+                _budget.Value = Math.Max(_budget.Minimum, Math.Min(_budget.Maximum, v.BudgetPercent));
+                _gpuKeep.Value = Math.Max(_gpuKeep.Minimum, Math.Min(_gpuKeep.Maximum, v.GpuKeepSeconds));
+                _memKeep.Value = Math.Max(_memKeep.Minimum, Math.Min(_memKeep.Maximum, v.MemKeepSeconds));
+            }
+            _profileInfo.Text = string.Format(L.T("Computer: {0}. Thread di preparazione {1}, di lettura {2}; precaricamento attorno alla vista {3}. I thread cambiano al riavvio di Revit."),
+                Hardware.Describe(), v.BakerThreads, v.LoaderThreads, v.PrefetchMargin > 0 ? L.T("attivo") : L.T("spento"));
         }
 
         private static Control Row(string text, Control c)
@@ -184,6 +208,8 @@ namespace PointDeviation
             _budget.Value = a.BudgetPercent;
             _gpuKeep.Value = a.GpuKeepSeconds;
             _memKeep.Value = a.MemKeepSeconds;
+            _profile.SelectedIndex = (int)a.Profile;
+            ShowProfile();
             _fullWait.Checked = a.AnalysisFullWait;
         }
 
@@ -191,9 +217,13 @@ namespace PointDeviation
         {
             AdvancedSettings a = AdvancedSettings.Current;
             a.LogLevel = _logOn.Checked ? (LogLevel)(_level.SelectedIndex + 1) : LogLevel.Spento;
-            a.BudgetPercent = (int)_budget.Value;
-            a.GpuKeepSeconds = (int)_gpuKeep.Value;
-            a.MemKeepSeconds = (int)_memKeep.Value;
+            a.Profile = (HardwareProfile)Math.Max(0, _profile.SelectedIndex);
+            if (a.Profile == HardwareProfile.Personalizzato)
+            {
+                a.BudgetPercent = (int)_budget.Value;
+                a.GpuKeepSeconds = (int)_gpuKeep.Value;
+                a.MemKeepSeconds = (int)_memKeep.Value;
+            }
             a.AnalysisFullWait = _fullWait.Checked;
             a.Save();
             bool levelsChanged = CloudDebug.Levels != _levels.Checked;

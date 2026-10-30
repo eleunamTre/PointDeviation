@@ -10,6 +10,17 @@ namespace PointDeviation
             d["Livelli principali pronti: puoi navigare. Il dettaglio fine ({0:F0}% dei punti) si completa in background, circa {1:F0} s."] = "Main levels ready: you can navigate. The fine detail ({0:F0}% of points) is completed in the background, about {1:F0} s.";
             d["Analisi: aspetta il calcolo completo delle distanze"] = "Analysis: wait for all distances to be computed";
             d["Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta."] = "Off (recommended): the window closes when the main levels are ready (about a third of the time) and the fine detail is completed in the background. On: wait for everything, then every zoom level is ready and the share of points near the model is exact.";
+            d["Automatico (questo computer: {0})"] = "Automatic (this computer: {0})";
+            d["Leggero"] = "Light";
+            d["Medio"] = "Medium";
+            d["Potente"] = "Powerful";
+            d["Personalizzato"] = "Custom";
+            d["Profilo"] = "Profile";
+            d["Computer: {0}. Thread di preparazione {1}, di lettura {2}; precaricamento attorno alla vista {3}. I thread cambiano al riavvio di Revit."] = "Computer: {0}. Preparation threads {1}, reading threads {2}; prefetch around the view {3}. Thread counts change when Revit restarts.";
+            d["attivo"] = "on";
+            d["spento"] = "off";
+            d["{0} processori, {1:F0} GB di memoria"] = "{0} processors, {1:F0} GB of memory";
+            d["{0} processori"] = "{0} processors";
             d["Analisi delle discrepanze"] = "Deviation analysis";
             d["Calcolo delle distanze dal modello..."] = "Computing distances from the model...";
             d["Naviga subito"] = "Navigate now";

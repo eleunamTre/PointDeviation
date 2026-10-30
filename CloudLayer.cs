@@ -576,9 +576,10 @@ namespace PointDeviation
             // Precaricamento: la stessa visita con l'inquadratura allargata (blocchi appena fuori dai bordi, per le
             // rotazioni e gli spostamenti) e un livello più fine (per lo zoom). Questi blocchi non si disegnano: si
             // leggono e si preparano nella scheda video quando c'è tempo, così al movimento successivo sono già pronti.
-            if (st.PointScale > 0)
+            double pfMargin = AdvancedSettings.Current.Effective.PrefetchMargin;
+            if (st.PointScale > 0 && pfMargin > 0)
             {
-                SelectOctree(cam.Widened(1.6), (_stableTarget > 0 ? Math.Max(target, _stableTarget) : target) * 0.55, budget, outWant, outPx);
+                SelectOctree(cam.Widened(pfMargin), (_stableTarget > 0 ? Math.Max(target, _stableTarget) : target) * 0.55, budget, outWant, outPx);
                 if (_pfOrder.Length < _orderN) _pfOrder = new int[_order.Length];
                 Array.Copy(_order, _pfOrder, _orderN);
                 _pfN = _orderN;
@@ -825,7 +826,8 @@ namespace PointDeviation
             if (IsOctree && st.Mode == DisplayMode.Discrepanze && st.Analysis != null) DistPrefetch.Ensure(this, st.Analysis);
 
             // fuori vista (o modo non usato) da un po': si libera la memoria
-            long gpuKeep = AdvancedSettings.Current.GpuKeepSeconds * 1000L, memKeep = AdvancedSettings.Current.MemKeepSeconds * 1000L;
+            PerfValues perf = AdvancedSettings.Current.Effective;
+            long gpuKeep = perf.GpuKeepSeconds * 1000L, memKeep = perf.MemKeepSeconds * 1000L;
             for (int i = 0; i < Tiles.Length; i++)
             {
                 TileGpu g = _gpu[i], o = _gpuO[i];
@@ -1813,7 +1815,7 @@ namespace PointDeviation
             if (_threads == null)
             {
                 // preparatori: tanti quanti i processori lasciando liberi quelli di Revit (con 16 processori: 12)
-                int n = Math.Max(2, Math.Min(12, Environment.ProcessorCount - 4));
+                int n = AdvancedSettings.Current.Effective.BakerThreads;
                 var t = new Thread[n];
                 for (int i = 0; i < n; i++)
                 {
@@ -1893,7 +1895,8 @@ namespace PointDeviation
         /// <summary>Versioni leggere dopo un cambio di stile: tutta la vista deve aggiornarsi subito.</summary>
         /// Le copie nella scheda video si fanno solo sul thread di disegno di Revit: in movimento al massimo 20 ms per
         /// fotogramma (prima 50: a ogni fotogramma la navigazione si fermava per copiare), da fermi 120 ms (prima 250).
-        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 20 : 120); } }
+        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? _perf.UploadMovingMs : _perf.UploadStillMs); } }
+        private readonly PerfValues _perf = AdvancedSettings.Current.Effective;
         /// <summary>Aggiunta di dettaglio: poco per volta e mai mentre ci si muove.</summary>
         public bool RefineTime { get { return !Moving && _sw.ElapsedMilliseconds < 70; } }
     }
@@ -2200,7 +2203,7 @@ namespace PointDeviation
         {
             if (_threads != null) return;
             // lettori: con molti processori anche la lettura (e le distanze già salvate) va in parallelo
-            int n = Environment.ProcessorCount >= 16 ? 6 : Environment.ProcessorCount >= 8 ? 4 : 2;
+            int n = AdvancedSettings.Current.Effective.LoaderThreads;
             var t = new Thread[n];
             for (int i = 0; i < n; i++)
             {

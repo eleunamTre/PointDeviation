@@ -187,7 +187,7 @@ namespace PointDeviation
                 long limit = st.PointScale > 0
                     ? (st.Quality == Quality.Fine ? 7000000 : st.Quality == Quality.Media ? 2500000 : 4500000)
                     : (st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000);
-                limit = limit * AdvancedSettings.Current.BudgetPercent / 100;
+                limit = limit * AdvancedSettings.Current.Effective.BudgetPercent / 100;
                 var wants = new List<int[]>();
                 var pxs = new List<double[]>();
                 var visible = new List<CloudLayer>();

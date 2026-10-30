@@ -424,3 +424,12 @@ Ottava tornata (28/10/2026): octree
 114. Meno scatti in movimento: la copia nella scheda video (solo sul thread di disegno di Revit, nel registro fino a
      1,4 s ogni 5 s) occupa al massimo 20 ms per fotogramma mentre la camera si muove (erano 50) e 120 ms da ferma
      (erano 250); i blocchi del precaricamento in movimento si preparano ma si copiano solo a camera ferma.
+115. Profili delle prestazioni secondo il computer (Avanzate > Prestazioni > Profilo): Automatico (rilevato da
+     processori e memoria), Leggero, Medio, Potente, Personalizzato. Ogni profilo fissa limite di punti, tempi di
+     rilascio della memoria, thread di preparazione e di lettura, precaricamento attorno alla vista e tempo massimo
+     di copia nella scheda video per fotogramma:
+       Leggero (fino a 4 processori o meno di 12 GB): 60%, 2 preparatori, 2 lettori, niente precaricamento;
+       Medio: 100%, fino a 6 preparatori, 4 lettori, precaricamento 1,4;
+       Potente (12+ processori e 24+ GB): 130%, fino a 12 preparatori, 6 lettori, precaricamento 1,6.
+     Con Personalizzato si scelgono a mano limite e tempi; i thread seguono il computer. I thread cambiano al
+     riavvio di Revit. La finestra mostra il computer rilevato e i valori del profilo.
