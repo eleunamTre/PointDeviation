@@ -275,6 +275,7 @@ namespace PointDeviation
     internal sealed class DistRunResult
     {
         public long Total, Reused, Computed;
+        public double ReadMs, ComputeMs, WriteMs;   // diagnostica
         public bool Finished;
     }
 
@@ -381,10 +382,12 @@ namespace PointDeviation
                         if (!foreground)
                             while ((_foreground > 0 || CloudLoader.Busy || CloudBaker.Busy) && !(cancelled != null && cancelled())) Thread.Sleep(40);
 
+                        var tw = System.Diagnostics.Stopwatch.StartNew();
                         int cnt = t.Count - from;
                         var raw = new byte[cnt * R];
                         fs.Position = (t.FirstRecord + from) * R;
                         int got = LasSource.ReadFully(fs, raw, raw.Length) / R;
+                        res.ReadMs += tw.Elapsed.TotalMilliseconds; tw.Restart();
                         var dist = new float[t.Count];
                         var xyz = new double[got * 3];
                         for (int k = 0; k < got; k++)
@@ -394,7 +397,9 @@ namespace PointDeviation
                                 out xyz[k * 3], out xyz[k * 3 + 1], out xyz[k * 3 + 2]);
                         }
                         DistCompute.Run(an.Bvh, an.SearchFt, xyz, dist, from, par, foreground ? ThreadPriority.Normal : ThreadPriority.BelowNormal);
+                        res.ComputeMs += tw.Elapsed.TotalMilliseconds; tw.Restart();
                         dc.Write(i, t.FirstRecord, from, from + got, dist);
+                        res.WriteMs += tw.Elapsed.TotalMilliseconds;
                         res.Computed += got;
                         doneAll += got;
                         if (progress != null) progress(doneAll, res.Total);

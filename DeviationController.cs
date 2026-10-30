@@ -708,6 +708,8 @@ namespace PointDeviation
                 return false;
             }
 
+            Log.Write("Analisi", string.Format("modello: {0:N0} elementi, {1:N0} triangoli, suddivisi in {2:N0} (lato massimo {3:F2} m); distanza massima {4:F0} mm; {5} processori",
+                elems, bvh.OriginalTriangles, bvh.TriangleCount, bvh.SplitEdgeFt * 0.3048, searchFt * 304.8, Environment.ProcessorCount));
             Status(string.Format(L.T("Calcolo distanze: {0:N0} elementi{1}, {2:N0} triangoli..."),
                 elems, links > 0 ? " (" + links + L.T(" link)") : "", tris));
 

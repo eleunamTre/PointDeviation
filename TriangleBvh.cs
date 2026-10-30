@@ -30,6 +30,91 @@ namespace PointDeviation
         public int TriangleCount { get { return _idx.Length; } }
 
         /// <summary>
+        /// I triangoli grandi (pareti, solai, coperture: pochi triangoli lunghi metri) hanno riquadri che contengono
+        /// moltissimi punti, e la ricerca del più vicino deve aprirli quasi tutti: è la parte lenta dell'analisi.
+        /// Si dividono a metà sul lato più lungo finché ogni lato non supera una lunghezza scelta in modo che il totale
+        /// resti entro un limite di memoria. La superficie (e quindi ogni distanza e il suo segno) non cambia.
+        /// </summary>
+        private static void Subdivide(ref double[] v, ref int count, out double edge)
+        {
+            edge = 0;
+            if (count <= 0) return;
+            // lato massimo: il più piccolo (da MinEdgeFt in su) per cui la stima dei triangoli resta nel limite
+            double L = MinEdgeFt;
+            for (int iter = 0; iter < 40; iter++)
+            {
+                double est = 0, L2 = L * L;
+                for (int t = 0; t < count && est <= SplitBudget; t++)
+                {
+                    double e, area;
+                    EdgeArea(v, t, out e, out area);
+                    if (e <= L) { est += 1; continue; }
+                    est += Math.Max(e / L, 2.0 * area / (0.43 * L2)) + 1;
+                }
+                if (est <= SplitBudget) break;
+                L *= 1.35;
+            }
+            edge = L;
+            var outV = new List<double>(Math.Min(SplitBudget, count * 4) * 9);
+            var stack = new Stack<double[]>();
+            for (int t = 0; t < count; t++)
+            {
+                double e, area;
+                EdgeArea(v, t, out e, out area);
+                if (e <= L) { for (int j = 0; j < 9; j++) outV.Add(v[t * 9 + j]); continue; }
+                var tri = new double[9];
+                Array.Copy(v, t * 9, tri, 0, 9);
+                stack.Push(tri);
+                while (stack.Count > 0)
+                {
+                    double[] q = stack.Pop();
+                    // lato più lungo: ab (0-1), bc (1-2), ca (2-0)
+                    double lab = D2(q, 0, 1), lbc = D2(q, 1, 2), lca = D2(q, 2, 0);
+                    double m = Math.Max(lab, Math.Max(lbc, lca));
+                    if (m <= L * L || outV.Count / 9 + stack.Count > SplitBudget * 2) { outV.AddRange(q); continue; }
+                    int i0, i1, i2; // i0-i1 è il lato da dividere, i2 il vertice opposto
+                    if (m == lab) { i0 = 0; i1 = 1; i2 = 2; } else if (m == lbc) { i0 = 1; i1 = 2; i2 = 0; } else { i0 = 2; i1 = 0; i2 = 1; }
+                    double mx = (q[i0 * 3] + q[i1 * 3]) * 0.5, my = (q[i0 * 3 + 1] + q[i1 * 3 + 1]) * 0.5, mz = (q[i0 * 3 + 2] + q[i1 * 3 + 2]) * 0.5;
+                    // due metà con lo stesso verso dei vertici (stessa normale, quindi stesso segno)
+                    var a1 = new double[9]; var a2 = new double[9];
+                    SetV(a1, i0, q, i0); SetP(a1, i1, mx, my, mz); SetV(a1, i2, q, i2);
+                    SetP(a2, i0, mx, my, mz); SetV(a2, i1, q, i1); SetV(a2, i2, q, i2);
+                    stack.Push(a1); stack.Push(a2);
+                }
+            }
+            v = outV.ToArray();
+            count = v.Length / 9;
+        }
+
+        private static void EdgeArea(double[] v, int t, out double maxEdge, out double area)
+        {
+            int o = t * 9;
+            double abx = v[o + 3] - v[o], aby = v[o + 4] - v[o + 1], abz = v[o + 5] - v[o + 2];
+            double acx = v[o + 6] - v[o], acy = v[o + 7] - v[o + 1], acz = v[o + 8] - v[o + 2];
+            double bcx = v[o + 6] - v[o + 3], bcy = v[o + 7] - v[o + 4], bcz = v[o + 8] - v[o + 5];
+            double e2 = Math.Max(abx * abx + aby * aby + abz * abz, Math.Max(acx * acx + acy * acy + acz * acz, bcx * bcx + bcy * bcy + bcz * bcz));
+            maxEdge = Math.Sqrt(e2);
+            double nx = aby * acz - abz * acy, ny = abz * acx - abx * acz, nz = abx * acy - aby * acx;
+            area = 0.5 * Math.Sqrt(nx * nx + ny * ny + nz * nz);
+        }
+
+        private static double D2(double[] q, int a, int b)
+        {
+            double dx = q[a * 3] - q[b * 3], dy = q[a * 3 + 1] - q[b * 3 + 1], dz = q[a * 3 + 2] - q[b * 3 + 2];
+            return dx * dx + dy * dy + dz * dz;
+        }
+
+        private static void SetV(double[] dst, int slot, double[] src, int from)
+        {
+            dst[slot * 3] = src[from * 3]; dst[slot * 3 + 1] = src[from * 3 + 1]; dst[slot * 3 + 2] = src[from * 3 + 2];
+        }
+
+        private static void SetP(double[] dst, int slot, double x, double y, double z)
+        {
+            dst[slot * 3] = x; dst[slot * 3 + 1] = y; dst[slot * 3 + 2] = z;
+        }
+
+        /// <summary>
         /// Impronta della geometria (indipendente dall'ordine dei triangoli): stessa geometria del modello, stessa
         /// impronta anche in un'altra sessione. Serve a ritrovare le distanze salvate su disco.
         /// </summary>
@@ -45,8 +130,19 @@ namespace PointDeviation
             return sum == 0 ? 1 : sum;
         }
 
+        // suddivisione dei triangoli grandi: lato massimo voluto (piedi) e numero massimo di triangoli dopo la suddivisione
+        private const double MinEdgeFt = 1.0;
+        private const int SplitBudget = 1200000;
+
+        public int OriginalTriangles { get; private set; }
+        public double SplitEdgeFt { get; private set; }
+
         public TriangleBvh(double[] vertices, int triangleCount)
         {
+            OriginalTriangles = triangleCount;
+            double edge;
+            Subdivide(ref vertices, ref triangleCount, out edge);
+            SplitEdgeFt = edge;
             _v = vertices;
             _n = new double[triangleCount * 3];
             _cen = new double[triangleCount * 3];
