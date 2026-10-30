@@ -421,3 +421,6 @@ Ottava tornata (28/10/2026): octree
 113. Piu' thread dove ci sono piu' processori: preparatori dei vertici fino a 12 (erano al massimo 6: con 16
      processori 10 restavano inutilizzati), lettori dei blocchi 6 con 16 processori, 4 con 8 (erano 3 e 2).
      Dal registro: dopo un salto di inquadratura 98 blocchi da leggere e 92 da preparare.
+114. Meno scatti in movimento: la copia nella scheda video (solo sul thread di disegno di Revit, nel registro fino a
+     1,4 s ogni 5 s) occupa al massimo 20 ms per fotogramma mentre la camera si muove (erano 50) e 120 ms da ferma
+     (erano 250); i blocchi del precaricamento in movimento si preparano ma si copiano solo a camera ferma.

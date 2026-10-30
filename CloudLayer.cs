@@ -913,7 +913,8 @@ namespace PointDeviation
                         CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
                     if (!ready || CloudBaker.Queued >= 16) continue;
                     double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;
-                    EnsureNode(i, radius, cpu, Math.Min(cpu.Count, w), ColorKey(cpu, st), Highlighted, st, argb, budget, now);
+                    // in movimento si preparano in background ma non si copiano: il tempo del fotogramma va alla vista
+                    EnsureNode(i, radius, cpu, Math.Min(cpu.Count, w), ColorKey(cpu, st), Highlighted, st, argb, budget, now, budget.Moving);
                 }
         }
 
@@ -983,12 +984,13 @@ namespace PointDeviation
         /// Octree con scrittura diretta: tiene pronte nella scheda video le due versioni del nodo (punti grandi e, se il
         /// nodo ha figli, punti piccoli), preparate insieme in un solo passaggio in background.
         /// </summary>
-        private void EnsureNode(int i, double radius, TileCpu cpu, int drawN, int key, bool hl, Style st, int argb, RenderBudget budget, long now)
+        private void EnsureNode(int i, double radius, TileCpu cpu, int drawN, int key, bool hl, Style st, int argb, RenderBudget budget, long now,
+            bool noUpload = false)
         {
             int need = Math.Min(drawN, cpu.Count);
             bool withPts = Tiles[i].ChildMask != 0;
-            int so = UseBaked(_gpuO, BakedO, i, true, radius, need, key, hl, st, budget, now);
-            int sp = withPts ? UseBaked(_gpu, BakedP, i, false, radius, need, key, hl, st, budget, now) : 0;
+            int so = UseBaked(_gpuO, BakedO, i, true, radius, need, key, hl, st, budget, now, noUpload);
+            int sp = withPts ? UseBaked(_gpu, BakedP, i, false, radius, need, key, hl, st, budget, now, noUpload) : 0;
             if ((so == 2 || sp == 2) && CloudBaker.Queued < 48)
                 CloudBaker.Enqueue(new BakeJob
                 {
@@ -1000,7 +1002,7 @@ namespace PointDeviation
 
         /// <summary>0 = buffer già valido, 1 = pronto ma si copia al prossimo fotogramma, 2 = da preparare.</summary>
         private int UseBaked(TileGpu[] arr, Baked[] barr, int i, bool octa, double radius, int need, int key, bool hl,
-            Style st, RenderBudget budget, long now)
+            Style st, RenderBudget budget, long now, bool noUpload = false)
         {
             TileGpu gpu = arr[i];
             bool stale = gpu == null || gpu.StyleVersion != st.Version || gpu.GeoVersion != GeoVersion
@@ -1011,7 +1013,7 @@ namespace PointDeviation
             if (bk == null || bk.StyleVersion != st.Version || bk.GeoVersion != GeoVersion || bk.ColorKey != key || bk.Highlight != hl
                 || bk.Points == octa || (octa && Math.Abs(bk.Radius - radius) > radius * 0.35 + 1e-12) || bk.Built < need)
                 return 2;
-            if (!budget.CoarseTime) { budget.MoreWork = true; return 1; }
+            if (noUpload || !budget.CoarseTime) { budget.MoreWork = true; return 1; }
             var usw = System.Diagnostics.Stopwatch.StartNew();
             TileGpu up = Upload(bk);
             CloudBaker.UploadTicks += usw.ElapsedTicks;
@@ -1889,7 +1891,9 @@ namespace PointDeviation
         /// <summary>La vista si sta muovendo (orbita, zoom): niente lavoro pesante, si disegna quello che c'è.</summary>
         public bool Moving;
         /// <summary>Versioni leggere dopo un cambio di stile: tutta la vista deve aggiornarsi subito.</summary>
-        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 50 : 250); } }
+        /// Le copie nella scheda video si fanno solo sul thread di disegno di Revit: in movimento al massimo 20 ms per
+        /// fotogramma (prima 50: a ogni fotogramma la navigazione si fermava per copiare), da fermi 120 ms (prima 250).
+        public bool CoarseTime { get { return _sw.ElapsedMilliseconds < (Moving ? 20 : 120); } }
         /// <summary>Aggiunta di dettaglio: poco per volta e mai mentre ci si muove.</summary>
         public bool RefineTime { get { return !Moving && _sw.ElapsedMilliseconds < 70; } }
     }
