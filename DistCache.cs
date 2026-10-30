@@ -19,6 +19,16 @@ namespace PointDeviation
         private const int MaxFiles = 4;        // analisi conservate per nuvola
 
         public readonly string Key;
+        private string _folder;
+        private static readonly List<DistCache> _open = new List<DistCache>();
+
+        /// <summary>Chiude i file delle distanze aperti per le nuvole di una cartella (prima di eliminarla).</summary>
+        public static void CloseUnder(string folder)
+        {
+            List<DistCache> list;
+            lock (_open) list = _open.FindAll(c => c._folder != null && c._folder.StartsWith(folder, StringComparison.OrdinalIgnoreCase));
+            foreach (DistCache c in list) c.Close();
+        }
         private readonly double _q;            // piedi per unità
         private readonly int[] _done;          // punti calcolati per nodo (prefisso)
         private readonly FileStream _dat, _idx;
@@ -103,6 +113,8 @@ namespace PointDeviation
                 }
                 Prune(dir, key);
                 var dc = new DistCache(key, an.SearchFt / 32000.0, n, dat, idx, done);
+                dc._folder = L.Folder;
+                lock (_open) _open.Add(dc);
                 long saved = dc.SavedPoints;
                 Log.Write("Analisi", string.Format("«{0}»: distanze salvate {1} ({2:N0} punti su {3:N0}, {4:F0}%)",
                     L.Name, fresh ? "nuove" : "ritrovate", saved, total, total > 0 ? 100.0 * saved / total : 0));
@@ -204,6 +216,7 @@ namespace PointDeviation
 
         public void Close()
         {
+            lock (_open) _open.Remove(this);
             lock (_lock)
             {
                 try { _dat.Dispose(); } catch { }

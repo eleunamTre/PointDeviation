@@ -390,11 +390,28 @@ namespace PointDeviation
 
         private void DeleteCloud(string folder, CloudInfo info)
         {
-            if (MessageBox.Show(this, L.T("Eliminare «") + info.Name + L.T("» dalla libreria?\nLa cartella convertita viene cancellata; il file originale non viene toccato."),
+            if (MessageBox.Show(this, L.T("Eliminare «") + info.Name + L.T("» dalla libreria?\nLa cartella convertita viene cancellata e la nuvola viene tolta dai progetti aperti in cui è inserita; il file originale non viene toccato."),
                 L.T("Libreria nuvole"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-            try { Directory.Delete(folder, true); }
-            catch (Exception ex) { MessageBox.Show(this, L.T("Impossibile eliminare: ") + ex.Message, L.T("Libreria nuvole")); }
-            RefreshCards();
+            SetStatus(L.T("Eliminazione in corso..."));
+            // prima si toglie la nuvola dai progetti (serve l'API di Revit, sul suo thread), poi si cancella la cartella
+            ApiQueue.Run(app =>
+            {
+                int removed = NativeSync.RemoveFolderFromProjects(app, folder);
+                DistPrefetch.Stop();
+                DistCache.CloseUnder(folder);
+                string error = null;
+                for (int attempt = 0; attempt < 5; attempt++)
+                {
+                    try { if (Directory.Exists(folder)) Directory.Delete(folder, true); error = null; break; }
+                    catch (Exception ex) { error = ex.Message; System.Threading.Thread.Sleep(300); }
+                }
+                OnUi(() =>
+                {
+                    if (error != null) MessageBox.Show(this, L.T("Impossibile eliminare: ") + error, L.T("Libreria nuvole"));
+                    else SetStatus(removed > 0 ? string.Format(L.T("«{0}» eliminata e tolta dai progetti aperti."), info.Name) : string.Format(L.T("«{0}» eliminata."), info.Name));
+                    RefreshCards();
+                });
+            });
         }
 
         private static string Short(long n)

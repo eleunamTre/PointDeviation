@@ -42,6 +42,10 @@ namespace PointDeviation
             d["Togli dalla coda"] = "Remove from queue";
             d["Interrompere la conversione di «{0}»?"] = "Stop the conversion of «{0}»?";
             d["Da file (LAS, E57, RCP, RCS)…"] = "From file (LAS, E57, RCP, RCS)…";
+            d["» dalla libreria?\nLa cartella convertita viene cancellata e la nuvola viene tolta dai progetti aperti in cui è inserita; il file originale non viene toccato."] = "» from the library?\nThe converted folder is deleted and the cloud is removed from the open projects where it is inserted; the original file is not touched.";
+            d["Eliminazione in corso..."] = "Deleting...";
+            d["«{0}» eliminata e tolta dai progetti aperti."] = "«{0}» deleted and removed from the open projects.";
+            d["«{0}» eliminata."] = "«{0}» deleted.";
             d["Analisi delle discrepanze"] = "Deviation analysis";
             d["Calcolo delle distanze dal modello..."] = "Computing distances from the model...";
             d["Naviga subito"] = "Navigate now";

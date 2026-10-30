@@ -829,6 +829,43 @@ namespace PointDeviation
             finally { DeviationController.OwnChange = false; }
         }
 
+        /// <summary>
+        /// Toglie da tutti i progetti aperti la nuvola di una cartella della libreria (tipo e istanze, cioè anche da
+        /// Gestisci collegamenti), prima di eliminarla dal disco. Restituisce quante nuvole sono state tolte.
+        /// </summary>
+        public static int RemoveFolderFromProjects(UIApplication app, string folder)
+        {
+            int removed = 0;
+            string dir = Path.GetFullPath(folder).TrimEnd('\\');
+            foreach (Document doc in app.Application.Documents)
+            {
+                if (doc.IsFamilyDocument || doc.IsLinked) continue;
+                var types = new FilteredElementCollector(doc).OfClass(typeof(PointCloudType)).Cast<PointCloudType>()
+                    .Where(pt =>
+                    {
+                        if (!NativeClouds.IsOurs(pt)) return false;
+                        string p = NativeClouds.PathOf(pt);
+                        try { return p != null && string.Equals(Path.GetFullPath(Path.GetDirectoryName(p)).TrimEnd('\\'), dir, StringComparison.OrdinalIgnoreCase); }
+                        catch { return false; }
+                    }).Select(pt => pt.Id).ToList();
+                if (types.Count == 0) continue;
+                try
+                {
+                    // il tipo si porta via le sue istanze; l'evento di modifica del documento riallinea le nuvole del plugin
+                    using (var t = new Transaction(doc, L.T("Rimuovi nuvola di punti")))
+                    {
+                        t.Start();
+                        doc.Delete(types);
+                        t.Commit();
+                    }
+                    removed += types.Count;
+                    Log.Write("Libreria", string.Format("«{0}» tolta da «{1}»", Path.GetFileName(folder), doc.Title));
+                }
+                catch (Exception ex) { Log.Error("Rimozione dal progetto «" + doc.Title + "»", ex); }
+            }
+            return removed;
+        }
+
         /// <summary>Toglie tutte le istanze delle nuvole del plugin (i tipi restano in Gestisci collegamenti).</summary>
         public static void RemoveAll(Document doc, DocumentData data)
         {
