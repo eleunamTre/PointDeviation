@@ -35,9 +35,9 @@ namespace PointDeviation
         private readonly Label _status = new Label { AutoSize = false, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
         private readonly ProgressBar _progress = new ProgressBar { Width = 180, Visible = false, Maximum = 1000 };
         private readonly Button _cancel = new Button { Text = L.T("Annulla"), AutoSize = true, Visible = false };
+        private readonly Button _background = new Button { Text = L.T("Continua in background"), AutoSize = true, Visible = false };
 
         private LibraryList _libs;
-        private CancellationTokenSource _cts;
         private bool _busy;
 
         public LibraryForm()
@@ -66,14 +66,17 @@ namespace PointDeviation
             top.Controls.Add(_search);
 
             // ---------------------------------------------------------- barra di stato
-            var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 34, ColumnCount = 3, Padding = new Padding(8, 4, 8, 4) };
+            var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 34, ColumnCount = 4, Padding = new Padding(8, 4, 8, 4) };
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bottom.Controls.Add(_status, 0, 0);
             bottom.Controls.Add(_progress, 1, 0);
             bottom.Controls.Add(_cancel, 2, 0);
-            _cancel.Click += (s, e) => { if (_cts != null) _cts.Cancel(); };
+            bottom.Controls.Add(_background, 3, 0);
+            // le conversioni continuano anche a finestra chiusa: a fine lavoro compare un avviso
+            _background.Click += (s, e) => Hide();
 
             Controls.Add(_cards);
             Controls.Add(top);
@@ -106,19 +109,91 @@ namespace PointDeviation
             _search.TextChanged += (s, e) => RefreshCards();
 
             DeviationController.ActiveChanged += OnActive;
+            ConversionQueue.Changed += OnJob;
+            FormClosed += (s, e) => ConversionQueue.Changed -= OnJob;
             FormClosing += (s, e) =>
             {
-                if (_busy && MessageBox.Show(this, L.T("C'è una conversione in corso. Interromperla?"), L.T("Libreria nuvole"),
+                // solo la lettura da Revit (prima fase degli RCP) è legata alla finestra; le conversioni continuano
+                if (_busy && MessageBox.Show(this, L.T("C'è una lettura da Revit in corso. Interromperla?"), L.T("Libreria nuvole"),
                         MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 {
                     e.Cancel = true;
                     return;
                 }
-                if (_cts != null) _cts.Cancel();
                 DeviationController.ActiveChanged -= OnActive;
             };
 
             RefreshCards();
+        }
+
+        /// <summary>Avanzamento o cambio di stato di una conversione in background.</summary>
+        private void OnJob(ConversionJob job)
+        {
+            if (IsDisposed) return;
+            bool here = string.Equals(SafeFull(job.Folder), SafeFull(CurrentFolder ?? ""), StringComparison.OrdinalIgnoreCase);
+            _background.Visible = ConversionQueue.Busy;
+            if (!job.Active) { if (here) RefreshCards(); UpdateQueueStatus(); return; }
+            if (!here) { UpdateQueueStatus(); return; }
+            Control card = null;
+            foreach (Control c in _cards.Controls) if (c.Tag is ConversionJob && ((ConversionJob)c.Tag).Id == job.Id) { card = c; break; }
+            if (card == null) { RefreshCards(); return; }
+            foreach (Control c in card.Controls)
+            {
+                if (c is ProgressBar) ((ProgressBar)c).Value = Math.Max(0, Math.Min(1000, (int)(job.Fraction * 1000)));
+                else if ((string)c.Tag == "phase") c.Text = job.Phase;
+                else if ((string)c.Tag == "pct") c.Text = job.State == ConversionState.InCoda ? "" : string.Format("{0:F0}%", job.Fraction * 100);
+            }
+            UpdateQueueStatus();
+        }
+
+        private void UpdateQueueStatus()
+        {
+            if (_busy) return;
+            int n = ConversionQueue.Jobs.FindAll(j => j.Active).Count;
+            _background.Visible = n > 0;
+            if (n > 0) SetStatus(string.Format(L.T("{0} conversioni in corso: puoi chiudere la finestra, a fine lavoro compare un avviso."), n));
+        }
+
+        /// <summary>Scheda «bloccata» di una nuvola in conversione: nome, fase, avanzamento, annulla.</summary>
+        private Control JobCard(ConversionJob job)
+        {
+            var card = new Panel { Width = CardW, Height = CardH, Margin = new Padding(8), BackColor = Color.FromArgb(250, 250, 250), Tag = job };
+            card.Paint += (s, e) =>
+            {
+                using (var pen = new Pen(Color.FromArgb(200, 206, 214)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash })
+                    e.Graphics.DrawRectangle(pen, 1, 1, card.Width - 3, card.Height - 3);
+            };
+            var icon = new Label
+            {
+                Text = "⏳", Font = new Font("Segoe UI Emoji", 26f), ForeColor = Color.FromArgb(150, 160, 170),
+                Location = new Point(8, 30), Size = new Size(CardW - 16, 70), TextAlign = ContentAlignment.MiddleCenter
+            };
+            var name = new Label
+            {
+                Text = job.Name, Location = new Point(8, 108), Size = new Size(CardW - 16, 34),
+                Font = new Font(Font, FontStyle.Bold), AutoEllipsis = true
+            };
+            var phase = new Label
+            {
+                Text = job.Phase, Tag = "phase", Location = new Point(8, 142), Size = new Size(CardW - 16, 32),
+                ForeColor = Color.DimGray, Font = new Font(Font.FontFamily, 8f), AutoEllipsis = true
+            };
+            var bar = new ProgressBar { Location = new Point(8, 176), Size = new Size(CardW - 60, 14), Maximum = 1000, Value = Math.Max(0, Math.Min(1000, (int)(job.Fraction * 1000))) };
+            var pct = new Label { Tag = "pct", Location = new Point(CardW - 48, 175), Size = new Size(40, 16), TextAlign = ContentAlignment.MiddleRight, Font = new Font(Font.FontFamily, 8f),
+                Text = job.State == ConversionState.InCoda ? "" : string.Format("{0:F0}%", job.Fraction * 100) };
+            var cancel = new Button
+            {
+                Text = job.State == ConversionState.InCoda ? L.T("Togli dalla coda") : L.T("Annulla"),
+                Location = new Point(8, 204), Size = new Size(CardW - 16, 26), FlatStyle = FlatStyle.System
+            };
+            cancel.Click += (s, e) =>
+            {
+                if (MessageBox.Show(this, string.Format(L.T("Interrompere la conversione di «{0}»?"), job.Name), L.T("Libreria nuvole"),
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                    ConversionQueue.Cancel(job);
+            };
+            card.Controls.AddRange(new Control[] { icon, name, phase, bar, pct, cancel });
+            return card;
         }
 
         private void OnActive()
@@ -187,6 +262,10 @@ namespace PointDeviation
                 var inUse = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 if (ad != null) foreach (CloudLayer l in ad.Layers) inUse.Add(SafeFull(l.Folder));
                 int n = 0;
+                // nuvole in conversione in questa cartella: schede bloccate con l'avanzamento
+                foreach (ConversionJob job in ConversionQueue.Jobs)
+                    if (job.Active && string.Equals(SafeFull(job.Folder), SafeFull(folder), StringComparison.OrdinalIgnoreCase))
+                        _cards.Controls.Add(JobCard(job));
                 foreach (var kv in LibraryStore.Scan(folder))
                 {
                     if (q.Length > 0 && kv.Value.Name.IndexOf(q, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
@@ -195,6 +274,7 @@ namespace PointDeviation
                     n++;
                 }
                 if (!_busy) SetStatus(n == 0 ? L.T("Nessuna nuvola convertita in questa cartella. Premi + per convertirne una.") : n + L.T(" nuvole."));
+                UpdateQueueStatus();
             }
             _cards.ResumeLayout();
             if (IsHandleCreated) UiTheme.Apply(this);
@@ -223,7 +303,7 @@ namespace PointDeviation
             card.Controls.Add(caption);
 
             var menu = new ContextMenuStrip();
-            menu.Items.Add(L.T("Da file (LAS, RCP, RCS)…"), null, (s, e) => ConvertFromFile());
+            menu.Items.Add(L.T("Da file (LAS, E57, RCP, RCS)…"), null, (s, e) => ConvertFromFile());
             menu.Items.Add(L.T("Da una nuvola già inserita nel progetto…"), null, (s, e) => ConvertFromProject());
             EventHandler open = (s, e) => { if (!_busy) menu.Show(card, new Point(CardW / 2, CardH / 2)); };
             card.Click += open; plus.Click += open; caption.Click += open;
@@ -404,45 +484,11 @@ namespace PointDeviation
         private void StartConversion(Func<IPointSource> makeSource, string name, string folder, string rawToDelete)
         {
             if (string.IsNullOrWhiteSpace(name)) name = "nuvola";
-            SetBusy(true, L.T("Conversione di «") + name + "»...");
-            _cts = new CancellationTokenSource();
-            CancellationToken ct = _cts.Token;
-            DateTime lastUi = DateTime.MinValue;
-
-            Task.Run(() =>
-            {
-                IPointSource src = makeSource();
-                return CloudConverter.Convert(src, folder, name, (msg, f) =>
-                {
-                    if ((DateTime.Now - lastUi).TotalMilliseconds < 150 && f < 1.0) return;
-                    lastUi = DateTime.Now;
-                    OnUi(() =>
-                    {
-                        _status.Text = msg;
-                        _progress.Value = Math.Max(0, Math.Min(1000, (int)(f * 1000)));
-                    });
-                }, ct);
-            }, ct).ContinueWith(t =>
-            {
-                if (rawToDelete != null)
-                {
-                    try { File.Delete(rawToDelete); } catch { }
-                    try { File.Delete(rawToDelete + ".txt"); } catch { }
-                }
-                OnUi(() =>
-                {
-                    if (t.IsCanceled || (t.Exception != null && t.Exception.InnerException is OperationCanceledException))
-                        SetBusy(false, L.T("Conversione annullata."));
-                    else if (t.Exception != null)
-                        SetBusy(false, L.T("Conversione non riuscita: ") + t.Exception.InnerException.Message);
-                    else
-                    {
-                        SetBusy(false, L.T("Conversione completata: «") + name + L.T("». Premi Inserisci sulla scheda."));
-                        int i = _libs.Folders.FindIndex(x => string.Equals(x, folder, StringComparison.OrdinalIgnoreCase));
-                        if (i >= 0 && i != _folders.SelectedIndex) _folders.SelectedIndex = i; else RefreshCards();
-                    }
-                });
-            });
+            SetBusy(false, "");
+            // in background: la scheda compare subito (bloccata, con l'avanzamento) e la finestra si può chiudere
+            ConversionQueue.Enqueue(makeSource, name, folder, rawToDelete);
+            int i = _libs.Folders.FindIndex(x => string.Equals(x, folder, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0 && i != _folders.SelectedIndex) _folders.SelectedIndex = i; else RefreshCards();
         }
 
         /// <summary>Esegue sul thread della finestra (da un thread di lavoro), se la finestra è ancora aperta.</summary>
@@ -461,7 +507,7 @@ namespace PointDeviation
         {
             _busy = busy;
             _progress.Visible = busy;
-            _cancel.Visible = busy;
+            _cancel.Visible = false; // la lettura da Revit non si può interrompere; le conversioni si annullano dalla scheda
             if (busy) _progress.Value = 0;
             SetStatus(text);
         }

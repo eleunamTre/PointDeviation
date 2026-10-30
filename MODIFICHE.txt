@@ -440,3 +440,9 @@ Ottava tornata (28/10/2026): octree
      oppure da una lettura completa se mancano. Le codifiche non standard (codec) danno un messaggio chiaro.
      Verificato con una copia in Python della stessa logica sui file di prova di libE57Format (interi scalati a 32 e
      10 bit, double, float, colori a 8 e 16 bit, flussi non usati da saltare): conteggi e ingombri corretti.
+117. Conversioni in background (ConversionQueue.cs): coda indipendente dalla finestra Libreria. Ogni nuvola in
+     conversione compare subito come scheda «bloccata» con fase, barra e percentuale, e si puo' annullare o togliere
+     dalla coda. «Continua in background» nasconde la finestra; si puo' anche chiuderla e usare Revit. A fine lavoro
+     compare un avviso in basso a destra («Conversione completata», con «Apri libreria»), anche per gli errori.
+     Piu' nuvole si accodano e si convertono una dopo l'altra. Alla chiusura di Revit le conversioni si interrompono.
+     RCP: la lettura attraverso Revit resta in primo piano (come prima), poi la conversione va in coda.

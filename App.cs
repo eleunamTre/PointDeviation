@@ -46,6 +46,7 @@ namespace PointDeviation
 
         public Result OnShutdown(UIControlledApplication application)
         {
+            ConversionQueue.CancelAll();
             var controlledApp = application.ControlledApplication;
             controlledApp.DocumentCreated -= this.OnDocumentCreated;
             controlledApp.DocumentOpened -= this.OnDocumentOpened;

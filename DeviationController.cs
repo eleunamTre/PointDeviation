@@ -53,6 +53,7 @@ namespace PointDeviation
         private static ExternalEvent _extractEvent;
         private static ExtractHandler _extractHandler;
         private static IntPtr _mainWindow = IntPtr.Zero;
+        internal static IntPtr MainWindow { get { return _mainWindow; } }
 
         /// <summary>Scatta quando cambia il progetto attivo: le finestre aperte ricaricano i propri valori.</summary>
         internal static event Action ActiveChanged;
