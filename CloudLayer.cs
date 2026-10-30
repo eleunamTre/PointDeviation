@@ -285,7 +285,10 @@ namespace PointDeviation
         private double _stableTarget;                  // distanza tra i punti a schermo usata finora (pixel)
         private byte[] _wantedOct = new byte[0];       // octree: ottanti con un figlio scelto (pronto o no)
         private bool[] _coarse = new bool[0];          // octree: blocco molto più rado del necessario a schermo
-        private bool[] _wasRefined = new bool[0];      // blocchi suddivisi nell'ultimo fotogramma (isteresi)
+        private bool[] _wasRefined = new bool[0];
+        private int[] _parent = new int[0];             // octree: padre di ogni nodo (-1 = radice)
+        private bool[] _okStyle = new bool[0];          // octree: il nodo o un suo antenato è già disegnato con lo stile attuale
+        private bool[] _skipStale = new bool[0];        // octree: nodo ancora con lo stile vecchio, coperto da un antenato aggiornato      // blocchi suddivisi nell'ultimo fotogramma (isteresi)
         private int _orderN;
         private double[] _heapKey = new double[256];
 
@@ -331,6 +334,11 @@ namespace PointDeviation
                 int g = Info.OctreeGrid > 0 ? Info.OctreeGrid : OctreeBuilder.NodeGrid;
                 _nodeSpacing = new double[n]; _effSpacing = new double[n];
                 _firstChild = new int[n]; _childCount = new int[n];
+                _parent = new int[n]; _okStyle = new bool[n]; _skipStale = new bool[n];
+                for (int i = 0; i < n; i++) _parent[i] = -1;
+                for (int i = 0; i < n; i++)
+                    for (int k = 0; k < Tiles[i].ChildCount; k++)
+                        if (Tiles[i].FirstChild + k < n) _parent[Tiles[i].FirstChild + k] = i;
                 for (int i = 0; i < n; i++)
                 {
                     TileEntry t = Tiles[i];
@@ -969,7 +977,10 @@ namespace PointDeviation
                 if (cc == null) continue;
                 int need = Math.Min(cc.Count, want[ch]);
                 TileGpu b = _gpuO[ch];
-                if (b != null && b.Chunks.Count > 0 && (b.Built >= need / 2 || b.Built >= cc.Count)) res |= 1 << o;
+                // e deve avere già lo stile attuale: cambiando modo (RGB -> discrepanze) un figlio ancora con i colori
+                // vecchi non copre il padre aggiornato, così non si vedono riquadri dei due stili mescolati
+                if (b != null && b.Chunks.Count > 0 && b.StyleVersion == CurrentStyleVersion
+                    && (b.Built >= need / 2 || b.Built >= cc.Count)) res |= 1 << o;
             }
             return (byte)res;
         }
@@ -1031,6 +1042,22 @@ namespace PointDeviation
             EffectInstance effect = EffectFor(st, Highlighted);
             int nodes = 0, wanted = 0, missing = 0, notLoaded = 0, notBuilt = 0;
             long pts = 0;
+            // Cambio di stile (per esempio accendendo l'analisi): un nodo che ha ancora i colori vecchi non si disegna se
+            // un suo antenato ha già quelli nuovi; lo sostituisce l'antenato finché non è pronto. Così la vista passa
+            // al nuovo stile tutta insieme, prima rada e poi sempre più fitta, invece che a riquadri.
+            if (IsOctree && st.PointScale > 0)
+                for (int oi = 0; oi < _orderN; oi++)
+                {
+                    int i = _order[oi];
+                    if (want[i] <= 0) { _okStyle[i] = false; _skipStale[i] = false; continue; }
+                    TileGpu g0 = _gpuO[i], g1 = _gpu[i];
+                    bool cur = (g0 != null && g0.Chunks.Count > 0 && g0.StyleVersion == st.Version)
+                        || (g1 != null && g1.Chunks.Count > 0 && g1.StyleVersion == st.Version);
+                    int p = _parent[i];
+                    bool anc = p >= 0 && want[p] > 0 && _okStyle[p];
+                    _okStyle[i] = cur || anc;
+                    _skipStale[i] = !cur && anc;
+                }
             for (int i = 0; i < Tiles.Length; i++)
             {
                 if (want[i] <= 0) continue;
@@ -1048,6 +1075,7 @@ namespace PointDeviation
                     else if (go == null || go.StyleVersion != st.Version || go.Built < Math.Min(Cpu[i].Count, want[i])
                         || (_wantedOct[i] != 0 && !hp)) notBuilt++;
                     if (!hp && !ho) { missing++; continue; }
+                    if (_skipStale[i]) continue;
                     // Ottanti con il figlio già pronto: punti piccoli (la grana la dà il figlio). Ottanti con il figlio scelto
                     // ma non ancora pronto: resta la versione stabile di prima, i punti grandi del blocco, che al massimo
                     // sono il doppio di quelli giusti (un livello sopra); solo per i blocchi molto più radi del necessario
