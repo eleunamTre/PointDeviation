@@ -471,3 +471,6 @@ Ottava tornata (28/10/2026): octree
      stile risultante e' identico a quello attuale si tiene la stessa versione, e i blocchi gia' pronti restano
      validi. Registro: preparazione e copia (comuni a tutte le nuvole) in una riga «Lavoro» a parte; prima finivano
      nella riga della prima nuvola e le altre risultavano a zero.
+123. Diagnostica approfondita delle impostazioni di Visibilita'/Grafica > Nuvole di punti (riga «[Visibilita']» a
+     livello Debug): id e tipo della vista, modello di vista e sue impostazioni, vista riletta dal documento, tutte le
+     proprieta' della vista che riguardano le nuvole e tutte le impostazioni della singola nuvola.

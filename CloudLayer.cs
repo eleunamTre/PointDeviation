@@ -509,9 +509,49 @@ namespace PointDeviation
                     cat, e != null && e.Category != null && view.GetCategoryHidden(e.Category.Id),
                     view.GetCategoryHidden(new ElementId(BuiltInCategory.OST_PointClouds)),
                     PointCloudsHiddenInView(view), InstanceHiddenByOverrides(view, InstanceId),
-                    e != null && e.IsHidden(view), NativeClouds.IsLoaded(Folder));
+                    e != null && e.IsHidden(view), NativeClouds.IsLoaded(Folder)) + DeepDiag(view);
             }
             catch (Exception ex) { return "errore: " + ex.Message; }
+        }
+
+        /// <summary>
+        /// Diagnostica approfondita delle impostazioni «Nuvole di punti» di Visibilità/Grafica: vista (id, modello di
+        /// vista), vista riletta dal documento, tutte le proprietà della vista con «PointCloud» nel nome e tutte le
+        /// proprietà delle impostazioni della nuvola. Serve a capire perché le spunte di V/G non risultano.
+        /// </summary>
+        private string DeepDiag(View view)
+        {
+            var sb = new System.Text.StringBuilder();
+            try
+            {
+                Document doc = view.Document;
+                sb.Append(" | vista id ").Append(view.Id.Value).Append(" tipo ").Append(view.GetType().Name);
+                ElementId tpl = view.ViewTemplateId;
+                if (tpl != null && tpl != ElementId.InvalidElementId)
+                {
+                    View tv = doc.GetElement(tpl) as View;
+                    sb.Append(", modello di vista «").Append(tv != null ? tv.Name : "?").Append("»");
+                    if (tv != null && _pcHidden != null) try { sb.Append(" (nuvole spente nel modello=").Append(_pcHidden.GetValue(tv, null)).Append(")"); } catch { }
+                }
+                else sb.Append(", nessun modello di vista");
+                View fresh = doc.GetElement(view.Id) as View;
+                if (fresh != null && _pcHidden != null) try { sb.Append(", riletta: ArePointCloudsHidden=").Append(_pcHidden.GetValue(fresh, null)); } catch { }
+                foreach (System.Reflection.PropertyInfo pi in typeof(View).GetProperties())
+                    if (pi.Name.IndexOf("PointCloud", StringComparison.OrdinalIgnoreCase) >= 0 && pi.GetIndexParameters().Length == 0)
+                        try { sb.Append(", ").Append(pi.Name).Append('=').Append(pi.GetValue(view, null)); } catch { }
+                if (_pcOverrides != null && _pcScanSettings != null)
+                {
+                    object ov = _pcOverrides.Invoke(view, null);
+                    object st = ov != null ? _pcScanSettings.Invoke(ov, new object[] { InstanceId }) : null;
+                    if (st != null)
+                        foreach (System.Reflection.PropertyInfo pi in st.GetType().GetProperties())
+                            if (pi.GetIndexParameters().Length == 0)
+                                try { sb.Append(", nuvola.").Append(pi.Name).Append('=').Append(pi.GetValue(st, null)); } catch { }
+                    else sb.Append(", impostazioni della nuvola: nessuna");
+                }
+            }
+            catch (Exception ex) { sb.Append(" | errore diagnostica: ").Append(ex.Message); }
+            return sb.ToString();
         }
 
         private static bool PointCloudsHiddenInView(View view)
