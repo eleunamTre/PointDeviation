@@ -362,3 +362,9 @@ Ottava tornata (28/10/2026): octree
      - L'analisi si riconosce da un'impronta della geometria del modello, della distanza massima e della posizione
        della nuvola: rifacendo la stessa analisi, anche dopo aver chiuso il progetto, le distanze si rileggono.
        Se il modello cambia l'impronta cambia e si ricalcola. Si tengono le 4 analisi piu' recenti per nuvola.
+102. Finestra di avanzamento dopo l'analisi: le distanze di tutte le nuvole si calcolano subito, con tutti i
+     processori, mostrando barra, punti fatti e tempo stimato; alla fine l'esito (punti calcolati o ritrovati, tempo,
+     percentuale di punti con una superficie del modello entro la distanza massima, avviso se nessun punto e' vicino
+     al modello). «Continua in background» chiude la finestra e il calcolo prosegue da dove era arrivato. Se le
+     distanze di quell'analisi sono gia' tutte salvate la finestra non compare. Il calcolo in background ora segue
+     anche piu' nuvole insieme.

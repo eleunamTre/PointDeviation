@@ -441,6 +441,28 @@ namespace PointDeviation
 
         private static AdvancedForm _advanced;
 
+        /// <summary>
+        /// Dopo l'analisi: finestra di avanzamento che calcola subito le distanze di tutte le nuvole. Se sono già tutte
+        /// salvate (stessa analisi di prima) non compare.
+        /// </summary>
+        public static void ShowAnalysisProgress(List<CloudLayer> layers, AnalysisSnapshot an)
+        {
+            if (layers == null || layers.Count == 0 || an == null) return;
+            long missing = 0;
+            foreach (CloudLayer l in layers)
+            {
+                DistCache dc = l.GetDistCache(an);
+                if (dc == null) { missing = 1; break; }
+                for (int i = 0; i < l.Tiles.Length; i++) missing += l.Tiles[i].Count - dc.Done(i);
+            }
+            if (missing <= 0) { Log.Write("Analisi", "distanze già salvate per questa analisi: nessun calcolo"); return; }
+            using (var f = new AnalysisProgressForm(layers, an))
+            {
+                IntPtr owner = _mainWindow != IntPtr.Zero ? _mainWindow : System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                f.ShowDialog(new WindowOwner(owner));
+            }
+        }
+
         public static void ShowAdvanced(UIApplication app)
         {
             Init(app);
@@ -697,6 +719,10 @@ namespace PointDeviation
             data.Cloud = data.BuildSample(Math.Max(100000, Math.Min(s.MaxPoints, 800000)));
             if (data.Cloud != null) data.SetDistances(data.ComputeDistances(bvh, searchFt));
             data.ComputedMm = s.MaxRangeMm;
+
+            // distanze di tutti i punti subito (con avanzamento), così la navigazione è fluida dall'inizio
+            Status(L.T("Calcolo delle distanze dal modello..."));
+            DeviationController.ShowAnalysisProgress(data.Layers.FindAll(l => l.IsOctree), AnalysisRegistry.Get(data.Key));
             return true;
         }
     }

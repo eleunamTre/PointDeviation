@@ -178,6 +178,25 @@ namespace PointDeviation
             }
         }
 
+        /// <summary>Conta le distanze salvate con una superficie entro la distanza massima.</summary>
+        public void CountSurface(CloudLayer L, out long withSurface, out long total)
+        {
+            withSurface = total = 0;
+            for (int i = 0; i < L.Tiles.Length; i++)
+            {
+                int n = Done(i);
+                if (n <= 0) continue;
+                var b = new byte[n * 2];
+                lock (_lock)
+                {
+                    _dat.Position = L.Tiles[i].FirstRecord * 2;
+                    n = LasSource.ReadFully(_dat, b, b.Length) / 2;
+                }
+                for (int k = 0; k < n; k++) if (BitConverter.ToInt16(b, k * 2) != NoSurface) withSurface++;
+                total += n;
+            }
+        }
+
         public void Close()
         {
             lock (_lock)
@@ -188,92 +207,155 @@ namespace PointDeviation
         }
     }
 
+    /// <summary>Esito del calcolo delle distanze di una nuvola.</summary>
+    internal sealed class DistRunResult
+    {
+        public long Total, Reused, Computed;
+        public bool Finished;
+    }
+
     /// <summary>
-    /// Calcolo in background delle distanze di tutta la nuvola, dai livelli grossolani ai fini, quando il caricamento della
-    /// vista è fermo: dopo la prima volta la navigazione in modalità discrepanze non aspetta più nessun calcolo.
+    /// Calcolo delle distanze di tutta la nuvola, dai livelli grossolani ai fini, con salvataggio su disco.
+    /// In primo piano (finestra di avanzamento dopo l'analisi) usa tutti i processori; in background solo quando il
+    /// caricamento della vista è fermo, così dopo la prima volta la navigazione non aspetta più nessun calcolo.
     /// </summary>
     internal static class DistPrefetch
     {
         private static Thread _thread;
-        private static volatile CloudLayer _layer;
-        private static volatile AnalysisSnapshot _an;
+        private static readonly object _lock = new object();
+        private static readonly Dictionary<CloudLayer, AnalysisSnapshot> _targets = new Dictionary<CloudLayer, AnalysisSnapshot>();
+        private static readonly Dictionary<CloudLayer, AnalysisSnapshot> _finished = new Dictionary<CloudLayer, AnalysisSnapshot>();
         private static readonly AutoResetEvent _wake = new AutoResetEvent(false);
-        private static readonly ParallelOptions _par = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2) };
+        private static volatile int _foreground;          // > 0: c'è un calcolo in primo piano, il background aspetta
+        private static readonly ParallelOptions _parBg = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2) };
+        private static readonly ParallelOptions _parFg = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount) };
 
         public static void Ensure(CloudLayer L, AnalysisSnapshot an)
         {
-            if (_layer == L && _an == an) return;
-            _layer = L; _an = an;
-            if (_thread == null)
+            lock (_lock)
             {
-                _thread = new Thread(Loop) { IsBackground = true, Name = "PointDeviation distanze", Priority = ThreadPriority.Lowest };
-                _thread.Start();
+                AnalysisSnapshot cur;
+                if (_finished.TryGetValue(L, out cur) && cur == an) return;
+                if (_targets.TryGetValue(L, out cur) && cur == an) return;
+                _targets[L] = an;
+                if (_thread == null)
+                {
+                    _thread = new Thread(Loop) { IsBackground = true, Name = "PointDeviation distanze", Priority = ThreadPriority.Lowest };
+                    _thread.Start();
+                }
             }
             _wake.Set();
         }
 
-        public static void Stop() { _layer = null; _an = null; }
+        public static void Stop() { lock (_lock) { _targets.Clear(); _finished.Clear(); } }
+
+        private static bool Current(CloudLayer L, AnalysisSnapshot an)
+        {
+            lock (_lock) { AnalysisSnapshot cur; return _targets.TryGetValue(L, out cur) && cur == an; }
+        }
 
         private static void Loop()
         {
             while (true)
             {
-                CloudLayer L = _layer; AnalysisSnapshot an = _an;
-                if (L == null || an == null) { _wake.WaitOne(1000); continue; }
-                try { Run(L, an); }
-                catch (Exception ex) { Log.Error("Calcolo distanze in background", ex); }
-                // finito (o interrotto): si aspetta una nuova analisi
-                while (_layer == L && _an == an) _wake.WaitOne(1000);
+                CloudLayer L = null; AnalysisSnapshot an = null;
+                lock (_lock) foreach (var kv in _targets) { L = kv.Key; an = kv.Value; break; }
+                if (L == null) { _wake.WaitOne(1000); continue; }
+                bool fin = false;
+                try
+                {
+                    DistRunResult r = Run(L, an, false, () => !Current(L, an), null);
+                    fin = r != null && r.Finished;
+                    if (r != null && r.Finished && r.Computed > 0)
+                        Log.Write("Analisi", string.Format("«{0}»: distanze di tutta la nuvola pronte in background ({1:N0} punti calcolati)", L.Name, r.Computed));
+                }
+                catch (Exception ex) { Log.Error("Calcolo distanze in background", ex); fin = true; }
+                lock (_lock)
+                {
+                    AnalysisSnapshot cur;
+                    if (_targets.TryGetValue(L, out cur) && cur == an)
+                    {
+                        _targets.Remove(L);
+                        if (fin) _finished[L] = an;
+                    }
+                }
             }
         }
 
-        private static void Run(CloudLayer L, AnalysisSnapshot an)
+        /// <summary>
+        /// Calcola (o ritrova sul disco) le distanze di tutti i punti della nuvola. progress(fatti, totale) viene chiamata
+        /// dopo ogni nodo; cancelled() interrompe tra un nodo e l'altro.
+        /// </summary>
+        public static DistRunResult Run(CloudLayer L, AnalysisSnapshot an, bool foreground, Func<bool> cancelled, Action<long, long> progress)
         {
             DistCache dc = L.GetDistCache(an);
-            if (dc == null) return;
+            if (dc == null) return null;
             int n = L.Tiles.Length;
+            var res = new DistRunResult();
             var order = new int[n];
-            for (int i = 0; i < n; i++) order[i] = i;
+            for (int i = 0; i < n; i++) { order[i] = i; res.Total += L.Tiles[i].Count; res.Reused += dc.Done(i); }
             Array.Sort(order, (a, b) => L.Tiles[a].Level != L.Tiles[b].Level ? L.Tiles[a].Level.CompareTo(L.Tiles[b].Level) : a.CompareTo(b));
+            long doneAll = res.Reused;
+            if (progress != null) progress(doneAll, res.Total);
+            if (doneAll >= res.Total) { res.Finished = true; return res; }
 
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            long computed = 0;
-            int R = L.Info.RecordSize;
-            double sc = L.Info.Scale / 0.3048;
-            using (var fs = new FileStream(L.PointsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16))
+            if (foreground) Interlocked.Increment(ref _foreground);
+            try
             {
-                foreach (int i in order)
+                int R = L.Info.RecordSize;
+                double sc = L.Info.Scale / 0.3048;
+                ParallelOptions par = foreground ? _parFg : _parBg;
+                using (var fs = new FileStream(L.PointsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16))
                 {
-                    if (_layer != L || _an != an) return;
-                    TileEntry t = L.Tiles[i];
-                    int from = dc.Done(i);
-                    if (from >= t.Count) continue;
-                    // la vista ha la precedenza: si aspetta che il caricamento sia fermo
-                    while ((CloudLoader.Busy || CloudBaker.Busy) && _layer == L && _an == an) Thread.Sleep(40);
-
-                    int cnt = t.Count - from;
-                    var raw = new byte[cnt * R];
-                    fs.Position = (t.FirstRecord + from) * R;
-                    int got = LasSource.ReadFully(fs, raw, raw.Length) / R;
-                    var dist = new float[t.Count];
-                    TriangleBvh bvh = an.Bvh;
-                    double range = an.SearchFt;
-                    Parallel.For(0, got, _par, () => { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; return new int[64]; }, (k, state, stack) =>
+                    foreach (int i in order)
                     {
-                        int o = k * R;
-                        double x, y, z, d;
-                        L.ToModel(BitConverter.ToInt32(raw, o) * sc, BitConverter.ToInt32(raw, o + 4) * sc, BitConverter.ToInt32(raw, o + 8) * sc,
-                            out x, out y, out z);
-                        dist[from + k] = bvh.Nearest(x, y, z, range, stack, out d) ? (float)d : float.NaN;
-                        return stack;
-                    }, _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
-                    dc.Write(i, t.FirstRecord, from, from + got, dist);
-                    computed += got;
+                        if (cancelled != null && cancelled()) return res;
+                        TileEntry t = L.Tiles[i];
+                        int from = dc.Done(i);
+                        if (from >= t.Count) continue;
+                        // in background la vista (e un eventuale calcolo in primo piano) ha la precedenza
+                        if (!foreground)
+                            while ((_foreground > 0 || CloudLoader.Busy || CloudBaker.Busy) && !(cancelled != null && cancelled())) Thread.Sleep(40);
+
+                        int cnt = t.Count - from;
+                        var raw = new byte[cnt * R];
+                        fs.Position = (t.FirstRecord + from) * R;
+                        int got = LasSource.ReadFully(fs, raw, raw.Length) / R;
+                        var dist = new float[t.Count];
+                        TriangleBvh bvh = an.Bvh;
+                        double range = an.SearchFt;
+                        ThreadPriority prio = foreground ? ThreadPriority.Normal : ThreadPriority.BelowNormal;
+                        Parallel.For(0, got, par, () => { Thread.CurrentThread.Priority = prio; return new int[64]; }, (k, state, stack) =>
+                        {
+                            int o = k * R;
+                            double x, y, z, d;
+                            L.ToModel(BitConverter.ToInt32(raw, o) * sc, BitConverter.ToInt32(raw, o + 4) * sc, BitConverter.ToInt32(raw, o + 8) * sc,
+                                out x, out y, out z);
+                            dist[from + k] = bvh.Nearest(x, y, z, range, stack, out d) ? (float)d : float.NaN;
+                            return stack;
+                        }, _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
+                        dc.Write(i, t.FirstRecord, from, from + got, dist);
+                        res.Computed += got;
+                        doneAll += got;
+                        if (progress != null) progress(doneAll, res.Total);
+                    }
                 }
+                res.Finished = true;
+                lock (_lock) { _targets.Remove(L); _finished[L] = an; }
+                return res;
             }
-            if (computed > 0)
-                Log.Write("Analisi", string.Format("«{0}»: distanze di tutta la nuvola pronte ({1:N0} punti calcolati in {2:F0} s)",
-                    L.Name, computed, sw.Elapsed.TotalSeconds));
+            finally
+            {
+                if (foreground) Interlocked.Decrement(ref _foreground);
+            }
+        }
+
+        /// <summary>Quante delle distanze salvate trovano una superficie entro la distanza massima.</summary>
+        public static void CountSurface(CloudLayer L, AnalysisSnapshot an, out long withSurface, out long total)
+        {
+            withSurface = total = 0;
+            DistCache dc = L.GetDistCache(an);
+            if (dc != null) dc.CountSurface(L, out withSurface, out total);
         }
     }
 }
