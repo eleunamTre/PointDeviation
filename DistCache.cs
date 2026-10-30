@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace PointDeviation
 {
     /// <summary>
-    /// Distanze dal modello salvate su disco, accanto alla nuvola (cartella «analisi»), una per ogni analisi.
+    /// Distanze dal modello salvate su disco, accanto alla nuvola (cartella «analysis»), una per ogni analisi.
     /// L'analisi si riconosce da un'impronta della geometria del modello, della distanza massima e della posizione della
     /// nuvola: rifacendo la stessa analisi (anche dopo aver chiuso e riaperto il progetto) le distanze già calcolate si
     /// rileggono invece di ricalcolarle. Ogni punto occupa 2 byte (distanza quantizzata sulla distanza massima).
@@ -64,7 +64,10 @@ namespace PointDeviation
             try
             {
                 string key = MakeKey(L, an);
-                string dir = Path.Combine(L.Folder, "analisi");
+                string dir = Path.Combine(L.Folder, "analysis");
+                // cartella delle prime versioni: si rinomina, così le distanze già calcolate non vanno perse
+                string old = Path.Combine(L.Folder, "analisi");
+                if (!Directory.Exists(dir) && Directory.Exists(old)) try { Directory.Move(old, dir); } catch { }
                 Directory.CreateDirectory(dir);
                 int n = L.Tiles.Length;
                 long total = 0;

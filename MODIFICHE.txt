@@ -392,3 +392,5 @@ Ottava tornata (28/10/2026): octree
      spazio: con lo zoom si ingrandiscono come un'immagine, senza dimensioni mescolate). Dopo 1,2 s si passa comunque
      alla nuova vista con i ripieghi, per non restare indietro durante un movimento lungo. I blocchi mostrati non
      vengono liberati dalla scheda video. Nel registro: «nuova vista pronta N%» e «(si mostra la vista precedente)».
+107. La cartella delle distanze salvate si chiama «analysis» (era «analisi», che viene rinominata da sola). Si puo'
+     cancellare in qualsiasi momento a Revit chiuso: alla prossima analisi le distanze si ricalcolano.
