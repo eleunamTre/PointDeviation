@@ -85,7 +85,8 @@ namespace PointDeviation
                 // background, e dove serve prima lo calcola la vista stessa.
                 var stops = new long[_layers.Count];
                 long all = 0;
-                for (int k = 0; k < _layers.Count; k++) { stops[k] = (long)(totals[k] * ForegroundShare); all += stops[k]; }
+                double share = AdvancedSettings.Current.AnalysisFullWait ? 1.0 : ForegroundShare;
+                for (int k = 0; k < _layers.Count; k++) { stops[k] = share >= 1.0 ? long.MaxValue : (long)(totals[k] * share); all += share >= 1.0 ? totals[k] : stops[k]; }
                 long before = 0;
                 long lastUi = 0;
                 for (int k = 0; k < _layers.Count && !_cancel; k++)
@@ -95,7 +96,7 @@ namespace PointDeviation
                     DistRunResult r = DistPrefetch.Run(l, _an, true, () => _cancel, (done, tot) =>
                     {
                         long now = _sw.ElapsedMilliseconds;
-                        if (now - lastUi < 80 && done < stop) return;
+                        if (now - lastUi < 80 && done < Math.Min(stop, tot)) return;
                         lastUi = now;
                         Ui(b0 + Math.Min(done, stop), all, l.Name);
                     }, stop);
@@ -104,7 +105,7 @@ namespace PointDeviation
                     remaining += Math.Max(0, r.Total - r.Reused - r.Computed);
                     if (!r.Finished) DistPrefetch.Ensure(l, _an); // il resto in background
                     Log.Write("Analisi", string.Format("«{0}»: {4} thread, per thread lettura {1:F1} s, calcolo {2:F1} s, scrittura {3:F1} s; raccolte memoria (gen 2) {5}", l.Name, r.ReadMs / 1000, r.ComputeMs / 1000, r.WriteMs / 1000, r.Threads, r.Gc2));
-                    before += stop;
+                    before += stop == long.MaxValue ? totals[k] : stop;
                 }
                 if (!_cancel && error == null)
                     foreach (CloudLayer l in _layers)

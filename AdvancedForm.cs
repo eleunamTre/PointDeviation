@@ -23,6 +23,7 @@ namespace PointDeviation
         private readonly NumericUpDown _budget = new NumericUpDown { Minimum = 25, Maximum = 400, Increment = 25, Width = 80 };
         private readonly NumericUpDown _gpuKeep = new NumericUpDown { Minimum = 2, Maximum = 600, Width = 80 };
         private readonly NumericUpDown _memKeep = new NumericUpDown { Minimum = 5, Maximum = 3600, Width = 80 };
+        private readonly System.Windows.Forms.CheckBox _fullWait = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
         {
@@ -159,6 +160,9 @@ namespace PointDeviation
             p.Controls.Add(Row(L.T("Libera la memoria video dopo (secondi fuori vista)"), _gpuKeep));
             p.Controls.Add(Row(L.T("Libera la memoria del computer dopo (secondi fuori vista)"), _memKeep));
             p.Controls.Add(Note(L.T("Tempi lunghi: tornando su una zona appena vista è già pronta. Tempi brevi: meno memoria occupata.")));
+            _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
+            p.Controls.Add(_fullWait);
+            p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
             return p;
         }
 
@@ -180,6 +184,7 @@ namespace PointDeviation
             _budget.Value = a.BudgetPercent;
             _gpuKeep.Value = a.GpuKeepSeconds;
             _memKeep.Value = a.MemKeepSeconds;
+            _fullWait.Checked = a.AnalysisFullWait;
         }
 
         private void Apply()
@@ -189,6 +194,7 @@ namespace PointDeviation
             a.BudgetPercent = (int)_budget.Value;
             a.GpuKeepSeconds = (int)_gpuKeep.Value;
             a.MemKeepSeconds = (int)_memKeep.Value;
+            a.AnalysisFullWait = _fullWait.Checked;
             a.Save();
             bool levelsChanged = CloudDebug.Levels != _levels.Checked;
             CloudDebug.Levels = _levels.Checked;

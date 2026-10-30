@@ -80,6 +80,8 @@ namespace PointDeviation
         /// <summary>Secondi fuori vista prima di liberare la memoria della scheda video e quella del computer.</summary>
         [DataMember] public int GpuKeepSeconds = 45;
         [DataMember] public int MemKeepSeconds = 60;
+        /// <summary>Analisi: la finestra aspetta il calcolo di tutte le distanze (invece dei soli livelli principali).</summary>
+        [DataMember] public bool AnalysisFullWait;
 
         private static AdvancedSettings _current;
 

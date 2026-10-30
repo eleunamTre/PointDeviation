@@ -8,6 +8,8 @@ namespace PointDeviation
         static partial void FillEnglish(Dictionary<string, string> d)
         {
             d["Livelli principali pronti: puoi navigare. Il dettaglio fine ({0:F0}% dei punti) si completa in background, circa {1:F0} s."] = "Main levels ready: you can navigate. The fine detail ({0:F0}% of points) is completed in the background, about {1:F0} s.";
+            d["Analisi: aspetta il calcolo completo delle distanze"] = "Analysis: wait for all distances to be computed";
+            d["Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta."] = "Off (recommended): the window closes when the main levels are ready (about a third of the time) and the fine detail is completed in the background. On: wait for everything, then every zoom level is ready and the share of points near the model is exact.";
             d["Analisi delle discrepanze"] = "Deviation analysis";
             d["Calcolo delle distanze dal modello..."] = "Computing distances from the model...";
             d["Naviga subito"] = "Navigate now";

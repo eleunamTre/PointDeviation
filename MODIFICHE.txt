@@ -416,3 +416,5 @@ Ottava tornata (28/10/2026): octree
        tutta la nuvola), che bastano per navigare quasi a ogni zoom; il dettaglio fine si completa in background e
        l'esito indica la parte rimasta e il tempo stimato;
      - i triangoli si riordinano in memoria come le foglie dell'albero di ricerca (meno salti in memoria).
+112. Avanzate > Prestazioni: «Analisi: aspetta il calcolo completo delle distanze» (spento di base). Acceso, la
+     finestra dell'analisi aspetta tutte le distanze come prima; spento, solo i livelli principali.
