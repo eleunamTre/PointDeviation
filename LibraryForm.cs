@@ -340,7 +340,7 @@ namespace PointDeviation
             using (var dlg = new OpenFileDialog
             {
                 Title = L.T("Nuvola da convertire"),
-                Filter = L.T("Nuvole supportate (*.las;*.rcp;*.rcs)|*.las;*.rcp;*.rcs|LAS (*.las)|*.las|ReCap (*.rcp;*.rcs)|*.rcp;*.rcs")
+                Filter = L.T("Nuvole supportate (*.las;*.e57;*.rcp;*.rcs)|*.las;*.e57;*.rcp;*.rcs|LAS (*.las)|*.las|E57 (*.e57)|*.e57|ReCap (*.rcp;*.rcs)|*.rcp;*.rcs")
             })
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
@@ -349,11 +349,14 @@ namespace PointDeviation
 
             string ext = Path.GetExtension(path).ToLowerInvariant();
             bool recap = ext == ".rcp" || ext == ".rcs";
-            LasUnits.Result units = recap ? null : LasUnits.Detect(path);
+            bool e57 = ext == ".e57";
+            // E57: sempre in metri, nessuna unità da scegliere
+            LasUnits.Result units = recap || e57 ? null : LasUnits.Detect(path);
             using (var opt = new ConvertOptionsForm(Path.GetFileNameWithoutExtension(path), _libs.Folders, _folders.SelectedIndex, units, recap))
             {
                 if (opt.ShowDialog(this) != DialogResult.OK) return;
                 if (recap) StartExtraction(path, false, opt);
+                else if (e57) StartConversion(() => new E57Source(path), opt.CloudName, opt.Folder, null);
                 else StartConversion(() => new LasSource(path, opt.UnitToMeters), opt.CloudName, opt.Folder, null);
             }
         }

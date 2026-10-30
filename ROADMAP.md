@@ -1,8 +1,13 @@
 # PointDeviation – roadmap
 
 ## 1. Formati
-- **E57** (lettura diretta, anche con più scansioni e colori/intensità) – priorità alta.
+- **E57** (lettura diretta, anche con più scansioni e colori/intensità) – fatto (da provare su file reali).
 - In seguito: LAZ, PTS/XYZ/PLY.
+
+## 1b. Fotosfere (panoramiche) dentro Revit
+Le immagini sferiche delle stazioni di scansione (negli E57 sono nella sezione images2D, con posizione e
+orientamento; negli RCP nelle scansioni) mostrate in Revit: elenco delle stazioni, «vai alla stazione»
+(camera nel punto di scansione) e panoramica sovrapposta al modello o in una finestra affiancata.
 
 ## 2. Completezza (Completeness check)
 Esiste già come profilo colori «Completezza»: evidenzia i punti a più di una soglia dal modello

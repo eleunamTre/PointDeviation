@@ -21,6 +21,15 @@ namespace PointDeviation
             d["spento"] = "off";
             d["{0} processori, {1:F0} GB di memoria"] = "{0} processors, {1:F0} GB of memory";
             d["{0} processori"] = "{0} processors";
+            d["Il file non è un E57."] = "The file is not an E57.";
+            d["File E57 troncato."] = "Truncated E57 file.";
+            d["Il file E57 non contiene scansioni con punti."] = "The E57 file contains no scans with points.";
+            d["E57: {0} scansioni, {1:N0} punti"] = "E57: {0} scans, {1:N0} points";
+            d[", {0} con colori"] = ", {0} with colors";
+            d[", {0} con intensità (in grigio)"] = ", {0} with intensity (grayscale)";
+            d["Il file E57 usa una compressione non standard (codec) non supportata."] = "The E57 file uses an unsupported non-standard compression (codec).";
+            d["Sezione dei punti E57 non valida."] = "Invalid E57 point section.";
+            d["Pacchetto E57 non coerente con la descrizione dei punti."] = "E57 packet inconsistent with the point description.";
             d["Analisi delle discrepanze"] = "Deviation analysis";
             d["Calcolo delle distanze dal modello..."] = "Computing distances from the model...";
             d["Naviga subito"] = "Navigate now";
@@ -367,7 +376,7 @@ namespace PointDeviation
             d["Impossibile eliminare: "] = "Cannot delete: ";
             d["Scegli prima la cartella-libreria dove salvare le nuvole convertite."] = "First choose the library folder where converted clouds are saved.";
             d["Nuvola da convertire"] = "Cloud to convert";
-            d["Nuvole supportate (*.las;*.rcp;*.rcs)|*.las;*.rcp;*.rcs|LAS (*.las)|*.las|ReCap (*.rcp;*.rcs)|*.rcp;*.rcs"] = "Supported clouds (*.las;*.rcp;*.rcs)|*.las;*.rcp;*.rcs|LAS (*.las)|*.las|ReCap (*.rcp;*.rcs)|*.rcp;*.rcs";
+            d["Nuvole supportate (*.las;*.e57;*.rcp;*.rcs)|*.las;*.e57;*.rcp;*.rcs|LAS (*.las)|*.las|E57 (*.e57)|*.e57|ReCap (*.rcp;*.rcs)|*.rcp;*.rcs"] = "Supported clouds (*.las;*.e57;*.rcp;*.rcs)|*.las;*.e57;*.rcp;*.rcs|LAS (*.las)|*.las|E57 (*.e57)|*.e57|ReCap (*.rcp;*.rcs)|*.rcp;*.rcs";
             d["Lettura della nuvola da Revit..."] = "Reading the cloud through Revit...";
             d["Lettura non riuscita: "] = "Reading failed: ";
             d["nessun punto."] = "no points.";
