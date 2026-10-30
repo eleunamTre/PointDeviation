@@ -73,8 +73,11 @@ namespace PointDeviation
                 string datPath = Path.Combine(dir, key + ".dist"), idxPath = Path.Combine(dir, key + ".idx");
                 var done = new int[n];
                 bool fresh = !File.Exists(datPath) || !File.Exists(idxPath);
-                var idx = new FileStream(idxPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
-                var dat = new FileStream(datPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+                // data di modifica aggiornata prima di aprire (serve a tenere le analisi più recenti); aperti in
+                // condivisione, perché una nuvola ricaricata può avere ancora aperta la copia precedente
+                if (File.Exists(idxPath)) try { File.SetLastWriteTimeUtc(idxPath, DateTime.UtcNow); } catch { }
+                var idx = new FileStream(idxPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
+                var dat = new FileStream(datPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
                 if (!fresh && idx.Length == 8 + 4L * n && dat.Length == total * 2)
                 {
                     var b = new byte[idx.Length];
@@ -95,7 +98,6 @@ namespace PointDeviation
                     idx.Flush();
                     dat.SetLength(total * 2);
                 }
-                File.SetLastWriteTimeUtc(idxPath, DateTime.UtcNow);
                 Prune(dir, key);
                 var dc = new DistCache(key, an.SearchFt / 32000.0, n, dat, idx, done);
                 long saved = dc.SavedPoints;

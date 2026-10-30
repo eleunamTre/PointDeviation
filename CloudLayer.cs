@@ -802,6 +802,9 @@ namespace PointDeviation
             for (int i = 0; i < Tiles.Length; i++)
             {
                 TileGpu g = _gpu[i], o = _gpuO[i];
+                // solo i blocchi non scelti per questa vista: dopo una pausa (vista ferma, nessun fotogramma per più del
+                // tempo impostato) si liberava tutto, e al primo movimento la nuvola ripartiva dai livelli più grossolani
+                if (want[i] > 0) continue;
                 if (g != null && now - g.LastDraw > gpuKeep) { g.Dispose(); _gpu[i] = null; }
                 if (o != null && now - o.LastDraw > gpuKeep) { o.Dispose(); _gpuO[i] = null; }
                 if (want[i] <= 0 && _gpu[i] == null && _gpuO[i] == null && Cpu[i] != null && now - _wantTick[i] > memKeep && Volatile.Read(ref Pending[i]) == 0) Cpu[i] = null;
@@ -823,6 +826,16 @@ namespace PointDeviation
                     || (st.NeedsNormals && cpu.NrmCount < cpu.Count * 0.6);
                 // coda corta: si chiede solo il più importante, al fotogramma dopo si rivaluta con la vista aggiornata
                 if (needData && CloudLoader.Queued < 24) CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
+                if (IsOctree && st.PointScale > 0)
+                {
+                    // maschere aggiornate anche per i blocchi in attesa (distanze o normali): si disegnano con quello che
+                    // avevano, e con maschere di fotogrammi vecchi mostravano punti grandi dove il figlio era già pronto
+                    _wantedOct[i] = WantedOctants(i, want);
+                    _covered[i] = CoveredOctants(i, want);
+                    // blocco molto più rado di quanto serve a schermo: dove manca ancora il figlio si mostra a punti
+                    // piccoli invece che con rombi grandi
+                    _coarse[i] = px[i] > 0 && _nodeSpacing[i] / px[i] > 2.0 * Math.Max(StatTarget, 1.0);
+                }
                 if (!ready) continue; // si continua a disegnare quello che c'era finché arrivano distanze o normali
 
                 int drawN = Math.Min(cpu.Count, w);
@@ -836,12 +849,7 @@ namespace PointDeviation
                     // ottanti in cui un figlio è scelto per questa vista: lì il padre si disegna sempre a punti piccoli, anche
                     // se il figlio non è ancora pronto. Così i punti grandi compaiono solo dove sono la grana definitiva e
                     // non si vedono più gonfiarsi a ogni movimento: al massimo per un attimo la zona è più rada.
-                    byte cov = WantedOctants(i, want);
-                    _wantedOct[i] = cov;
-                    _covered[i] = CoveredOctants(i, want);
-                    // blocco molto più rado di quanto serve a schermo (antenati lontani dal livello giusto): i suoi punti
-                    // grandi sarebbero enormi, quindi dove manca ancora il figlio si mostra a punti piccoli
-                    _coarse[i] = px[i] > 0 && _nodeSpacing[i] / px[i] > 2.5 * Math.Max(StatTarget, 1.0);
+                    byte cov = _wantedOct[i];
                     // raggio di base dal livello del nodo; il raggio di ogni punto dipende poi dalla sua posizione nell'ordine
                     // a strati (vedi BuildRange), così il buffer vale per qualunque zoom e non va mai ricostruito
                     double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;

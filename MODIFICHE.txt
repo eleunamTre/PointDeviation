@@ -368,3 +368,12 @@ Ottava tornata (28/10/2026): octree
      al modello). «Continua in background» chiude la finestra e il calcolo prosegue da dove era arrivato. Se le
      distanze di quell'analisi sono gia' tutte salvate la finestra non compare. Il calcolo in background ora segue
      anche piu' nuvole insieme.
+103. Correzioni dal registro delle 12:02:
+     - distanze salvate: il file indice veniva aperto e poi «toccato» per aggiornarne la data mentre era gia' aperto
+       (IOException «being used by another process»), quindi il salvataggio non partiva mai e la finestra diceva
+       «Analisi non completata». Ora la data si aggiorna prima e i file si aprono in condivisione;
+     - dopo una pausa (vista ferma per piu' del tempo «blocchi nella scheda video») al primo movimento si liberavano
+       anche i blocchi in vista e la nuvola ripartiva dai livelli piu' grossolani, con i punti enormi (registro:
+       «disegnati 0, da costruire 218»). Ora si liberano solo i blocchi non scelti per la vista;
+     - maschere dei punti grandi/piccoli aggiornate anche per i blocchi in attesa di distanze o normali;
+     - i blocchi piu' radi di 2 volte il necessario (era 2,5) usano i punti piccoli dove il figlio non e' pronto.
