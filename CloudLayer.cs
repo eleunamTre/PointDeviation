@@ -824,7 +824,10 @@ namespace PointDeviation
                 if (CloudBaker.Queued < 48)
                     CloudBaker.Enqueue(new BakeJob
                     {
-                        Layer = this, Node = i, Octa = octa, Radius = radius, UpTo = Math.Max(need, gpu != null && !stale ? gpu.Built : 0),
+                        // si preparano tutti i punti caricati del nodo, non solo quelli che servono ora: zoomando i punti
+                        // voluti cambiano di continuo e preparare solo il necessario costringeva a rifare il nodo ogni volta
+                        // (registro: 13 milioni di punti preparati per 3 milioni disegnati)
+                        Layer = this, Node = i, Octa = octa, Radius = radius, UpTo = cpu.Count,
                         Key = key, Highlight = hl, Style = st, Argb = argb
                     });
                 return;
