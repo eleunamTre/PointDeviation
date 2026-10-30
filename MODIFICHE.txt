@@ -331,3 +331,9 @@ Ottava tornata (28/10/2026): octree
 97. Preparazione dei nodi interi (tutti i punti caricati) invece dei soli punti che servono in quel momento: zoomando
     il numero voluto cambia di continuo e il nodo veniva ripreparato ogni volta (registro: 13 M di punti preparati in
     5 s per 3 M disegnati). La copia nella scheda video e' risultata veloce (circa 9 M di punti al secondo).
+
+98. Niente piu' punti che si gonfiano muovendo la camera. Dove un nodo ha un figlio scelto per la vista, il nodo si
+    disegna sempre a punti piccoli, anche se il figlio non e' ancora pronto: i punti grandi restano solo dove sono la
+    grana definitiva. Mentre i figli arrivano la zona puo' essere per un attimo piu' rada, ma non cambia dimensione.
+    Le due versioni del nodo (punti grandi e punti piccoli) si preparano insieme in un solo passaggio, cosi' quella
+    a punti piccoli e' gia' pronta quando si zooma.

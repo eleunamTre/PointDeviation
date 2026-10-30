@@ -769,15 +769,20 @@ namespace PointDeviation
                 {
                     // octree: per ogni ottante del blocco, punti di un pixel dove il figlio è già disegnato (la grana la dà lui),
                     // punti grandi dove no, così nessuna zona resta vuota mentre i figli arrivano
-                    byte cov = CoveredOctants(i, want);
+                    // ottanti in cui un figlio è scelto per questa vista: lì il padre si disegna sempre a punti piccoli, anche
+                    // se il figlio non è ancora pronto. Così i punti grandi compaiono solo dove sono la grana definitiva e
+                    // non si vedono più gonfiarsi a ogni movimento: al massimo per un attimo la zona è più rada.
+                    byte cov = WantedOctants(i, want);
                     _covered[i] = cov;
                     // raggio di base dal livello del nodo; il raggio di ogni punto dipende poi dalla sua posizione nell'ordine
                     // a strati (vedi BuildRange), così il buffer vale per qualunque zoom e non va mai ricostruito
                     double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;
                     // i punti grandi servono sempre: coprono la zona da soli finché i figli non sono pronti, e un figlio
                     // «copre» il suo ottante nel padre solo quando ha i suoi punti grandi completi
+                    if (_raw == 0) CalibrateRaw();
+                    if (_raw == 1) { EnsureNode(i, radius, cpu, drawN, key, hl, st, argb, budget, now); continue; }
                     EnsureGpu(_gpuO, i, true, radius, cpu, drawN, key, hl, st, argb, budget, now);
-                    if (cov != 0) EnsureGpu(_gpu, i, false, 0, cpu, drawN, key, hl, st, argb, budget, now);
+                    if (cov != 0 && Tiles[i].ChildMask != 0) EnsureGpu(_gpu, i, false, 0, cpu, drawN, key, hl, st, argb, budget, now);
                     continue;
                 }
 
@@ -848,6 +853,63 @@ namespace PointDeviation
             ng.LastDraw = now;
             arr[i] = ng;
             if (coarse < drawN) budget.MoreWork = true;
+        }
+
+        /// <summary>
+        /// Octree con scrittura diretta: tiene pronte nella scheda video le due versioni del nodo (punti grandi e, se il
+        /// nodo ha figli, punti piccoli), preparate insieme in un solo passaggio in background.
+        /// </summary>
+        private void EnsureNode(int i, double radius, TileCpu cpu, int drawN, int key, bool hl, Style st, int argb, RenderBudget budget, long now)
+        {
+            int need = Math.Min(drawN, cpu.Count);
+            bool withPts = Tiles[i].ChildMask != 0;
+            int so = UseBaked(_gpuO, BakedO, i, true, radius, need, key, hl, st, budget, now);
+            int sp = withPts ? UseBaked(_gpu, BakedP, i, false, radius, need, key, hl, st, budget, now) : 0;
+            if ((so == 2 || sp == 2) && CloudBaker.Queued < 48)
+                CloudBaker.Enqueue(new BakeJob
+                {
+                    // tutti i punti caricati del nodo, così zoomando non va rifatto (vedi MODIFICHE 97)
+                    Layer = this, Node = i, Octa = true, WithPoints = withPts, Radius = radius, UpTo = cpu.Count,
+                    Key = key, Highlight = hl, Style = st, Argb = argb
+                });
+        }
+
+        /// <summary>0 = buffer già valido, 1 = pronto ma si copia al prossimo fotogramma, 2 = da preparare.</summary>
+        private int UseBaked(TileGpu[] arr, Baked[] barr, int i, bool octa, double radius, int need, int key, bool hl,
+            Style st, RenderBudget budget, long now)
+        {
+            TileGpu gpu = arr[i];
+            bool stale = gpu == null || gpu.StyleVersion != st.Version || gpu.GeoVersion != GeoVersion
+                || gpu.ColorKey != key || gpu.Highlight != hl
+                || (octa && Math.Abs(gpu.Radius - radius) > radius * 0.35);
+            if (!stale && gpu.Built >= need) return 0;
+            Baked bk = Volatile.Read(ref barr[i]);
+            if (bk == null || bk.StyleVersion != st.Version || bk.GeoVersion != GeoVersion || bk.ColorKey != key || bk.Highlight != hl
+                || bk.Points == octa || (octa && Math.Abs(bk.Radius - radius) > radius * 0.35 + 1e-12) || bk.Built < need)
+                return 2;
+            if (!budget.CoarseTime) { budget.MoreWork = true; return 1; }
+            var usw = System.Diagnostics.Stopwatch.StartNew();
+            TileGpu up = Upload(bk);
+            CloudBaker.UploadTicks += usw.ElapsedTicks;
+            CloudBaker.UploadPoints += bk.Built;
+            up.LastDraw = now;
+            if (gpu != null) gpu.Dispose();
+            arr[i] = up;
+            Volatile.Write(ref barr[i], null);
+            return 0;
+        }
+
+        /// <summary>Ottanti del nodo in cui il figlio è scelto per questa vista (pronto o no).</summary>
+        private byte WantedOctants(int i, int[] want)
+        {
+            int mask = Tiles[i].ChildMask, c = _firstChild[i], res = 0;
+            for (int o = 0; o < 8; o++)
+            {
+                if ((mask & (1 << o)) == 0) continue;
+                int ch = c++;
+                if (want[ch] > 0) res |= 1 << o;
+            }
+            return (byte)res;
         }
 
         /// <summary>Ottanti del nodo in cui il figlio è scelto per questa vista e ha già qualcosa da disegnare.</summary>
@@ -943,10 +1005,12 @@ namespace PointDeviation
                     if (go != null) go.LastDraw = now;
                     bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
                     if (Volatile.Read(ref Cpu[i]) == null) notLoaded++;
-                    else if (go == null || go.StyleVersion != st.Version || go.Built < Math.Min(Cpu[i].Count, want[i])) notBuilt++;
+                    else if (go == null || go.StyleVersion != st.Version || go.Built < Math.Min(Cpu[i].Count, want[i])
+                        || (_covered[i] != 0 && !hp)) notBuilt++;
                     if (!hp && !ho) { missing++; continue; }
                     int cov = _covered[i];
-                    // ottanti coperti dai figli: punti di un pixel (se pronti); tutti gli altri: punti grandi
+                    // ottanti con un figlio scelto: punti piccoli (il figlio, appena pronto, aggiunge la grana fine);
+                    // gli altri: punti grandi. Se una versione manca ancora si usa l'altra, meglio che un buco.
                     int pixMask = hp ? (ho ? cov : 0xFF) : 0;
                     int bigMask = ho ? (0xFF & ~pixMask) : 0;
                     if (pixMask != 0) { gp.LastDraw = now; pts += Draw(gp, want[i], effect, pixMask); }
@@ -1171,6 +1235,14 @@ namespace PointDeviation
             };
             var buf = new byte[8][];
             var nv = new int[8]; var np = new int[8]; var start = new int[8];
+            // versione a punti piccoli preparata nello stesso passaggio (posizioni e colori si calcolano una volta sola)
+            bool both = octa && j.WithPoints;
+            Baked bp = both ? new Baked
+            {
+                StyleVersion = st.Version, GeoVersion = GeoVersion, ColorKey = j.Key, Highlight = j.Highlight, Points = true, Radius = j.Radius
+            } : null;
+            var pbuf = both ? new byte[8][] : null;
+            var pnv = new int[8]; var pnp = new int[8]; var pstart = new int[8];
             double cx = _ocx[node], cy = _ocy[node], cz = _ocz[node];
             for (int k = 0; k < upTo; k++)
             {
@@ -1186,6 +1258,12 @@ namespace PointDeviation
                 if (buf[oc] == null) buf[oc] = new byte[per * vpp * stride];
                 byte a = op ? (byte)(255 - t) : t;
                 float fx = (float)x, fy = (float)y, fz = (float)z;
+                if (both)
+                {
+                    if (pbuf[oc] == null) pbuf[oc] = new byte[PointChunk * stride];
+                    fixed (byte* q0 = pbuf[oc]) Vert(q0, ref pnv[oc], stride, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
+                    if (++pnp[oc] >= PointChunk) BakeFlush(bp, pbuf, pnv, pnp, pstart, oc, k + 1, stride);
+                }
                 fixed (byte* p0 = buf[oc])
                 {
                     if (vpp == 1) Vert(p0, ref nv[oc], stride, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
@@ -1204,6 +1282,12 @@ namespace PointDeviation
             }
             for (int o = 0; o < 8; o++) BakeFlush(bk, buf, nv, np, start, o, upTo, stride);
             bk.Built = upTo;
+            if (both)
+            {
+                for (int o = 0; o < 8; o++) BakeFlush(bp, pbuf, pnv, pnp, pstart, o, upTo, stride);
+                bp.Built = upTo;
+                bk.PointsTwin = bp;
+            }
             return bk;
         }
 
@@ -1453,6 +1537,7 @@ namespace PointDeviation
         public int StyleVersion, GeoVersion, ColorKey, Built, FullCount;
         public bool Points, Highlight;
         public double Radius;
+        public Baked PointsTwin;   // versione a punti piccoli preparata insieme (solo per i job WithPoints)
         public readonly List<BakedChunk> Chunks = new List<BakedChunk>();
     }
 
@@ -1466,7 +1551,7 @@ namespace PointDeviation
     {
         public CloudLayer Layer;
         public int Node, UpTo, Key, Argb;
-        public bool Octa, Highlight;
+        public bool Octa, Highlight, WithPoints;   // WithPoints: insieme ai punti grandi si preparano anche quelli piccoli
         public double Radius;
         public Style Style;
     }
@@ -1527,6 +1612,7 @@ namespace PointDeviation
                         {
                             Interlocked.Add(ref BakeTicks, sw.ElapsedTicks);
                             Interlocked.Add(ref BakePoints, bk.Built);
+                            if (bk.PointsTwin != null) { Volatile.Write(ref j.Layer.BakedP[j.Node], bk.PointsTwin); bk.PointsTwin = null; }
                             Volatile.Write(ref dest[j.Node], bk);
                             done = true;
                         }
