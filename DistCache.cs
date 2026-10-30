@@ -259,6 +259,35 @@ namespace PointDeviation
             }, _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
         }
 
+        /// <summary>Come Run, ma su un solo thread e con buffer forniti (riusati da un nodo all'altro).</summary>
+        public static void RunSequential(TriangleBvh bvh, double range, double[] xyz, int n, float[] dist, int offset, uint[] keys, int[] idx, int[] stack)
+        {
+            if (n == 0) return;
+            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            for (int k = 0; k < n; k++)
+            {
+                double x = xyz[k * 3], y = xyz[k * 3 + 1], z = xyz[k * 3 + 2];
+                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                if (y < minY) minY = y; if (y > maxY) maxY = y;
+                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+            }
+            double ext = Math.Max(1e-9, Math.Max(maxX - minX, Math.Max(maxY - minY, maxZ - minZ)));
+            double f = 1023.0 / ext;
+            for (int k = 0; k < n; k++)
+            {
+                idx[k] = k;
+                keys[k] = Part((uint)((xyz[k * 3] - minX) * f)) | (Part((uint)((xyz[k * 3 + 1] - minY) * f)) << 1) | (Part((uint)((xyz[k * 3 + 2] - minZ) * f)) << 2);
+            }
+            Array.Sort(keys, idx, 0, n);
+            int hint = -1;
+            for (int q = 0; q < n; q++)
+            {
+                int k = idx[q];
+                double d;
+                dist[offset + k] = bvh.Nearest(xyz[k * 3], xyz[k * 3 + 1], xyz[k * 3 + 2], range, stack, ref hint, out d) ? (float)d : float.NaN;
+            }
+        }
+
         // 10 bit per asse distribuiti ogni 3 bit
         private static uint Part(uint v)
         {
@@ -275,7 +304,8 @@ namespace PointDeviation
     internal sealed class DistRunResult
     {
         public long Total, Reused, Computed;
-        public double ReadMs, ComputeMs, WriteMs;   // diagnostica
+        public double ReadMs, ComputeMs, WriteMs;   // diagnostica (media per thread)
+        public int Gc2, Threads;
         public bool Finished;
     }
 
@@ -370,41 +400,77 @@ namespace PointDeviation
                 int R = L.Info.RecordSize;
                 double sc = L.Info.Scale / 0.3048;
                 ParallelOptions par = foreground ? _parFg : _parBg;
-                using (var fs = new FileStream(L.PointsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16))
+                // Un nodo per thread (non un nodo alla volta diviso tra i thread): ogni thread lavora in sequenza sui
+                // punti del suo nodo, ordinati nello spazio, riusando i propri buffer. Prima ogni nodo allocava array
+                // grandi (memoria «large object» di .NET) e aspettava tutti i thread alla fine: con 3918 nodi il tempo
+                // se ne andava in raccolte della memoria di Revit e in attese.
+                int workers = Math.Max(1, par.MaxDegreeOfParallelism);
+                int next = -1;
+                long ticksRead = 0, ticksCalc = 0, ticksWrite = 0, computed = 0;
+                int gc0 = GC.CollectionCount(2);
+                ThreadPriority prio = foreground ? ThreadPriority.Normal : ThreadPriority.BelowNormal;
+                var sync = new object();
+                Parallel.For(0, workers, new ParallelOptions { MaxDegreeOfParallelism = workers }, w =>
                 {
-                    foreach (int i in order)
+                    ThreadPriority old = Thread.CurrentThread.Priority;
+                    Thread.CurrentThread.Priority = prio;
+                    try
                     {
-                        if (cancelled != null && cancelled()) return res;
-                        TileEntry t = L.Tiles[i];
-                        int from = dc.Done(i);
-                        if (from >= t.Count) continue;
-                        // in background la vista (e un eventuale calcolo in primo piano) ha la precedenza
-                        if (!foreground)
-                            while ((_foreground > 0 || CloudLoader.Busy || CloudBaker.Busy) && !(cancelled != null && cancelled())) Thread.Sleep(40);
-
-                        var tw = System.Diagnostics.Stopwatch.StartNew();
-                        int cnt = t.Count - from;
-                        var raw = new byte[cnt * R];
-                        fs.Position = (t.FirstRecord + from) * R;
-                        int got = LasSource.ReadFully(fs, raw, raw.Length) / R;
-                        res.ReadMs += tw.Elapsed.TotalMilliseconds; tw.Restart();
-                        var dist = new float[t.Count];
-                        var xyz = new double[got * 3];
-                        for (int k = 0; k < got; k++)
+                        byte[] raw = new byte[0]; double[] xyz = new double[0]; float[] dist = new float[0];
+                        uint[] keys = new uint[0]; int[] idx = new int[0];
+                        var stack = new int[64];
+                        using (var fs = new FileStream(L.PointsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16))
                         {
-                            int o = k * R;
-                            L.ToModel(BitConverter.ToInt32(raw, o) * sc, BitConverter.ToInt32(raw, o + 4) * sc, BitConverter.ToInt32(raw, o + 8) * sc,
-                                out xyz[k * 3], out xyz[k * 3 + 1], out xyz[k * 3 + 2]);
+                            while (true)
+                            {
+                                if (cancelled != null && cancelled()) return;
+                                int oi = Interlocked.Increment(ref next);
+                                if (oi >= n) return;
+                                int i = order[oi];
+                                TileEntry t = L.Tiles[i];
+                                int from = dc.Done(i);
+                                if (from >= t.Count) continue;
+                                // in background la vista (e un eventuale calcolo in primo piano) ha la precedenza
+                                if (!foreground)
+                                    while ((_foreground > 0 || CloudLoader.Busy || CloudBaker.Busy) && !(cancelled != null && cancelled())) Thread.Sleep(40);
+
+                                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                                int cnt = t.Count - from;
+                                if (raw.Length < cnt * R) raw = new byte[cnt * R];
+                                fs.Position = (t.FirstRecord + from) * R;
+                                int got = LasSource.ReadFully(fs, raw, cnt * R) / R;
+                                long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                                if (xyz.Length < got * 3) xyz = new double[got * 3];
+                                if (dist.Length < t.Count) dist = new float[t.Count];
+                                if (keys.Length < got) { keys = new uint[got]; idx = new int[got]; }
+                                for (int k = 0; k < got; k++)
+                                {
+                                    int o = k * R;
+                                    L.ToModel(BitConverter.ToInt32(raw, o) * sc, BitConverter.ToInt32(raw, o + 4) * sc, BitConverter.ToInt32(raw, o + 8) * sc,
+                                        out xyz[k * 3], out xyz[k * 3 + 1], out xyz[k * 3 + 2]);
+                                }
+                                DistCompute.RunSequential(an.Bvh, an.SearchFt, xyz, got, dist, from, keys, idx, stack);
+                                long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+                                dc.Write(i, t.FirstRecord, from, from + got, dist);
+                                long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
+                                Interlocked.Add(ref ticksRead, t1 - t0);
+                                Interlocked.Add(ref ticksCalc, t2 - t1);
+                                Interlocked.Add(ref ticksWrite, t3 - t2);
+                                Interlocked.Add(ref computed, got);
+                                long d = Interlocked.Add(ref doneAll, got);
+                                if (progress != null) lock (sync) progress(d, res.Total);
+                            }
                         }
-                        DistCompute.Run(an.Bvh, an.SearchFt, xyz, dist, from, par, foreground ? ThreadPriority.Normal : ThreadPriority.BelowNormal);
-                        res.ComputeMs += tw.Elapsed.TotalMilliseconds; tw.Restart();
-                        dc.Write(i, t.FirstRecord, from, from + got, dist);
-                        res.WriteMs += tw.Elapsed.TotalMilliseconds;
-                        res.Computed += got;
-                        doneAll += got;
-                        if (progress != null) progress(doneAll, res.Total);
                     }
-                }
+                    finally { Thread.CurrentThread.Priority = old; }
+                });
+                double tf = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                // tempi sommati sui thread, divisi per il numero di thread: confrontabili con il tempo reale
+                res.ReadMs = ticksRead * tf / workers; res.ComputeMs = ticksCalc * tf / workers; res.WriteMs = ticksWrite * tf / workers;
+                res.Computed = computed;
+                res.Gc2 = GC.CollectionCount(2) - gc0;
+                res.Threads = workers;
+                if (cancelled != null && cancelled()) return res;
                 res.Finished = true;
                 lock (_lock) { _targets.Remove(L); _finished[L] = an; }
                 return res;

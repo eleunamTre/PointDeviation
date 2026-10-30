@@ -49,7 +49,7 @@ namespace PointDeviation
                     double e, area;
                     EdgeArea(v, t, out e, out area);
                     if (e <= L) { est += 1; continue; }
-                    est += Math.Max(e / L, 2.0 * area / (0.43 * L2)) + 1;
+                    est += Math.Max(e / L, area / (0.2 * L2)) + 1; // area media dei pezzi ~0,2 L² (bisezione)
                 }
                 if (est <= SplitBudget) break;
                 L *= 1.35;

@@ -400,3 +400,9 @@ Ottava tornata (28/10/2026): octree
      del piu' vicino doveva aprirli quasi tutti; la superficie, le distanze e il segno non cambiano. Siccome cambia
      l'impronta, la prima analisi dopo l'aggiornamento ricalcola le distanze una volta.
      Nel registro: triangoli prima e dopo la suddivisione, processori, tempi di lettura, calcolo e scrittura.
+109. Dal registro: 16 processori, 187 mila triangoli (2,46 M dopo la suddivisione), calcolo 85 s, lettura 0,4 s:
+     circa 36 mila punti al secondo per processore, troppo pochi per la ricerca sui triangoli. Il calcolo ora assegna
+     un nodo intero a ogni thread (prima ogni nodo era diviso tra tutti i thread, con un'attesa alla fine di ognuno dei
+     3918 nodi) e ogni thread riusa i propri buffer (prima ogni nodo allocava array grandi, che in Revit costano
+     raccolte della memoria). Nel registro: thread, tempi per thread e numero di raccolte della memoria.
+     Stima della suddivisione dei triangoli corretta (restava sopra il limite di 1,2 M).

@@ -95,7 +95,7 @@ namespace PointDeviation
                     });
                     if (r == null) { error = L.T("Impossibile salvare le distanze accanto alla nuvola (controlla di poter scrivere nella cartella della libreria)."); break; }
                     total += r.Total; reused += r.Reused; computed += r.Computed;
-                    Log.Write("Analisi", string.Format("«{0}»: lettura {1:F1} s, calcolo {2:F1} s, scrittura {3:F1} s", l.Name, r.ReadMs / 1000, r.ComputeMs / 1000, r.WriteMs / 1000));
+                    Log.Write("Analisi", string.Format("«{0}»: {4} thread, per thread lettura {1:F1} s, calcolo {2:F1} s, scrittura {3:F1} s; raccolte memoria (gen 2) {5}", l.Name, r.ReadMs / 1000, r.ComputeMs / 1000, r.WriteMs / 1000, r.Threads, r.Gc2));
                     before += totals[k];
                 }
                 if (!_cancel && error == null)
