@@ -386,3 +386,9 @@ Ottava tornata (28/10/2026): octree
      precaricamento. Zoom, rotazioni e spostamenti trovano cosi' gia' pronta la maggior parte dei blocchi, e la
      versione a punti grandi del livello sopra resta a schermo molto meno. Costa piu' memoria video (limite pari al
      numero di punti della qualita' scelta).
+106. Cambio atomico della vista (insieme al precaricamento): a ogni fotogramma si controlla quanta parte della nuova
+     vista e' pronta nella scheda video con lo stile attuale. Se almeno il 97% dei punti e' pronto si passa alla nuova
+     vista tutta insieme; altrimenti si ridisegnano esattamente i blocchi dell'ultima vista completa (corretti nello
+     spazio: con lo zoom si ingrandiscono come un'immagine, senza dimensioni mescolate). Dopo 1,2 s si passa comunque
+     alla nuova vista con i ripieghi, per non restare indietro durante un movimento lungo. I blocchi mostrati non
+     vengono liberati dalla scheda video. Nel registro: «nuova vista pronta N%» e «(si mostra la vista precedente)».

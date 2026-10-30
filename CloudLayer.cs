@@ -286,6 +286,15 @@ namespace PointDeviation
         private byte[] _wantedOct = new byte[0];       // octree: ottanti con un figlio scelto (pronto o no)
         private bool[] _coarse = new bool[0];          // octree: blocco molto più rado del necessario a schermo
         private bool[] _wasRefined = new bool[0];
+        // cambio atomico: blocchi dell'ultima vista completa, ridisegnati finché la nuova non è pronta
+        private int[] _shownWant = new int[0];
+        private byte[] _shownCov = new byte[0];
+        private bool[] _shownSkip = new bool[0];
+        private int[] _shownList = new int[64];
+        private int _shownN;
+        private long _pendingSince = -1;
+        private const double SwapReady = 0.97;   // frazione dei punti della nuova vista che deve essere pronta
+        private const long SwapTimeoutMs = 1200; // oltre, si passa comunque alla nuova vista (con i ripieghi)
         private int[] _pfWant = new int[0];             // precaricamento: punti voluti per i blocchi da preparare in anticipo
         private int[] _pfOrder = new int[0];            // precaricamento: blocchi in ordine di importanza
         private int _pfN;
@@ -313,6 +322,7 @@ namespace PointDeviation
             _wasRefined = new bool[n];
             _wantedOct = new byte[n];
             _pfWant = new int[n]; _pfOrder = new int[64];
+            _shownWant = new int[n]; _shownCov = new byte[n]; _shownSkip = new bool[n];
             _coarse = new bool[n];
             BakePendP = new int[n]; BakePendO = new int[n];
             _covered = new byte[n];
@@ -821,7 +831,7 @@ namespace PointDeviation
                 TileGpu g = _gpu[i], o = _gpuO[i];
                 // solo i blocchi non scelti per questa vista: dopo una pausa (vista ferma, nessun fotogramma per più del
                 // tempo impostato) si liberava tutto, e al primo movimento la nuvola ripartiva dai livelli più grossolani
-                if (want[i] > 0) continue;
+                if (want[i] > 0 || (IsOctree && _shownWant.Length == Tiles.Length && _shownWant[i] > 0)) continue;
                 if (g != null && now - g.LastDraw > gpuKeep) { g.Dispose(); _gpu[i] = null; }
                 if (o != null && now - o.LastDraw > gpuKeep) { o.Dispose(); _gpuO[i] = null; }
                 if (want[i] <= 0 && _gpu[i] == null && _gpuO[i] == null && Cpu[i] != null && now - _wantTick[i] > memKeep && Volatile.Read(ref Pending[i]) == 0) Cpu[i] = null;
@@ -1124,6 +1134,7 @@ namespace PointDeviation
                     _okStyle[i] = cur || anc;
                     _skipStale[i] = !cur && anc;
                 }
+            if (IsOctree && st.PointScale > 0) { DrawOctreeAtomic(st, want, effect, now); return; }
             for (int i = 0; i < Tiles.Length; i++)
             {
                 if (want[i] <= 0) continue;
@@ -1173,6 +1184,89 @@ namespace PointDeviation
                 CloudBaker.UploadPoints = 0; CloudBaker.UploadTicks = 0;
                 Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; preparati {8:N0} punti in {9:F0} ms (somma dei thread), copiati {10:N0} punti in {11:F0} ms",
                     Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "", bp, bt * f, up, ut * f));
+            }
+        }
+
+        /// <summary>
+        /// Octree, cambio atomico: si controlla quanta parte della nuova vista è pronta (punti con lo stile attuale nella
+        /// scheda video). Se lo è quasi tutta si passa alla nuova vista; altrimenti si ridisegnano esattamente i blocchi
+        /// dell'ultima vista completa, che restano corretti nello spazio (con lo zoom si ingrandiscono come
+        /// un'immagine), e si cambia tutto insieme appena la nuova è pronta. Oltre un tempo massimo si passa comunque
+        /// alla nuova vista con i ripieghi di sempre, per non restare indietro durante un movimento lungo.
+        /// </summary>
+        private void DrawOctreeAtomic(Style st, int[] want, EffectInstance effect, long now)
+        {
+            int wanted = 0, missing = 0, notLoaded = 0, notBuilt = 0;
+            long needPts = 0, readyPts = 0;
+            for (int i = 0; i < Tiles.Length; i++)
+            {
+                if (want[i] <= 0) continue;
+                wanted++;
+                TileCpu cpu = Volatile.Read(ref Cpu[i]);
+                TileGpu go = _gpuO[i], gp = _gpu[i];
+                int need = cpu != null ? Math.Min(cpu.Count, want[i]) : want[i];
+                needPts += need;
+                if (cpu == null) { notLoaded++; continue; }
+                bool hp = gp != null && gp.Chunks.Count > 0;
+                bool okO = go != null && go.Chunks.Count > 0 && go.StyleVersion == st.Version && go.Built >= need;
+                bool okP = _wantedOct[i] == 0 || (hp && gp.StyleVersion == st.Version);
+                if (okO && okP) readyPts += need; else notBuilt++;
+                if (!hp && (go == null || go.Chunks.Count == 0)) missing++;
+            }
+
+            bool adopt = _shownN == 0 || needPts == 0 || readyPts >= needPts * SwapReady
+                || (_pendingSince >= 0 && now - _pendingSince > SwapTimeoutMs);
+            int nodes = 0;
+            long pts = 0;
+            if (adopt)
+            {
+                _pendingSince = -1;
+                for (int k = 0; k < _shownN; k++) { int j = _shownList[k]; _shownWant[j] = 0; }
+                _shownN = 0;
+                for (int i = 0; i < Tiles.Length; i++)
+                {
+                    if (want[i] <= 0) continue;
+                    int cov = _covered[i] | (_coarse[i] ? _wantedOct[i] : 0);
+                    if (_shownN == _shownList.Length) Array.Resize(ref _shownList, _shownN * 2);
+                    _shownList[_shownN++] = i;
+                    _shownWant[i] = want[i]; _shownCov[i] = (byte)cov; _shownSkip[i] = _skipStale[i];
+                }
+            }
+            else
+            {
+                if (_pendingSince < 0) _pendingSince = now;
+                Redraw.Request(); // si ricontrolla al prossimo fotogramma
+            }
+
+            // si disegna l'insieme mostrato (appena aggiornato, o quello dell'ultima vista completa)
+            for (int k = 0; k < _shownN; k++)
+            {
+                int i = _shownList[k];
+                TileGpu gp = _gpu[i], go = _gpuO[i];
+                if (gp != null) gp.LastDraw = now;
+                if (go != null) go.LastDraw = now;
+                bool hp = gp != null && gp.Chunks.Count > 0, ho = go != null && go.Chunks.Count > 0;
+                if (!hp && !ho) continue;
+                if (_shownSkip[i]) continue;
+                int cov = _shownCov[i];
+                int pixMask = hp ? (ho ? cov : 0xFF) : 0;
+                int bigMask = ho ? (0xFF & ~pixMask) : 0;
+                if (pixMask != 0) pts += Draw(gp, _shownWant[i], effect, pixMask);
+                if (bigMask != 0) pts += Draw(go, _shownWant[i], effect, bigMask);
+                nodes++;
+            }
+
+            StatPoints = pts; StatNodes = nodes; StatWanted = wanted; StatTick = now; StatMissing = missing; StatNotLoaded = notLoaded; StatNotBuilt = notBuilt;
+            if (now - _lastStatLog > 5000)
+            {
+                _lastStatLog = now;
+                double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                long bp = Interlocked.Exchange(ref CloudBaker.BakePoints, 0), bt = Interlocked.Exchange(ref CloudBaker.BakeTicks, 0);
+                long up = CloudBaker.UploadPoints, ut = CloudBaker.UploadTicks;
+                CloudBaker.UploadPoints = 0; CloudBaker.UploadTicks = 0;
+                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; nuova vista pronta {12:F0}%{13}; preparati {8:N0} punti in {9:F0} ms (somma dei thread), copiati {10:N0} punti in {11:F0} ms",
+                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "", bp, bt * f, up, ut * f,
+                    needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? "" : " (si mostra la vista precedente)"));
             }
         }
 
