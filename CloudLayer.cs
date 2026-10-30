@@ -1810,7 +1810,8 @@ namespace PointDeviation
             _queue.Enqueue(j);
             if (_threads == null)
             {
-                int n = Math.Max(2, Math.Min(6, Environment.ProcessorCount - 2));
+                // preparatori: tanti quanti i processori lasciando liberi quelli di Revit (con 16 processori: 12)
+                int n = Math.Max(2, Math.Min(12, Environment.ProcessorCount - 4));
                 var t = new Thread[n];
                 for (int i = 0; i < n; i++)
                 {
@@ -2194,7 +2195,8 @@ namespace PointDeviation
         private static void EnsureThreads()
         {
             if (_threads != null) return;
-            int n = Environment.ProcessorCount >= 8 ? 3 : 2;
+            // lettori: con molti processori anche la lettura (e le distanze già salvate) va in parallelo
+            int n = Environment.ProcessorCount >= 16 ? 6 : Environment.ProcessorCount >= 8 ? 4 : 2;
             var t = new Thread[n];
             for (int i = 0; i < n; i++)
             {

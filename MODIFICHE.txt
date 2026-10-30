@@ -418,3 +418,6 @@ Ottava tornata (28/10/2026): octree
      - i triangoli si riordinano in memoria come le foglie dell'albero di ricerca (meno salti in memoria).
 112. Avanzate > Prestazioni: «Analisi: aspetta il calcolo completo delle distanze» (spento di base). Acceso, la
      finestra dell'analisi aspetta tutte le distanze come prima; spento, solo i livelli principali.
+113. Piu' thread dove ci sono piu' processori: preparatori dei vertici fino a 12 (erano al massimo 6: con 16
+     processori 10 restavano inutilizzati), lettori dei blocchi 6 con 16 processori, 4 con 8 (erano 3 e 2).
+     Dal registro: dopo un salto di inquadratura 98 blocchi da leggere e 92 da preparare.
