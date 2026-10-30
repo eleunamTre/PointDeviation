@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
@@ -155,8 +156,44 @@ namespace PointDeviation
                 zmin = Math.Min(zmin, a.Z); zmax = Math.Max(zmax, b.Z);
             }
             if (Layers.Count == 0) { zmin = 0; zmax = 1; }
-            Style = Style.From(s, AnalysisRegistry.Get(Key), zmin, zmax);
+            AnalysisSnapshot an = AnalysisRegistry.Get(Key);
+            // Stile identico a quello attuale: si tiene (stessa versione). Un nuovo stile obbliga a ripreparare tutti
+            // i blocchi di tutte le nuvole: prima succedeva a ogni inserimento, spostamento, o anche solo nascondendo
+            // una nuvola (milioni di punti ripreparati con la vista ferma).
+            string key = LookKey(s, an, zmin, zmax);
+            if (Style != null && key == _styleKey) { Redraw.Request(); return; }
+            _styleKey = key;
+            Style = Style.From(s, an, zmin, zmax);
             Redraw.Request();
+        }
+
+        private string _styleKey;
+
+        private static string LookKey(DeviationSettings s, AnalysisSnapshot an, double zmin, double zmax)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append((int)s.Display).Append('|').Append(s.InvertSign).Append('|').Append((int)s.Missing).Append('|').Append(s.Visible)
+              .Append('|').Append(s.Brightness).Append('|').Append(s.Contrast).Append('|').Append(s.Transparency).Append('|').Append(s.XrayContrast)
+              .Append('|').Append(s.PointScale).Append('|').Append((int)s.Quality).Append('|').Append(s.ClipInvert)
+              .Append('|').Append(zmin.ToString("R")).Append('|').Append(zmax.ToString("R"))
+              .Append('|').Append(an != null ? an.Version : 0).Append('|').Append(CloudDebug.Levels);
+            if (s.CloudColors != null) foreach (var kv in s.CloudColors.OrderBy(k => k.Key)) sb.Append('|').Append(kv.Key).Append('=').Append(kv.Value);
+            sb.Append('|').Append(Json(s.Profile)).Append('|').Append(Json(s.Clips));
+            return sb.ToString();
+        }
+
+        private static string Json(object o)
+        {
+            if (o == null) return "";
+            try
+            {
+                using (var ms = new MemoryStream())
+                {
+                    new System.Runtime.Serialization.Json.DataContractJsonSerializer(o.GetType()).WriteObject(ms, o);
+                    return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                }
+            }
+            catch { return Guid.NewGuid().ToString(); } // non serializzabile: si considera sempre diverso
         }
 
         /// <summary>Campione uniforme di tutte le nuvole, in coordinate Revit, per statistiche e limiti dell'analisi.</summary>

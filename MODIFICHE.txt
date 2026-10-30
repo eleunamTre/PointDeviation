@@ -467,3 +467,7 @@ Ottava tornata (28/10/2026): octree
        l'ingombro, quindi serve una passata in piu' per calcolarlo: in quella passata si leggono solo le coordinate.
      - Conversione in background a priorita' sotto la normale e calcolo delle normali su meta' dei processori, cosi'
        la navigazione in Revit resta fluida mentre converte.
+122. Niente piu' ricostruzione completa quando si nasconde o riaccende una nuvola (o la si inserisce/sposta): se lo
+     stile risultante e' identico a quello attuale si tiene la stessa versione, e i blocchi gia' pronti restano
+     validi. Registro: preparazione e copia (comuni a tutte le nuvole) in una riga «Lavoro» a parte; prima finivano
+     nella riga della prima nuvola e le altre risultavano a zero.

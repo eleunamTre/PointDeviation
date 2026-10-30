@@ -1229,8 +1229,9 @@ namespace PointDeviation
                 long bp = Interlocked.Exchange(ref CloudBaker.BakePoints, 0), bt = Interlocked.Exchange(ref CloudBaker.BakeTicks, 0);
                 long up = CloudBaker.UploadPoints, ut = CloudBaker.UploadTicks;
                 CloudBaker.UploadPoints = 0; CloudBaker.UploadTicks = 0;
-                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; preparati {8:N0} punti in {9:F0} ms (somma dei thread), copiati {10:N0} punti in {11:F0} ms",
-                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "", bp, bt * f, up, ut * f));
+                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}",
+                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : ""));
+                LogWork(bp, bt * f, up, ut * f);
             }
         }
 
@@ -1311,10 +1312,21 @@ namespace PointDeviation
                 long bp = Interlocked.Exchange(ref CloudBaker.BakePoints, 0), bt = Interlocked.Exchange(ref CloudBaker.BakeTicks, 0);
                 long up = CloudBaker.UploadPoints, ut = CloudBaker.UploadTicks;
                 CloudBaker.UploadPoints = 0; CloudBaker.UploadTicks = 0;
-                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; nuova vista pronta {12:F0}%{13}; preparati {8:N0} punti in {9:F0} ms (somma dei thread), copiati {10:N0} punti in {11:F0} ms",
-                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "", bp, bt * f, up, ut * f,
+                Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; nuova vista pronta {8:F0}%{9}",
+                    Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "",
                     needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? "" : " (si mostra la vista precedente)"));
+                LogWork(bp, bt * f, up, ut * f);
             }
+        }
+
+        /// <summary>
+        /// Preparazione e copia sono comuni a tutte le nuvole: una riga a parte (prima finivano nella riga della nuvola
+        /// che scriveva per prima, e le altre risultavano sempre a zero).
+        /// </summary>
+        private static void LogWork(long bp, double bms, long up, double ums)
+        {
+            if (bp == 0 && up == 0) return;
+            Log.Debug("Lavoro", string.Format("tutte le nuvole: preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms", bp, bms, up, ums));
         }
 
         // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
