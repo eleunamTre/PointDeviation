@@ -219,6 +219,18 @@ namespace PointDeviation
             DocumentData d = GetData(doc);
             if (d == null) return;
 
+            // diagnostica: cosa cambia nel documento (per capire dove Revit salva la spunta della singola nuvola in V/G)
+            if (Log.Level >= LogLevel.Debug && d.Layers.Count > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                foreach (ElementId id in modified.Take(15))
+                {
+                    Element el = doc.GetElement(id);
+                    sb.Append(id.Value).Append('(').Append(el != null ? el.GetType().Name : "?").Append(el != null && !string.IsNullOrEmpty(el.Name) ? " «" + el.Name + "»" : "").Append(") ");
+                }
+                Log.Debug("Modifiche", string.Format("aggiunti {0}, eliminati {1}, modificati {2}: {3}", added.Count, deleted.Count, modified.Count, sb));
+            }
+
             // Visibilità/Grafica modifica la vista (non la nuvola): Revit non sempre ridisegna gli elementi del plugin,
             // e una nuvola appena spenta restava a schermo fino al movimento successivo. Si chiede un ridisegno.
             if (d.Layers.Count > 0 && modified.Any(id => doc.GetElement(id) is View))

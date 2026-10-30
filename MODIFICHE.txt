@@ -477,3 +477,6 @@ Ottava tornata (28/10/2026): octree
 124. Spunta della singola nuvola in V/G: Revit la applica nascondendo l'elemento, il plugin la legge (registro
      19:49:31) ma la vista non veniva ridisegnata e la nuvola restava a schermo. Ora una modifica della vista
      (Visibilita'/Grafica) e ogni cambio di visibilita' di una nuvola chiedono un ridisegno.
+125. Diagnostica per la spunta della singola nuvola in V/G (non risulta ne' come elemento nascosto ne' nelle impostazioni
+     dell'istanza): a livello Debug il registro elenca gli elementi modificati da ogni operazione («[Modifiche]») e le
+     impostazioni lette anche sul tipo della nuvola.

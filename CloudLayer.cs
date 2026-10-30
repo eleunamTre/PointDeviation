@@ -551,6 +551,17 @@ namespace PointDeviation
                                 try { sb.Append(", nuvola.").Append(pi.Name).Append('=').Append(pi.GetValue(st, null)); } catch { }
                     }
                     else sb.Append(", impostazioni della nuvola: nessuna");
+                    // le righe della scheda Nuvole di punti mostrano il nome del file, cioè il tipo: si prova anche il tipo
+                    Element inst = doc.GetElement(InstanceId);
+                    ElementId typeId = inst != null ? inst.GetTypeId() : ElementId.InvalidElementId;
+                    if (ov != null && typeId != ElementId.InvalidElementId)
+                        try
+                        {
+                            object ts = _pcScanSettings.Invoke(ov, new object[] { typeId });
+                            System.Reflection.PropertyInfo tv = ts != null ? ts.GetType().GetProperty("Visible") : null;
+                            sb.Append(", tipo ").Append(typeId.Value).Append(".Visible=").Append(tv != null ? tv.GetValue(ts, null) : "?");
+                        }
+                        catch (Exception ex) { sb.Append(", tipo: ").Append(ex.InnerException != null ? ex.InnerException.Message : ex.Message); }
                 }
             }
             catch (Exception ex) { sb.Append(" | errore diagnostica: ").Append(ex.Message); }
