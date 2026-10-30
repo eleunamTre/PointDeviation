@@ -286,6 +286,9 @@ namespace PointDeviation
         private byte[] _wantedOct = new byte[0];       // octree: ottanti con un figlio scelto (pronto o no)
         private bool[] _coarse = new bool[0];          // octree: blocco molto più rado del necessario a schermo
         private bool[] _wasRefined = new bool[0];
+        private int[] _pfWant = new int[0];             // precaricamento: punti voluti per i blocchi da preparare in anticipo
+        private int[] _pfOrder = new int[0];            // precaricamento: blocchi in ordine di importanza
+        private int _pfN;
         private int[] _parent = new int[0];             // octree: padre di ogni nodo (-1 = radice)
         private bool[] _okStyle = new bool[0];          // octree: il nodo o un suo antenato è già disegnato con lo stile attuale
         private bool[] _skipStale = new bool[0];        // octree: nodo ancora con lo stile vecchio, coperto da un antenato aggiornato      // blocchi suddivisi nell'ultimo fotogramma (isteresi)
@@ -309,6 +312,7 @@ namespace PointDeviation
             BakedP = new Baked[n]; BakedO = new Baked[n];
             _wasRefined = new bool[n];
             _wantedOct = new byte[n];
+            _pfWant = new int[n]; _pfOrder = new int[64];
             _coarse = new bool[n];
             BakePendP = new int[n]; BakePendO = new int[n];
             _covered = new byte[n];
@@ -558,6 +562,19 @@ namespace PointDeviation
                 Log.Write("LOD", "«" + Name + "»: la nuvola è fuori dall'inquadratura della vista");
                 return;
             }
+
+            // Precaricamento: la stessa visita con l'inquadratura allargata (blocchi appena fuori dai bordi, per le
+            // rotazioni e gli spostamenti) e un livello più fine (per lo zoom). Questi blocchi non si disegnano: si
+            // leggono e si preparano nella scheda video quando c'è tempo, così al movimento successivo sono già pronti.
+            if (st.PointScale > 0)
+            {
+                SelectOctree(cam.Widened(1.6), (_stableTarget > 0 ? Math.Max(target, _stableTarget) : target) * 0.55, budget, outWant, outPx);
+                if (_pfOrder.Length < _orderN) _pfOrder = new int[_order.Length];
+                Array.Copy(_order, _pfOrder, _orderN);
+                _pfN = _orderN;
+                Array.Copy(outWant, _pfWant, n);
+            }
+            else _pfN = 0;
 
             // Se con la densità chiesta i punti superano il limite, non ci si ferma a metà della visita (resterebbero
             // blocchi scelti a caso tra quelli alla stessa distanza: scacchiera), ma si rarefà in modo uniforme tutta la
@@ -867,6 +884,27 @@ namespace PointDeviation
                 double r1 = octa ? 0.75 * OwnSpacing(i, drawN) * st.PointScale / 100.0 : 0;
                 EnsureGpu(octa ? _gpuO : _gpu, i, octa, r1, cpu, drawN, key, hl, st, argb, budget, now);
             }
+
+            // precaricamento (vedi DesiredOctree): dopo i blocchi in vista, con code corte per non rubare loro tempo
+            if (IsOctree && st.PointScale > 0 && _raw == 1)
+                for (int oi = 0; oi < _pfN; oi++)
+                {
+                    int i = _pfOrder[oi];
+                    int w = _pfWant[i];
+                    if (w <= 0 || want[i] > 0) continue;
+                    Request(i, w, now);
+                    // tenuti pronti: non si liberano finché restano nel precaricamento
+                    if (_gpu[i] != null) _gpu[i].LastDraw = now;
+                    if (_gpuO[i] != null) _gpuO[i].LastDraw = now;
+                    int level = Level(i, w);
+                    TileCpu cpu = Volatile.Read(ref Cpu[i]);
+                    bool ready = cpu != null && ReadyFor(cpu, st);
+                    if ((cpu == null || cpu.Count < level || !ready) && CloudLoader.Queued < 6)
+                        CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
+                    if (!ready || CloudBaker.Queued >= 16) continue;
+                    double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;
+                    EnsureNode(i, radius, cpu, Math.Min(cpu.Count, w), ColorKey(cpu, st), Highlighted, st, argb, budget, now);
+                }
         }
 
         /// <summary>Costruisce (in versione leggera) il buffer del blocco se manca o non vale più per lo stile attuale.</summary>
@@ -1815,6 +1853,15 @@ namespace PointDeviation
         public bool Valid;
 
         public double OffU, OffV;      // prospettiva: centro della finestra rispetto all'asse (alla distanza del bersaglio)
+        public double Margin = 1.0;    // allargamento dell'inquadratura (precaricamento: blocchi appena fuori dai bordi)
+
+        /// <summary>Copia con l'inquadratura allargata di un fattore.</summary>
+        public ViewCam Widened(double f)
+        {
+            var c = (ViewCam)MemberwiseClone();
+            c.Margin = Margin * f;
+            return c;
+        }
 
         public static ViewCam From(Camera c, View view)
         {
@@ -1988,12 +2035,12 @@ namespace PointDeviation
                 double scale = d / Target;
                 u -= OffU * scale; v -= OffV * scale;
                 // margine abbondante: un blocco tagliato per errore lascia un buco ben visibile
-                if (Math.Abs(u) > HalfW * scale * 1.3 + radius * 1.5 || Math.Abs(v) > HalfH * scale * 1.3 + radius * 1.5) return false;
+                if (Math.Abs(u) > HalfW * scale * 1.3 * Margin + radius * 1.5 || Math.Abs(v) > HalfH * scale * 1.3 * Margin + radius * 1.5) return false;
                 px = PxAtTarget * scale;
             }
             else
             {
-                if (Math.Abs(u) > HalfW * 1.15 + radius || Math.Abs(v) > HalfH * 1.15 + radius) return false;
+                if (Math.Abs(u) > HalfW * 1.15 * Margin + radius || Math.Abs(v) > HalfH * 1.15 * Margin + radius) return false;
                 px = PxAtTarget;
             }
             px = Math.Max(px, 1e-5);
