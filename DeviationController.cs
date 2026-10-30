@@ -869,13 +869,36 @@ namespace PointDeviation
             Redraw.Request();
         }
 
-        /// <summary>On/Off: se almeno una nuvola è visibile nella vista le nasconde tutte, altrimenti le mostra.</summary>
+        /// <summary>
+        /// On/Off: se almeno una nuvola è visibile nella vista le nasconde tutte, altrimenti le mostra.
+        /// Visibile conta tutti gli interruttori di Revit (elemento, categoria, «Mostra nuvole di punti in questa vista»,
+        /// spunta della nuvola in Visibilità/Grafica): mostrando si riaccendono tutti, altrimenti dopo aver spento le
+        /// nuvole da Visibilità/Grafica il pulsante non faceva più niente.
+        /// </summary>
         public static bool ToggleAllInView(Document doc, View view, DocumentData data)
         {
-            var ids = data.Layers.Select(l => l.InstanceId).ToList();
-            bool anyVisible = data.Layers.Exists(l => { Element e = doc.GetElement(l.InstanceId); return e != null && !e.IsHidden(view); });
-            SetHidden(doc, view, ids, anyVisible);
-            return !anyVisible;
+            var ids = data.Layers.Select(l => l.InstanceId).Where(id => doc.GetElement(id) != null).ToList();
+            bool anyVisible = data.Layers.Exists(l => l.VisibleIn(view));
+            if (anyVisible) { SetHidden(doc, view, ids, true); return false; }
+            if (ids.Count == 0) return false;
+            DeviationController.OwnChange = true;
+            try
+            {
+                using (var t = new Transaction(doc, L.T("Mostra nuvola")))
+                {
+                    t.Start();
+                    var hidden = ids.Where(id => doc.GetElement(id).IsHidden(view)).ToList();
+                    if (hidden.Count > 0) view.UnhideElements(hidden);
+                    var cat = new ElementId(BuiltInCategory.OST_PointClouds);
+                    try { if (view.GetCategoryHidden(cat) && view.CanCategoryBeHidden(cat)) view.SetCategoryHidden(cat, false); } catch { }
+                    CloudLayer.ShowInViewSettings(view, ids);
+                    t.Commit();
+                }
+            }
+            catch (Exception ex) { Log.Error("Mostra nuvola", ex); }
+            finally { DeviationController.OwnChange = false; }
+            Redraw.Request();
+            return true;
         }
     }
 }

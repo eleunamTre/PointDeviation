@@ -441,8 +441,19 @@ namespace PointDeviation
         /// <summary>La nuvola nativa è visibile in questa vista? (nascondi elemento/categoria, isola, nuvole spente, scaricata)</summary>
         public bool VisibleIn(View view)
         {
-            return HiddenReason(view) == null;
+            string r = HiddenReason(view);
+            // registro a ogni cambio (per vista), per verificare che gli interruttori di Revit vengano letti
+            long key = view.Id.Value;
+            string old;
+            if (!_lastHidden.TryGetValue(key, out old) || old != r)
+            {
+                _lastHidden[key] = r;
+                if (old != null || r != null || _lastHidden.Count > 1)
+                    Log.Write("Visibilità", "«" + Name + "» in «" + view.Name + "»: " + (r == null ? "visibile" : "nascosta (" + r + ")"));
+            }
+            return r == null;
         }
+        private readonly Dictionary<long, string> _lastHidden = new Dictionary<long, string>();
 
         /// <summary>Perché la nuvola non si disegna in questa vista (null = si disegna).</summary>
         public string HiddenReason(View view)
@@ -508,6 +519,38 @@ namespace PointDeviation
             InitPcReflection();
             try { return _pcHidden != null && (bool)_pcHidden.GetValue(view, null); }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Riaccende in Visibilità/Grafica «Mostra nuvole di punti in questa vista» e la spunta delle nuvole indicate
+        /// (da chiamare dentro una transazione). Per riflessione, come la lettura.
+        /// </summary>
+        internal static void ShowInViewSettings(View view, IList<ElementId> ids)
+        {
+            InitPcReflection();
+            try
+            {
+                if (_pcHidden != null && _pcHidden.CanWrite && (bool)_pcHidden.GetValue(view, null)) _pcHidden.SetValue(view, false, null);
+            }
+            catch (Exception ex) { Log.Warn("Visibilità", "impossibile riaccendere le nuvole nella vista: " + ex.Message); }
+            if (_pcOverrides == null || _pcScanSettings == null) return;
+            try
+            {
+                object ov = _pcOverrides.Invoke(view, null);
+                if (ov == null) return;
+                foreach (ElementId id in ids)
+                {
+                    object st = _pcScanSettings.Invoke(ov, new object[] { id });
+                    if (st == null) continue;
+                    System.Reflection.PropertyInfo vis = st.GetType().GetProperty("Visible");
+                    if (vis == null || !vis.CanWrite || (bool)vis.GetValue(st, null)) continue;
+                    vis.SetValue(st, true, null);
+                    System.Reflection.MethodInfo set = ov.GetType().GetMethod("SetPointCloudScanOverrideSettings", new[] { typeof(ElementId), st.GetType() });
+                    if (set != null) set.Invoke(ov, new object[] { id, st });
+                    else Log.Warn("Visibilità", "SetPointCloudScanOverrideSettings non disponibile");
+                }
+            }
+            catch (Exception ex) { Log.Warn("Visibilità", "impossibile riaccendere la spunta della nuvola: " + ex.Message); }
         }
 
         private static bool InstanceHiddenByOverrides(View view, ElementId id)

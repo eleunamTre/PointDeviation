@@ -446,3 +446,9 @@ Ottava tornata (28/10/2026): octree
      compare un avviso in basso a destra («Conversione completata», con «Apri libreria»), anche per gli errori.
      Piu' nuvole si accodano e si convertono una dopo l'altra. Alla chiusura di Revit le conversioni si interrompono.
      RCP: la lettura attraverso Revit resta in primo piano (come prima), poi la conversione va in coda.
+118. Visibilita':
+     - il pulsante Visibilita' considera tutti gli interruttori di Revit; mostrando riaccende elemento, categoria,
+       «Mostra nuvole di punti in questa vista» e la spunta della nuvola in Visibilita'/Grafica (prima riaccendeva
+       solo l'elemento, quindi con le nuvole spente da V/G non faceva piu' niente);
+     - nel registro (livello Info) una riga a ogni cambio di visibilita' per vista, con il motivo, per verificare la
+       lettura della spunta della singola nuvola.
