@@ -448,6 +448,7 @@ namespace PointDeviation
             if (!_lastHidden.TryGetValue(key, out old) || old != r)
             {
                 _lastHidden[key] = r;
+                Redraw.Request(); // cambio di visibilità: si ridisegna subito
                 if (old != null || r != null || _lastHidden.Count > 1)
                     Log.Write("Visibilità", "«" + Name + "» in «" + view.Name + "»: " + (r == null ? "visibile" : "nascosta (" + r + ")"));
             }

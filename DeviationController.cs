@@ -219,6 +219,14 @@ namespace PointDeviation
             DocumentData d = GetData(doc);
             if (d == null) return;
 
+            // Visibilità/Grafica modifica la vista (non la nuvola): Revit non sempre ridisegna gli elementi del plugin,
+            // e una nuvola appena spenta restava a schermo fino al movimento successivo. Si chiede un ridisegno.
+            if (d.Layers.Count > 0 && modified.Any(id => doc.GetElement(id) is View))
+            {
+                Redraw.Request();
+                Log.Debug("Visibilità", "vista modificata: ridisegno richiesto");
+            }
+
             bool relevant = deleted.Any(id => d.Layers.Exists(l => l.InstanceId == id))
                 || modified.Any(id => d.Layers.Exists(l => l.InstanceId == id))
                 || added.Any(id => doc.GetElement(id) is PointCloudInstance);
