@@ -461,3 +461,9 @@ Ottava tornata (28/10/2026): octree
      contesto mandava gli aggiornamenti della Libreria (e l'avviso finale) su un thread di lavoro. Ora passano da un
      controllo invisibile creato sul thread dell'interfaccia di Revit; la Libreria si protegge comunque se chiamata da
      un altro thread. Nuvola non trovata dal motore (cartella eliminata): avviso nel registro invece di errore.
+121. Dal registro: conversione da RCP 162 s, da E57 (4 scansioni, 49,1 M di punti) 507 s, navigazione lenta durante
+     la conversione.
+     - E57: lettura dei valori codificati a bit 8 byte alla volta invece che un bit alla volta; il file non dichiara
+       l'ingombro, quindi serve una passata in piu' per calcolarlo: in quella passata si leggono solo le coordinate.
+     - Conversione in background a priorita' sotto la normale e calcolo delle normali su meta' dei processori, cosi'
+       la navigazione in Revit resta fluida mentre converte.

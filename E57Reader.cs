@@ -21,6 +21,7 @@ namespace PointDeviation
     {
         private readonly string _path;
         private readonly List<Scan> _scans = new List<Scan>();
+        private bool _boundsOnly;
         private long _pageSize = 1024;
 
         public string FormatName { get { return "E57"; } }
@@ -270,6 +271,9 @@ namespace PointDeviation
             {
                 // ingombro non dichiarato: lettura completa (costa una passata in più)
                 mn = new[] { double.MaxValue, double.MaxValue, double.MaxValue }; mx = new[] { double.MinValue, double.MinValue, double.MinValue };
+                _boundsOnly = true; // solo coordinate: i colori non servono per l'ingombro
+                try
+                {
                 ReadAll(pb =>
                 {
                     for (int i = 0; i < pb.Count; i++)
@@ -280,6 +284,8 @@ namespace PointDeviation
                         if (z < mn[2]) mn[2] = z; if (z > mx[2]) mx[2] = z;
                     }
                 }, CancellationToken.None);
+                }
+                finally { _boundsOnly = false; }
             }
             if (mn[0] > mx[0]) { mn = new double[3]; mx = new[] { 1.0, 1.0, 1.0 }; }
             MinM = mn; MaxM = mx;
@@ -311,7 +317,8 @@ namespace PointDeviation
                     Buffer.BlockCopy(_buf, start, _buf, 0, _len - start);
                     _len -= start; _bit -= (long)start << 3;
                 }
-                if (_len + count > _buf.Length) Array.Resize(ref _buf, Math.Max(_buf.Length * 2, _len + count));
+                // 8 byte di margine: la lettura veloce prende sempre 8 byte alla volta
+                if (_len + count + 8 > _buf.Length) Array.Resize(ref _buf, Math.Max(_buf.Length * 2, _len + count + 8));
                 Buffer.BlockCopy(src, off, _buf, _len, count);
                 _len += count;
             }
@@ -321,6 +328,14 @@ namespace PointDeviation
             public ulong ReadBits(int n)
             {
                 if (n == 0) return 0;
+                int bi = (int)(_bit >> 3), bo = (int)(_bit & 7);
+                if (n <= 56)
+                {
+                    // 8 byte in una volta (little endian, bit dal meno significativo): bastano per n + scarto ≤ 63
+                    ulong w = BitConverter.ToUInt64(_buf, bi) >> bo;
+                    _bit += n;
+                    return w & ((1UL << n) - 1);
+                }
                 ulong v = 0;
                 int got = 0;
                 while (got < n)
@@ -401,7 +416,8 @@ namespace PointDeviation
             Action<Field> use = f => { if (f != null && !fields.Contains(f)) fields.Add(f); };
             if (s.Spherical) { use(s.Range); use(s.Azimuth); use(s.Elevation); use(s.SphInvalid); }
             else { use(s.X); use(s.Y); use(s.Z); use(s.CartInvalid); }
-            if (s.R != null) { use(s.R); use(s.G); use(s.B); }
+            if (_boundsOnly) { }
+            else if (s.R != null) { use(s.R); use(s.G); use(s.B); }
             else if (s.Intensity != null) use(s.Intensity);
             var streams = new ByteStream[s.StreamCount];
             foreach (Field f in fields) streams[f.Stream] = new ByteStream();
@@ -458,7 +474,8 @@ namespace PointDeviation
                             if (s.CartInvalid != null && Value(s.CartInvalid, streams[s.CartInvalid.Stream]) != 0) valid = false;
                         }
                         byte cr = 200, cg = 200, cb = 200;
-                        if (s.R != null)
+                        if (_boundsOnly) { }
+                        else if (s.R != null)
                         {
                             cr = Color(s.R, Value(s.R, streams[s.R.Stream]));
                             cg = Color(s.G, Value(s.G, streams[s.G.Stream]));

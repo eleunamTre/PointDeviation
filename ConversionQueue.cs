@@ -90,6 +90,8 @@ namespace PointDeviation
 
         private static void Worker()
         {
+            // sotto la navigazione: la conversione cede il processore a Revit
+            Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
             while (true)
             {
                 ConversionJob job;

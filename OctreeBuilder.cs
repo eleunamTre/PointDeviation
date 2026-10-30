@@ -549,7 +549,8 @@ namespace PointDeviation
             for (int i = 0; i < n; i++) if (i == 0 || keys[i] != keys[i - 1]) start[keys[i]] = i;
 
             double r2 = (1.5 * cell) * (1.5 * cell);
-            var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+            // metà dei processori: la conversione gira in background e Revit (navigazione compresa) deve restare fluido
+            var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
             Parallel.For(0, n, po, () => new int[256], (i, state, buf) =>
             {
                 long cx = (long)Math.Floor((X[i] - minX) / cell), cy = (long)Math.Floor((Y[i] - minY) / cell), cz = (long)Math.Floor((Z[i] - minZ) / cell);
