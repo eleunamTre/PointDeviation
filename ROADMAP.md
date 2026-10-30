@@ -6,8 +6,14 @@
 
 ## 1b. Fotosfere (panoramiche) dentro Revit
 Le immagini sferiche delle stazioni di scansione (negli E57 sono nella sezione images2D, con posizione e
-orientamento; negli RCP nelle scansioni) mostrate in Revit: elenco delle stazioni, «vai alla stazione»
-(camera nel punto di scansione) e panoramica sovrapposta al modello o in una finestra affiancata.
+orientamento; negli RCP nelle scansioni) mostrate in Revit: elenco delle stazioni e apertura della panoramica
+in una vista dedicata di Revit (vista 3D prospettica creata per la stazione, camera nel punto di scansione).
+
+## 1c. Conversioni in background
+Coda di conversioni indipendente dalla finestra Libreria: ogni nuvola in conversione compare come scheda
+«bloccata» con il proprio avanzamento, la finestra si può chiudere e Revit resta utilizzabile. LAS ed E57
+interamente in background; RCP: la lettura attraverso Revit resta sul thread di Revit (come oggi), la
+costruzione dell'octree passa in background.
 
 ## 2. Completezza (Completeness check)
 Esiste già come profilo colori «Completezza»: evidenzia i punti a più di una soglia dal modello
