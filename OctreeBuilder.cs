@@ -132,6 +132,8 @@ namespace PointDeviation
                 // piena velocità, a finestra chiusa lascia il processore a Revit.
                 var pending = new Dictionary<int, Task<BuiltChunk>>();
                 int nextPrep = 0;
+                _tRead = _tNormals = _tBuild = _maxParallel = 0;
+                bool watchedAtStart = ConversionQueue.Watched;
                 var swWait = new System.Diagnostics.Stopwatch();
                 for (int c = 0; c < chunks.Count; c++)
                 {
@@ -159,7 +161,8 @@ namespace PointDeviation
                     Shift(chunks[c], baseRec, true);
                     depth = Math.Max(depth, bc.Depth);
                 }
-                Log.Write("Conversione", string.Format("octree: {0} pezzi, attesa dei pezzi in costruzione {1:F0} s", chunks.Count, swWait.Elapsed.TotalSeconds));
+                Log.Write("Conversione", string.Format("octree: {0} pezzi, attesa dei pezzi in costruzione {1:F0} s; somme sui pezzi: lettura {2:F0} s, normali {3:F0} s, sotto-alberi {4:F0} s; pezzi insieme al massimo {5}; Libreria aperta all'inizio {6}, alla fine {7}",
+                    chunks.Count, swWait.Elapsed.TotalSeconds, _tRead / 1000.0, _tNormals / 1000.0, _tBuild / 1000.0, _maxParallel, watchedAtStart, ConversionQueue.Watched));
 
                 // ---------------------------------------------------------- livelli sopra i pezzi
                 progress(L.T("Costruzione dell'octree: livelli superiori..."), 0.96);
@@ -205,7 +208,19 @@ namespace PointDeviation
         }
 
         /// <summary>Prepara un pezzo e ne costruisce il sotto-albero in memoria (posizioni dei nodi relative al pezzo).</summary>
+        // diagnostica: tempi sommati su tutti i pezzi (ms)
+        private static long _tRead, _tNormals, _tBuild, _maxParallel, _running;
+
         private static BuiltChunk BuildChunk(string tf, int c, Node chunkRoot, double scale, CancellationToken ct)
+        {
+            long run = Interlocked.Increment(ref _running);
+            long m;
+            while ((m = Interlocked.Read(ref _maxParallel)) < run && Interlocked.CompareExchange(ref _maxParallel, run, m) != m) { }
+            try { return BuildChunkCore(tf, c, chunkRoot, scale, ct); }
+            finally { Interlocked.Decrement(ref _running); }
+        }
+
+        private static BuiltChunk BuildChunkCore(string tf, int c, Node chunkRoot, double scale, CancellationToken ct)
         {
             ChunkPoints P = PrepareChunk(tf, c, scale, ct);
             if (P == null) return null;
@@ -216,9 +231,11 @@ namespace PointDeviation
             var marks = new bool[NodeGrid * NodeGrid * NodeGrid];
             var touched = new List<int>(1 << 12);
             long w = 0; int d = 0;
+            var sb = System.Diagnostics.Stopwatch.StartNew();
             using (var ms = new MemoryStream())
             {
                 BuildSubtree(chunkRoot, idx, n, P, scale, marks, touched, ms, ref w, true, ref d);
+                Interlocked.Add(ref _tBuild, sb.ElapsedMilliseconds);
                 return new BuiltChunk { Data = ms.ToArray(), Records = w, Depth = d };
             }
         }
@@ -235,6 +252,7 @@ namespace PointDeviation
         {
             ct.ThrowIfCancellationRequested();
             if (!File.Exists(tf)) return null;
+            var sr = System.Diagnostics.Stopwatch.StartNew();
             byte[] data = File.ReadAllBytes(tf);
             int n = data.Length / TmpRecord;
             File.Delete(tf);
@@ -252,8 +270,11 @@ namespace PointDeviation
                 P.Rgb[i * 3] = data[o + 12]; P.Rgb[i * 3 + 1] = data[o + 13]; P.Rgb[i * 3 + 2] = data[o + 14];
             }
             data = null;
+            Interlocked.Add(ref _tRead, sr.ElapsedMilliseconds);
             ct.ThrowIfCancellationRequested();
+            var sn = System.Diagnostics.Stopwatch.StartNew();
             P.Nrm = PointNormals.Compute(P.X, P.Y, P.Z, n, scale);
+            Interlocked.Add(ref _tNormals, sn.ElapsedMilliseconds);
             return P;
         }
 
