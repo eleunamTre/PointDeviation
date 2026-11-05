@@ -1,7 +1,8 @@
 # PointDeviation – roadmap
 
 ## 1. Formati
-- **E57** (lettura diretta, anche con più scansioni e colori/intensità) – fatto (da provare su file reali).
+- **E57** (lettura diretta, anche con più scansioni e colori/intensità) – fatto e provato su un rilievo reale
+  (4 scansioni, 49 M punti: conversione in 110 s, allineato all'RCP dello stesso rilievo).
 - In seguito: LAZ, PTS/XYZ/PLY.
 
 ## 1b. Fotosfere (panoramiche) dentro Revit
@@ -15,17 +16,26 @@ Coda di conversioni indipendente dalla finestra Libreria: ogni nuvola in convers
 interamente in background; RCP: la lettura attraverso Revit resta sul thread di Revit (come oggi), la
 costruzione dell'octree passa in background.
 
-## 2. Completezza (Completeness check)
-Profilo colori «Completezza» (punti a più di una soglia dal modello) e finestra «Zone mancanti» (fatto, punto 134
-di MODIFICHE): zone raggruppate con superficie stimata, tipo, livello, zoom, isolamento, esportazione CSV.
-Possibili sviluppi, dopo le prove sulla nuvola reale:
-- evidenziare nella vista la zona selezionata (contorno o colore) senza isolarla;
-- coordinate condivise nell'esportazione; salvataggio dell'elenco con il progetto;
+## 2. Completezza (Completeness check) – fatto
+Provato sul rilievo reale (48,5 M punti: 198 zone in mezzo secondo con le distanze già salvate). MODIFICHE 134–138.
+- Profilo colori «Completezza»: punti a più di una soglia dal modello.
+- Finestra «Zone mancanti» (pannello Analisi): i punti lontani si raggruppano in zone (cubetti che si toccano,
+  rumore scartato), con superficie stimata, punti, tipo (verticale, orizzontale, inclinata, volume), ingombro,
+  livello e quota dal livello. Elenco ordinabile; zoom sulla zona; «Isola la zona» con due recinti (pianta e
+  prospetto) e ritorno ai recinti di prima; esportazione CSV; opzione «solo dentro i recinti attivi».
+- La zona selezionata si evidenzia in viola in qualunque modalità di visualizzazione (RGB, quota, normali, analisi);
+  con i profili a tolleranza gli altri punti senza modello vanno in grigio per distinguerla.
+- La finestra ricorda l'ultimo elenco del progetto: riaprendola ricompare senza ricalcolare; con un'analisi nuova
+  la ricerca parte da sola.
+Possibili sviluppi:
+- con il profilo Completezza, attenuare le altre zone mentre una è selezionata;
+- coordinate condivise nell'esportazione; elenco salvato con il progetto (oggi si perde chiudendo Revit);
 - regolazione automatica di cella e punti minimi sulla densità della nuvola.
 
 ## 3. Interfaccia
-- (fatto per Profili colore) Eliminare i ricaricamenti visibili all'apertura delle finestre (es. Analisi: compare prima solo il
-  profilo attivo, poi gli altri): costruire il contenuto prima di mostrare la finestra.
+- (fatto) Eliminare i ricaricamenti visibili all'apertura delle finestre: contenuto costruito prima di mostrare la
+  finestra (Profili colore), doppio buffer e prima comparsa disegnata fuori schermo per tutte le finestre
+  (MODIFICHE 127–129). Da confermare sull'uso quotidiano.
 - Armonizzare scelte grafiche e icone (stile, spessori, colori, dimensioni 16/32) su tutta la barra.
 
 ## 4. Verifiche
