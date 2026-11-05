@@ -102,12 +102,11 @@ namespace PointDeviation
     /// <summary>
     /// Base delle finestre del plugin: si mostrano solo quando sono già disegnate per intero. Prima comparivano la
     /// cornice vuota e poi i contenuti uno alla volta (stile applicato dopo la creazione, elenchi disegnati riga per
-    /// riga). Doppio buffer per tutta la finestra (WS_EX_COMPOSITED) e finestra trasparente fino al primo disegno.
+    /// riga). Doppio buffer per tutta la finestra (WS_EX_COMPOSITED) (disegno fuori schermo, poi una sola copia).
     /// </summary>
     internal class PdForm : Form
     {
         private const int WS_EX_COMPOSITED = 0x02000000;
-        private bool _revealed;
 
         public PdForm()
         {
@@ -124,20 +123,7 @@ namespace PointDeviation
             }
         }
 
-        protected override void OnLoad(EventArgs e)
-        {
-            if (!_revealed) Opacity = 0;
-            base.OnLoad(e);
-        }
-
-        protected override void OnShown(EventArgs e)
-        {
-            base.OnShown(e);
-            if (_revealed) return;
-            _revealed = true;
-            // si aspetta che tutto sia disegnato (anche gli elenchi), poi la finestra compare in un colpo solo
-            try { Refresh(); } catch { }
-            BeginInvoke((Action)(() => { try { Opacity = 1; } catch { } }));
-        }
+        // Niente più trasparenza fino al primo disegno: con Windows 11 una finestra trasparente mostra comunque
+        // cornice e ombra («contorno» vuoto che poi sparisce), e ritardava la comparsa. Basta il doppio buffer.
     }
 }

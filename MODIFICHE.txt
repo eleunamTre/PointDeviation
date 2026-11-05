@@ -488,3 +488,6 @@ Ottava tornata (28/10/2026): octree
      Editor dei profili, Gestisci visibilita', Regioni di ritaglio, Avanzate, Avanzamento dell'analisi. Doppio buffer
      per tutta la finestra (WS_EX_COMPOSITED) e finestra trasparente finche' non e' disegnata per intero, poi compare
      in un colpo solo. Escluse le finestre di disegno dei recinti e delle misure (sovrapposte alla vista).
+128. Tolta la trasparenza fino al primo disegno (punto 127): su Windows 11 una finestra trasparente mostra comunque
+     cornice e ombra, che comparivano vuote e poi sparivano prima dei contenuti (Libreria, Impostazioni, Avanzate), e
+     ritardava la comparsa delle altre. Resta il doppio buffer per tutta la finestra.
