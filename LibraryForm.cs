@@ -15,7 +15,7 @@ namespace PointDeviation
     /// e la ricerca; al centro una scheda per nuvola con anteprima, «Anteprima» e «Inserisci»;
     /// la prima scheda «+» converte un nuovo file (LAS, RCP, RCS) o una nuvola già inserita nel progetto.
     /// </summary>
-    internal sealed class LibraryForm : Form
+    internal sealed class LibraryForm : PdForm
     {
         protected override void OnLoad(EventArgs e)
         {
@@ -536,7 +536,7 @@ namespace PointDeviation
     //  Opzioni di conversione
     // =====================================================================================
 
-    internal sealed class ConvertOptionsForm : Form
+    internal sealed class ConvertOptionsForm : PdForm
     {
         protected override void OnLoad(EventArgs e)
         {

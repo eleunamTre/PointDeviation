@@ -13,7 +13,7 @@ namespace PointDeviation
     /// poi l'esito. Così la navigazione in modalità discrepanze è fluida fin dall'inizio. Si può lasciar proseguire il
     /// calcolo in background e chiudere la finestra.
     /// </summary>
-    internal sealed class AnalysisProgressForm : Form
+    internal sealed class AnalysisProgressForm : PdForm
     {
         private const double ForegroundShare = 0.3; // frazione dei punti calcolata con la finestra aperta
         private readonly List<CloudLayer> _layers;

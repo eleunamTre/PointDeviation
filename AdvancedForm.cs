@@ -10,7 +10,7 @@ namespace PointDeviation
     /// Impostazioni avanzate: registro di diagnostica (livello, file), strumenti di diagnostica del disegno,
     /// prestazioni (limite di punti, memoria). Valgono per il computer, non per il progetto.
     /// </summary>
-    internal sealed class AdvancedForm : Form
+    internal sealed class AdvancedForm : PdForm
     {
         private readonly ListBox _nav = new ListBox { Dock = DockStyle.Left, Width = 170, BorderStyle = BorderStyle.None, IntegralHeight = false, ItemHeight = 30, DrawMode = DrawMode.OwnerDrawFixed };
         private readonly Panel _host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 14, 20, 14) };

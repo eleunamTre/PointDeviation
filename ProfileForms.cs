@@ -11,7 +11,7 @@ namespace PointDeviation
     //  Elenco dei profili colore
     // =====================================================================================
 
-    internal sealed class ProfileManagerForm : Form
+    internal sealed class ProfileManagerForm : PdForm
     {
         protected override void OnLoad(EventArgs e)
         {
@@ -288,7 +288,7 @@ namespace PointDeviation
     //  Editor di un profilo: intervalli e colori, con anteprima della legenda
     // =====================================================================================
 
-    internal sealed class ProfileEditorForm : Form
+    internal sealed class ProfileEditorForm : PdForm
     {
         protected override void OnLoad(EventArgs e)
         {

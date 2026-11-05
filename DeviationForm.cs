@@ -9,7 +9,7 @@ namespace PointDeviation
     /// condiviso con i pulsanti della barra multifunzione.
     /// Tolleranza, scala e opzioni colore si applicano in tempo reale (solo ricolorazione).
     /// </summary>
-    internal sealed class DeviationForm : Form
+    internal sealed class DeviationForm : PdForm
     {
         protected override void OnLoad(EventArgs e)
         {

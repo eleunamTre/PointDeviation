@@ -10,7 +10,7 @@ namespace PointDeviation
     /// Legenda del profilo colore attivo: barra verticale (sfumata o a fasce) con le tacche dei valori,
     /// etichette delle classi e colore della nuvola senza modello. Ridimensionabile.
     /// </summary>
-    internal sealed class LegendForm : Form
+    internal sealed class LegendForm : PdForm
     {
         protected override void OnLoad(EventArgs e)
         {

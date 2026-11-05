@@ -405,7 +405,7 @@ namespace PointDeviation
     //  Gestione dei ritagli: recinti correnti e ritagli salvati con un nome
     // =====================================================================================
 
-    internal sealed class ClipManagerForm : Form
+    internal sealed class ClipManagerForm : PdForm
     {
         private readonly ListBox _presets = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle };
         private readonly CheckedListBox _regions = new CheckedListBox { Dock = DockStyle.Fill, IntegralHeight = false, CheckOnClick = true, BorderStyle = BorderStyle.FixedSingle };

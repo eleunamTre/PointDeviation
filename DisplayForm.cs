@@ -8,7 +8,7 @@ namespace PointDeviation
     /// Pannello «Aspetto»: dimensione dei punti, luminosità, contrasto, trasparenza e contrasto X-ray.
     /// I valori si applicano quando il cursore si ferma (niente ridisegni a ogni scatto).
     /// </summary>
-    internal sealed class DisplayForm : Form
+    internal sealed class DisplayForm : PdForm
     {
         protected override void OnLoad(EventArgs e)
         {

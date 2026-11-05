@@ -483,3 +483,8 @@ Ottava tornata (28/10/2026): octree
 126. Profili colore: le barre di tutti i profili si preparano prima di mostrare la finestra (prima compariva solo il
      profilo attivo e gli altri dopo, mentre l'elenco calcolava le barre riga per riga) e il serializzatore usato per
      riconoscerle si crea una volta sola.
+127. Finestre senza caricamento «a cascata» (prima la cornice vuota, poi i contenuti uno alla volta): base comune
+     PdForm per Libreria, Opzioni di conversione, Impostazioni dell'analisi, Aspetto, Legenda, Profili colore,
+     Editor dei profili, Gestisci visibilita', Regioni di ritaglio, Avanzate, Avanzamento dell'analisi. Doppio buffer
+     per tutta la finestra (WS_EX_COMPOSITED) e finestra trasparente finche' non e' disegnata per intero, poi compare
+     in un colpo solo. Escluse le finestre di disegno dei recinti e delle misure (sovrapposte alla vista).

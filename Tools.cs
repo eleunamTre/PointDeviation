@@ -56,7 +56,7 @@ namespace PointDeviation
     //  Pannello Visibilità: una riga per nuvola, con spunta (visibile nella vista attiva) e colore
     // =====================================================================================
 
-    internal sealed class VisibilityForm : Form
+    internal sealed class VisibilityForm : PdForm
     {
         private readonly ListView _list = new ListView
         {
