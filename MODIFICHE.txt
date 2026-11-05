@@ -515,3 +515,15 @@ Ottava tornata (28/10/2026): octree
      invece che per punto. Le 27 celle vicine si cercano una volta per tutti i punti della cella (prima 27 ricerche in
      un dizionario per ogni punto) e i vicini si leggono da array ordinati per cella, contigui in memoria. Stesso
      risultato.
+134. Completezza: nuova finestra «Zone mancanti» (pannello Analisi, attiva quando c'e' un'analisi). I punti piu' lontani
+     della soglia dal modello (o senza superficie entro la distanza massima) si contano in cubetti (lato «cella»,
+     0,20 m); i cubetti con pochi punti sono rumore; i cubetti che si toccano formano una zona, allargata anche ai
+     cubetti vicini piu' poveri (un quinto del minimo), che sulle superfici oblique sono tagliate di striscio.
+     Per ogni zona: punti, superficie stimata (impronta dei cubetti sul piano principale, trovato con le componenti
+     principali; verificata su pareti, solai, falde e oggetti sintetici: errore tra 0 e +17%), tipo (verticale,
+     orizzontale, inclinata, volume = arredi/oggetti/angoli), ingombro, livello sotto la zona e quota dal livello.
+     Elenco ordinabile; doppio clic o «Zoom sulla zona» la inquadra; «Isola la zona» mette due recinti (pianta e
+     prospetto) che tengono solo il parallelepipedo della zona, «Mostra tutti i punti» rimette i recinti di prima;
+     esportazione CSV (coordinate interne in metri). Opzione «solo dentro i recinti attivi».
+     Usa le distanze salvate su disco (se il background non ha finito, le completa prima). Registro: riga
+     «[Completezza]» con punti lontani, celle, rumore, zone e tempi (distanze / celle / zone).

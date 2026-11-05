@@ -276,6 +276,22 @@ namespace PointDeviation
             _visibility.Show(new WindowOwner(_mainWindow));
         }
 
+        private static MissingZonesForm _missing;
+
+        /// <summary>Completezza: elenco delle zone rilevate ma non modellate.</summary>
+        public static void ShowMissingZones()
+        {
+            if (_missing != null && !_missing.IsDisposed)
+            {
+                _missing.Show();
+                _missing.Activate();
+                return;
+            }
+            _missing = new MissingZonesForm();
+            _missing.FormClosed += (s, e) => { _missing = null; };
+            _missing.Show(new WindowOwner(_mainWindow));
+        }
+
         private static ClipManagerForm _clips;
 
         public static void ShowClipManager()

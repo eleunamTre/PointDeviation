@@ -504,6 +504,51 @@ namespace PointDeviation
             d["LOA30  5–15 mm"] = "LOA30  5–15 mm";
             d["LOA20  15–50 mm"] = "LOA20  15–50 mm";
             d["LOA10  > 50 mm"] = "LOA10  > 50 mm";
+
+            // Zone mancanti (completezza)
+            d["Zone\nmancanti"] = "Missing\nZones";
+            d["Completezza: raggruppa i punti lontani dal modello in zone (parti rilevate ma non modellate) con superficie stimata, tipo e livello. Zoom e isolamento della zona, esportazione in CSV."] = "Completeness: groups the points far from the model into zones (surveyed but not modelled) with estimated area, type and level. Zoom to and isolate a zone, export to CSV.";
+            d["Zone mancanti (completezza)"] = "Missing zones (completeness)";
+            d["Soglia (mm)"] = "Threshold (mm)";
+            d["Cella (m)"] = "Cell (m)";
+            d["Punti minimi per cella"] = "Minimum points per cell";
+            d["Superficie minima (m²)"] = "Minimum area (m²)";
+            d["Solo dentro i recinti attivi"] = "Only inside active fences";
+            d["Trova zone"] = "Find zones";
+            d["Punti più lontani di così da qualunque superficie del modello (o senza superficie entro la distanza massima dell'analisi)."] = "Points farther than this from any model surface (or with no surface within the analysis maximum distance).";
+            d["I punti lontani si raggruppano in cubetti di questo lato; cubetti che si toccano formano una zona."] = "Far points are grouped into cubes of this size; touching cubes form a zone.";
+            d["Cubetti con meno punti sono rumore (persone, riflessi, punti isolati). I cubetti attaccati a una zona ne bastano un quinto."] = "Cubes with fewer points are noise (people, reflections, stray points). Cubes attached to a zone need only a fifth.";
+            d["Zone più piccole non vanno nell'elenco (sono contate a parte nel riepilogo)."] = "Smaller zones are not listed (they are counted separately in the summary).";
+            d["Superficie (m²)"] = "Area (m²)";
+            d["Tipo"] = "Type";
+            d["Ingombro X × Y × H (m)"] = "Extent X × Y × H (m)";
+            d["Livello"] = "Level";
+            d["Da quota (m)"] = "From height (m)";
+            d["Zoom sulla zona"] = "Zoom to zone";
+            d["Isola la zona"] = "Isolate zone";
+            d["Mostra tutti i punti"] = "Show all points";
+            d["Esporta CSV..."] = "Export CSV...";
+            d["Doppio clic su una zona per inquadrarla. Superficie stimata dai cubetti; «volume» = oggetti, arredi o angoli."] = "Double-click a zone to frame it. Area estimated from the cubes; \"volume\" = objects, furniture or corners.";
+            d["Imposta i parametri e premi «Trova zone». Servono le distanze dell'analisi (Analizza vista o selezione)."] = "Set the parameters and press \"Find zones\". The analysis distances are needed (Analyze view or selection).";
+            d["Preparazione..."] = "Preparing...";
+            d["Nessuna analisi attiva: esegui prima «Analizza vista» o «Analizza selezione»."] = "No active analysis: run \"Analyze view\" or \"Analyze selection\" first.";
+            d["Distanze dal modello..."] = "Distances from the model...";
+            d["Distanze non disponibili: impossibile scrivere nella cartella della libreria."] = "Distances not available: cannot write to the library folder.";
+            d["Raggruppamento dei punti lontani..."] = "Grouping the far points...";
+            d["Zone connesse..."] = "Connected zones...";
+            d["{0:N0} zone, {1:N1} m² stimati, {2:N0} punti. Punti lontani dal modello: {3:N0} su {4:N0} ({5:P1}); rumore {6:N0}; zone sotto la superficie minima: {7:N0} ({8:N0} punti). Calcolo in {9:F1} s."] = "{0:N0} zones, {1:N1} m² estimated, {2:N0} points. Points far from the model: {3:N0} of {4:N0} ({5:P1}); noise {6:N0}; zones below the minimum area: {7:N0} ({8:N0} points). Computed in {9:F1} s.";
+            d["verticale"] = "vertical";
+            d["orizzontale"] = "horizontal";
+            d["inclinata"] = "sloped";
+            d["volume"] = "volume";
+            d["Zona {0}"] = "Zone {0}";
+            d[" (pianta)"] = " (plan)";
+            d[" (prospetto)"] = " (elevation)";
+            d["zone_mancanti"] = "missing_zones";
+            d["# Zone mancanti: soglia {0:0} mm, cella {1:0.00} m, minimo {2} punti per cella, superficie minima {3:0.##} m²; coordinate interne del progetto in metri"] = "# Missing zones: threshold {0:0} mm, cell {1:0.00} m, minimum {2} points per cell, minimum area {3:0.##} m²; project internal coordinates in metres";
+            d["Centro X"] = "Center X";
+            d["Centro Y"] = "Center Y";
+            d["Centro Z"] = "Center Z";
         }
     }
 }

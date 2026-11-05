@@ -320,6 +320,16 @@ namespace PointDeviation
         }
     }
 
+    /// <summary>Completezza: zone rilevate ma non modellate, con elenco, zoom ed esportazione.</summary>
+    [Transaction(TransactionMode.ReadOnly)]
+    public class MissingZonesCommand : IExternalCommand
+    {
+        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+        {
+            return CmdHelper.Run(commandData.Application, ref message, () => DeviationController.ShowMissingZones());
+        }
+    }
+
     [Transaction(TransactionMode.ReadOnly)]
     public class DisplayNormalsCommand : IExternalCommand
     {

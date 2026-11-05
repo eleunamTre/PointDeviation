@@ -220,6 +220,8 @@ namespace PointDeviation
                 "Confronta la nuvola solo con gli elementi selezionati (anche istanze di link). La selezione resta memorizzata per i ricalcoli."));
             pAnalyze.AddItem(Push("ColorProfiles", "Profili\ncolore", asm, typeof(ColorProfilesCommand), "colormap",
                 "Scegli, modifica o crea i profili: gradiente, tolleranza a fasce, classi, completezza, interferenze."));
+            pAnalyze.AddItem(Push("MissingZones", "Zone\nmancanti", asm, typeof(MissingZonesCommand), "missing_zones",
+                "Completezza: raggruppa i punti lontani dal modello in zone (parti rilevate ma non modellate) con superficie stimata, tipo e livello. Zoom e isolamento della zona, esportazione in CSV."));
             pAnalyze.AddItem(Push("Legend", "Legenda", asm, typeof(ToggleLegendCommand), "legend",
                 "Apre o chiude la legenda del profilo attivo."));
             pAnalyze.AddItem(Push("Recompute", "Aggiorna", asm, typeof(RecomputeCommand), "recompute",
@@ -266,7 +268,7 @@ namespace PointDeviation
         }
 
         private static readonly string[] NeedsCloud = { "DisplayNormals", "DisplayXray", "DisplayCloud", "Visibility", "Survey", "Measure", "DisplayRgb", "DisplayElevation", "CloudOnOff", "Appearance", "FencePolygon", "FenceRect", "FenceCircle", "ClipInvert", "ClipManage", "AnalyzeView", "AnalyzeSelection" };
-        private static readonly string[] NeedsAnalysis = { "ShowAnalysis" };
+        private static readonly string[] NeedsAnalysis = { "ShowAnalysis", "MissingZones" };
         private static readonly string[] NeedsAnalysisShown = { "Legend", "Recompute" };
 
         private static PushButtonData Push(string name, string text, string assembly, Type command, string icon, string tooltip)

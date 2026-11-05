@@ -16,10 +16,12 @@ interamente in background; RCP: la lettura attraverso Revit resta sul thread di 
 costruzione dell'octree passa in background.
 
 ## 2. Completezza (Completeness check)
-Esiste già come profilo colori «Completezza»: evidenzia i punti a più di una soglia dal modello
-(parti rilevate e non modellate). Da completare:
-- raggruppamento delle zone mancanti (cluster) con elenco navigabile e «zoom sulla zona»;
-- quantità per zona (punti, superficie stimata), esportabile.
+Profilo colori «Completezza» (punti a più di una soglia dal modello) e finestra «Zone mancanti» (fatto, punto 134
+di MODIFICHE): zone raggruppate con superficie stimata, tipo, livello, zoom, isolamento, esportazione CSV.
+Possibili sviluppi, dopo le prove sulla nuvola reale:
+- evidenziare nella vista la zona selezionata (contorno o colore) senza isolarla;
+- coordinate condivise nell'esportazione; salvataggio dell'elenco con il progetto;
+- regolazione automatica di cella e punti minimi sulla densità della nuvola.
 
 ## 3. Interfaccia
 - (fatto per Profili colore) Eliminare i ricaricamenti visibili all'apertura delle finestre (es. Analisi: compare prima solo il
