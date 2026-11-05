@@ -259,7 +259,9 @@ namespace PointDeviation
                     }
                     if (!double.IsNaN(mm) && Lut(mm, out r, out g, out b)) return true;
                     if (Missing == MissingMode.Nascondi || Profile.HideMissing) return false;
-                    if (Missing == MissingMode.Evidenzia) { r = ColorScale.MissingRgb[0]; g = ColorScale.MissingRgb[1]; b = ColorScale.MissingRgb[2]; }
+                    // con una zona evidenziata (viola) gli altri punti senza modello vanno in grigio: altrimenti, essendo
+                    // anch'essi viola, la zona selezionata non si distinguerebbe
+                    if (Missing == MissingMode.Evidenzia && !ZoneOn) { r = ColorScale.MissingRgb[0]; g = ColorScale.MissingRgb[1]; b = ColorScale.MissingRgb[2]; }
                     else { r = g = b = 150; }
                     return true;
                 }

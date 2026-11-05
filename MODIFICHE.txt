@@ -543,3 +543,6 @@ Ottava tornata (28/10/2026): octree
      selezionata» (accesa); chiudendo la finestra l'evidenziazione si spegne. La zona fa parte dello stile (impronta)
      e, fuori dalla modalita' analisi, il caricatore rilegge le distanze salvate dei blocchi (2 byte per punto; le
      posizioni gia' caricate si conservano) solo finche' la zona e' evidenziata.
+138. Zona evidenziata con un profilo a tolleranza e «nuvola senza modello: evidenzia»: i punti senza modello sono
+     viola come la zona, che non si distingueva. Mentre una zona e' evidenziata gli altri punti senza modello vanno in
+     grigio; spenta l'evidenziazione tornano viola.
