@@ -533,3 +533,7 @@ Ottava tornata (28/10/2026): octree
      prima si ricordano per progetto fuori dalla finestra, la zona isolata si riconosce dai suoi due recinti (anche
      dopo aver riaperto il progetto: «Mostra tutti i punti» li toglie), chiudendo la finestra si torna ai recinti di
      prima, e la ricerca «dentro i recinti» non usa mai quelli della zona.
+136. Zone mancanti: l'elenco viveva nella finestra e chiudendola si perdeva. Ora si ricorda l'ultimo elenco di ogni
+     progetto (con parametri e zona selezionata): riaprendo la finestra ricompare subito se l'analisi e' la stessa;
+     se l'analisi e' cambiata (o non c'e' ancora un elenco) la ricerca parte da sola all'apertura (con le distanze
+     salvate dura meno di un secondo).

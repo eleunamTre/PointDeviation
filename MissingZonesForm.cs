@@ -27,6 +27,11 @@ namespace PointDeviation
     {
         // parametri ricordati per la sessione
         private static double _lastCell = 0.20, _lastMinArea = 0.5;
+
+        // Ultimo elenco per progetto: riaprendo la finestra ricompare senza ricalcolare, se l'analisi è la stessa
+        // (prima l'elenco viveva nella finestra e si perdeva chiudendola).
+        private sealed class Last { public AnalysisSnapshot An; public MissingZoneResult R; public MissingZoneOptions Opt; public int Selected; }
+        private static readonly Dictionary<string, Last> _last = new Dictionary<string, Last>();
         private static int _lastMinPts = 10;
         private static double _lastThreshold = -1;
 
@@ -147,6 +152,47 @@ namespace PointDeviation
             _summary.Text = L.T("Imposta i parametri e premi «Trova zone». Servono le distanze dell'analisi (Analizza vista o selezione).");
             _summary.ForeColor = UiTheme.Muted;
             UpdateButtons(); // una zona rimasta isolata (es. progetto riaperto) si può togliere subito
+            _list.SelectedIndexChanged += (s, e) => RememberSelection();
+            Shown += (s, e) => Resume();
+        }
+
+        /// <summary>All'apertura: l'ultimo elenco di questo progetto se l'analisi non è cambiata, altrimenti una nuova ricerca.</summary>
+        private void Resume()
+        {
+            string key = DocKey();
+            AnalysisSnapshot an = key != null ? AnalysisRegistry.Get(key) : null;
+            if (an == null) return; // nessuna analisi: resta il messaggio iniziale
+            Last last;
+            if (_last.TryGetValue(key, out last) && ReferenceEquals(last.An, an))
+            {
+                SetClamped(_thr, last.Opt.ThresholdMm);
+                SetClamped(_cell, last.Opt.CellM);
+                SetClamped(_minPts, last.Opt.MinPointsPerCell);
+                SetClamped(_minArea, last.Opt.MinAreaM2);
+                _inClip.Checked = last.Opt.Clip != null;
+                int sel = last.Selected;
+                Done(last.R, last.Opt, an);
+                SelectNumber(sel);
+                return;
+            }
+            Start(); // con le distanze salvate dura meno di un secondo
+        }
+
+        private void RememberSelection()
+        {
+            MissingZone z = Selected();
+            string key = DocKey();
+            Last last;
+            if (z != null && key != null && _last.TryGetValue(key, out last) && last.R != null && last.R.Zones == _zones) last.Selected = z.Number;
+        }
+
+        private void SelectNumber(int number)
+        {
+            foreach (ListViewItem it in _list.Items)
+            {
+                var z = it.Tag as MissingZone;
+                if (z != null && z.Number == number) { it.Selected = true; it.EnsureVisible(); return; }
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -231,7 +277,7 @@ namespace PointDeviation
                 catch (Exception ex)
                 {
                     Log.Error("Zone mancanti", ex);
-                    Ui(() => Done(new MissingZoneResult { Error = ex.Message }, opt));
+                    Ui(() => Done(new MissingZoneResult { Error = ex.Message }, opt, null));
                 }
             });
         }
@@ -265,7 +311,7 @@ namespace PointDeviation
                 }
             }
             if (_cancel) return;
-            Ui(() => Done(r, opt));
+            Ui(() => Done(r, opt, an));
         }
 
         private void Ui(Action a)
@@ -273,7 +319,7 @@ namespace PointDeviation
             try { if (!IsDisposed && IsHandleCreated) BeginInvoke(a); } catch { }
         }
 
-        private void Done(MissingZoneResult r, MissingZoneOptions opt)
+        private void Done(MissingZoneResult r, MissingZoneOptions opt, AnalysisSnapshot an)
         {
             _busy = false;
             _bar.Visible = false;
@@ -287,6 +333,8 @@ namespace PointDeviation
             }
             _zones = r.Zones;
             _usedOptions = opt;
+            string key = DocKey();
+            if (key != null && an != null) _last[key] = new Last { An = an, R = r, Opt = opt, Selected = r.Zones.Count > 0 ? r.Zones[0].Number : 0 };
             Fill();
             double area = r.Zones.Sum(z => z.AreaM2);
             long pts = r.Zones.Sum(z => z.Points);
