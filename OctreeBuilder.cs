@@ -126,42 +126,40 @@ namespace PointDeviation
             int depth = 0;
             using (var outFs = new FileStream(pointsPath, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
             {
-                // I pezzi si preparano in anticipo su altri thread (lettura, ordine casuale, normali: la parte pesante),
-                // mentre questo thread costruisce i sotto-alberi uno dopo l'altro (scrivono tutti nello stesso file).
-                // Quanti pezzi in anticipo e quanti processori dipende da ConversionQueue.Watched: con la Libreria aperta
-                // la conversione va a piena velocità, a finestra chiusa lascia il processore a Revit.
-                var pending = new Dictionary<int, Task<ChunkPoints>>();
+                // I pezzi si costruiscono in parallelo (lettura, ordine casuale, normali e sotto-albero, ognuno in memoria
+                // con i propri dati di lavoro) e si scrivono nel file in ordine, correggendo la posizione dei loro nodi.
+                // Quanti pezzi insieme dipende da ConversionQueue.Watched: con la Libreria aperta la conversione va a
+                // piena velocità, a finestra chiusa lascia il processore a Revit.
+                var pending = new Dictionary<int, Task<BuiltChunk>>();
                 int nextPrep = 0;
-                var swPrep = new System.Diagnostics.Stopwatch();
-                var swBuild = new System.Diagnostics.Stopwatch();
+                var swWait = new System.Diagnostics.Stopwatch();
                 for (int c = 0; c < chunks.Count; c++)
                 {
                     ct.ThrowIfCancellationRequested();
                     progress(string.Format(L.T("Costruzione dell'octree: blocco {0} di {1}..."), c + 1, chunks.Count), 0.60 + 0.35 * c / chunks.Count);
-                    int ahead = ConversionQueue.Watched ? 3 : 1;
+                    // al massimo 4 pezzi insieme (ognuno fino a 2 M di punti: la memoria di Revit resta contenuta)
+                    int ahead = ConversionQueue.Watched ? Math.Max(1, Math.Min(4, Environment.ProcessorCount / 3)) : 1;
                     while (nextPrep < chunks.Count && nextPrep <= c + ahead)
                     {
                         int k = nextPrep++;
-                        pending[k] = Task.Run(() => PrepareChunk(Path.Combine(tmpDir, k + ".bin"), k, scale, ct));
+                        Node nodeK = chunks[k];
+                        pending[k] = Task.Run(() => BuildChunk(Path.Combine(tmpDir, k + ".bin"), k, nodeK, scale, ct));
                     }
-                    swPrep.Start();
-                    ChunkPoints P;
-                    try { P = pending[c].Result; }
+                    swWait.Start();
+                    BuiltChunk bc;
+                    try { bc = pending[c].Result; }
                     catch (AggregateException ae) { throw ae.InnerException ?? ae; }
                     pending.Remove(c);
-                    swPrep.Stop();
-                    if (P == null) continue;
+                    swWait.Stop();
+                    if (bc == null) continue;
 
-                    swBuild.Start();
-                    int n = P.X.Length;
-                    var idx = new int[n];
-                    for (int i = 0; i < n; i++) idx[i] = i;
-                    Node chunkRoot = chunks[c];
-                    BuildSubtree(chunkRoot, idx, n, P, scale, marks, touched, outFs, ref written, true, ref depth);
-                    swBuild.Stop();
+                    long baseRec = written;
+                    outFs.Write(bc.Data, 0, bc.Data.Length);
+                    written += bc.Records;
+                    Shift(chunks[c], baseRec, true);
+                    depth = Math.Max(depth, bc.Depth);
                 }
-                Log.Write("Conversione", string.Format("octree: {0} pezzi, attesa dei pezzi preparati {1:F0} s, costruzione dei sotto-alberi {2:F0} s",
-                    chunks.Count, swPrep.Elapsed.TotalSeconds, swBuild.Elapsed.TotalSeconds));
+                Log.Write("Conversione", string.Format("octree: {0} pezzi, attesa dei pezzi in costruzione {1:F0} s", chunks.Count, swWait.Elapsed.TotalSeconds));
 
                 // ---------------------------------------------------------- livelli sopra i pezzi
                 progress(L.T("Costruzione dell'octree: livelli superiori..."), 0.96);
@@ -197,6 +195,39 @@ namespace PointDeviation
                 });
             }
             return new Result { Nodes = res, Points = written, Depth = depth };
+        }
+
+        private sealed class BuiltChunk
+        {
+            public byte[] Data;     // record dei nodi del sotto-albero (esclusa la radice, che resta in memoria)
+            public long Records;
+            public int Depth;
+        }
+
+        /// <summary>Prepara un pezzo e ne costruisce il sotto-albero in memoria (posizioni dei nodi relative al pezzo).</summary>
+        private static BuiltChunk BuildChunk(string tf, int c, Node chunkRoot, double scale, CancellationToken ct)
+        {
+            ChunkPoints P = PrepareChunk(tf, c, scale, ct);
+            if (P == null) return null;
+            ct.ThrowIfCancellationRequested();
+            int n = P.X.Length;
+            var idx = new int[n];
+            for (int i = 0; i < n; i++) idx[i] = i;
+            var marks = new bool[NodeGrid * NodeGrid * NodeGrid];
+            var touched = new List<int>(1 << 12);
+            long w = 0; int d = 0;
+            using (var ms = new MemoryStream())
+            {
+                BuildSubtree(chunkRoot, idx, n, P, scale, marks, touched, ms, ref w, true, ref d);
+                return new BuiltChunk { Data = ms.ToArray(), Records = w, Depth = d };
+            }
+        }
+
+        /// <summary>Sposta di baseRec la posizione dei nodi scritti di un sotto-albero (la radice del pezzo resta in memoria).</summary>
+        private static void Shift(Node node, long baseRec, bool isRoot)
+        {
+            if (!isRoot && node.Mem == null) node.First += baseRec;
+            foreach (Node ch in node.Child) if (ch != null) Shift(ch, baseRec, false);
         }
 
         /// <summary>Legge un pezzo dal file temporaneo, lo mette in ordine casuale e ne calcola le normali.</summary>
