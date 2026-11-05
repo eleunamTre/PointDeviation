@@ -22,14 +22,15 @@ Provato sul rilievo reale (48,5 M punti: 198 zone in mezzo secondo con le distan
 - Finestra «Zone mancanti» (pannello Analisi): i punti lontani si raggruppano in zone (cubetti che si toccano,
   rumore scartato), con superficie stimata, punti, tipo (verticale, orizzontale, inclinata, volume), ingombro,
   livello e quota dal livello. Elenco ordinabile; zoom sulla zona; «Isola la zona» con due recinti (pianta e
-  prospetto) e ritorno ai recinti di prima; esportazione CSV; opzione «solo dentro i recinti attivi».
+  prospetto) e ritorno ai recinti di prima; esportazione CSV (coordinate interne e condivise); opzione «solo
+  dentro i recinti attivi».
 - La zona selezionata si evidenzia in viola in qualunque modalità di visualizzazione (RGB, quota, normali, analisi);
   con i profili a tolleranza gli altri punti senza modello vanno in grigio per distinguerla.
 - La finestra ricorda l'ultimo elenco del progetto: riaprendola ricompare senza ricalcolare; con un'analisi nuova
   la ricerca parte da sola.
 Possibili sviluppi:
 - con il profilo Completezza, attenuare le altre zone mentre una è selezionata;
-- coordinate condivise nell'esportazione; elenco salvato con il progetto (oggi si perde chiudendo Revit);
+- elenco salvato con il progetto (oggi si perde chiudendo Revit);
 - regolazione automatica di cella e punti minimi sulla densità della nuvola.
 
 ## 3. Interfaccia

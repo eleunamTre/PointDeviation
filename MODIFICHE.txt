@@ -546,3 +546,8 @@ Ottava tornata (28/10/2026): octree
 138. Zona evidenziata con un profilo a tolleranza e «nuvola senza modello: evidenzia»: i punti senza modello sono
      viola come la zona, che non si distingueva. Mentre una zona e' evidenziata gli altri punti senza modello vanno in
      grigio; spenta l'evidenziazione tornano viola.
+139. Zone mancanti, esportazione CSV: oltre alle coordinate interne (origine di Revit) anche quelle condivise della
+     posizione di progetto attiva, per ogni zona: ingombro (min/max) e centro. Conversione con la stessa convenzione
+     dell'inserimento «coordinate condivise» (interne = T · condivise, quindi condivise = T⁻¹ · interne); con il nord
+     di progetto ruotato l'ingombro condiviso e' quello degli 8 spigoli, un po' piu' grande. Colonne «Interne …» e
+     «Condivise …».

@@ -20,6 +20,11 @@ namespace PointDeviation
         public ZoneShape Shape;
         public string Level;                          // livello sotto la zona (riempito dalla finestra)
         public double AboveLevelM;                    // quota del fondo della zona sopra quel livello
+        /// <summary>
+        /// Coordinate condivise (piedi): ingombro (minX, minY, minZ, maxX, maxY, maxZ, dagli 8 spigoli dell'ingombro
+        /// interno: con il nord ruotato è un po' più grande) e centro (cx, cy, cz). null se non disponibili.
+        /// </summary>
+        public double[] Shared;
 
         public double SizeXM { get { return (MaxX - MinX) * 0.3048; } }
         public double SizeYM { get { return (MaxY - MinY) * 0.3048; } }

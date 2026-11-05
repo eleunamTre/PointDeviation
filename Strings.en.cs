@@ -546,7 +546,9 @@ namespace PointDeviation
             d[" (pianta)"] = " (plan)";
             d[" (prospetto)"] = " (elevation)";
             d["zone_mancanti"] = "missing_zones";
-            d["# Zone mancanti: soglia {0:0} mm, cella {1:0.00} m, minimo {2} punti per cella, superficie minima {3:0.##} m²; coordinate interne del progetto in metri"] = "# Missing zones: threshold {0:0} mm, cell {1:0.00} m, minimum {2} points per cell, minimum area {3:0.##} m²; project internal coordinates in metres";
+            d["# Zone mancanti: soglia {0:0} mm, cella {1:0.00} m, minimo {2} punti per cella, superficie minima {3:0.##} m²; coordinate in metri, interne (origine di Revit) e condivise (posizione di progetto attiva)"] = "# Missing zones: threshold {0:0} mm, cell {1:0.00} m, minimum {2} points per cell, minimum area {3:0.##} m²; coordinates in metres, internal (Revit origin) and shared (active project location)";
+            d["Interne"] = "Internal";
+            d["Condivise"] = "Shared";
             d["Centro X"] = "Center X";
             d["Centro Y"] = "Center Y";
             d["Centro Z"] = "Center Z";

@@ -297,9 +297,24 @@ namespace PointDeviation
                         foreach (Level lv in new FilteredElementCollector(uidoc.Document).OfClass(typeof(Level)).Cast<Level>())
                             levels.Add(new KeyValuePair<string, double>(lv.Name, lv.ProjectElevation));
                     levels.Sort((a, b) => a.Value.CompareTo(b.Value));
+                    // da interne a condivise: la posizione di progetto attiva dà interne = T · condivise (stessa
+                    // convenzione dell'inserimento «coordinate condivise»), quindi condivise = T⁻¹ · interne.
+                    // Copiata in numeri: gli oggetti di Revit non si usano fuori dal suo thread.
+                    double[] toShared = null;
+                    if (uidoc != null)
+                    {
+                        Transform inv = uidoc.Document.ActiveProjectLocation.GetTotalTransform().Inverse;
+                        toShared = new[]
+                        {
+                            inv.BasisX.X, inv.BasisY.X, inv.BasisZ.X,
+                            inv.BasisX.Y, inv.BasisY.Y, inv.BasisZ.Y,
+                            inv.BasisX.Z, inv.BasisY.Z, inv.BasisZ.Z,
+                            inv.Origin.X, inv.Origin.Y, inv.Origin.Z
+                        };
+                    }
                     if (d != null && layers.Count < d.Layers.Count)
                         Log.Write("Completezza", string.Format("{0} nuvole in formato vecchio (senza octree) escluse", d.Layers.Count - layers.Count));
-                    Task.Factory.StartNew(() => Work(layers, an, levels, opt), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                    Task.Factory.StartNew(() => Work(layers, an, levels, toShared, opt), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 }
                 catch (Exception ex)
                 {
@@ -309,7 +324,7 @@ namespace PointDeviation
             });
         }
 
-        private void Work(List<CloudLayer> layers, AnalysisSnapshot an, List<KeyValuePair<string, double>> levels, MissingZoneOptions opt)
+        private void Work(List<CloudLayer> layers, AnalysisSnapshot an, List<KeyValuePair<string, double>> levels, double[] toShared, MissingZoneOptions opt)
         {
             MissingZoneResult r;
             if (an == null || layers.Count == 0)
@@ -335,10 +350,30 @@ namespace PointDeviation
                     foreach (var lv in levels) if (lv.Value <= z.MinZ + 0.1 / 0.3048) best = lv;
                     if (best == null && levels.Count > 0) best = levels[0];
                     if (best != null) { z.Level = best.Value.Key; z.AboveLevelM = (z.MinZ - best.Value.Value) * 0.3048; }
+                    if (toShared != null) z.Shared = ToShared(z, toShared);
                 }
             }
             if (_cancel) return;
             Ui(() => Done(r, opt, an));
+        }
+
+        /// <summary>Ingombro (dagli 8 spigoli) e centro della zona in coordinate condivise.</summary>
+        private static double[] ToShared(MissingZone z, double[] m)
+        {
+            var r = new[] { double.MaxValue, double.MaxValue, double.MaxValue, double.MinValue, double.MinValue, double.MinValue, 0, 0, 0 };
+            for (int k = 0; k < 8; k++)
+            {
+                double x = (k & 1) != 0 ? z.MaxX : z.MinX, y = (k & 2) != 0 ? z.MaxY : z.MinY, w = (k & 4) != 0 ? z.MaxZ : z.MinZ;
+                for (int a = 0; a < 3; a++)
+                {
+                    double v = m[a * 3] * x + m[a * 3 + 1] * y + m[a * 3 + 2] * w + m[9 + a];
+                    if (v < r[a]) r[a] = v;
+                    if (v > r[3 + a]) r[3 + a] = v;
+                }
+            }
+            double cx = (z.MinX + z.MaxX) / 2, cy = (z.MinY + z.MaxY) / 2, cz = (z.MinZ + z.MaxZ) / 2;
+            for (int a = 0; a < 3; a++) r[6 + a] = m[a * 3] * cx + m[a * 3 + 1] * cy + m[a * 3 + 2] * cz + m[9 + a];
+            return r;
         }
 
         private void Ui(Action a)
@@ -552,10 +587,12 @@ namespace PointDeviation
                     if (string.IsNullOrEmpty(sep) || sep == c.NumberFormat.NumberDecimalSeparator) sep = ";";
                     var sb = new StringBuilder();
                     MissingZoneOptions o = _usedOptions ?? new MissingZoneOptions();
-                    sb.AppendLine(string.Format(c, L.T("# Zone mancanti: soglia {0:0} mm, cella {1:0.00} m, minimo {2} punti per cella, superficie minima {3:0.##} m²; coordinate interne del progetto in metri"),
+                    sb.AppendLine(string.Format(c, L.T("# Zone mancanti: soglia {0:0} mm, cella {1:0.00} m, minimo {2} punti per cella, superficie minima {3:0.##} m²; coordinate in metri, interne (origine di Revit) e condivise (posizione di progetto attiva)"),
                         o.ThresholdMm, o.CellM, o.MinPointsPerCell, o.MinAreaM2));
-                    string[] head = { "#", L.T("Superficie (m²)"), L.T("Punti"), L.T("Tipo"), L.T("Livello"), L.T("Da quota (m)"),
-                        "X min", "Y min", "Z min", "X max", "Y max", "Z max", L.T("Centro X"), L.T("Centro Y"), L.T("Centro Z") };
+                    string[] coord = { "X min", "Y min", "Z min", "X max", "Y max", "Z max", L.T("Centro X"), L.T("Centro Y"), L.T("Centro Z") };
+                    var head = new List<string> { "#", L.T("Superficie (m²)"), L.T("Punti"), L.T("Tipo"), L.T("Livello"), L.T("Da quota (m)") };
+                    head.AddRange(coord.Select(h => L.T("Interne") + " " + h));
+                    head.AddRange(coord.Select(h => L.T("Condivise") + " " + h));
                     sb.AppendLine(string.Join(sep, head));
                     foreach (MissingZone z in _zones.OrderBy(x => x.Number))
                     {
@@ -567,6 +604,10 @@ namespace PointDeviation
                             m(z.MinX), m(z.MinY), m(z.MinZ), m(z.MaxX), m(z.MaxY), m(z.MaxZ),
                             m((z.MinX + z.MaxX) / 2), m((z.MinY + z.MaxY) / 2), m((z.MinZ + z.MaxZ) / 2)
                         };
+                        var all = new List<string>(row);
+                        // coordinate condivise (vuote se non disponibili)
+                        for (int k = 0; k < 9; k++) all.Add(z.Shared != null ? m(z.Shared[k]) : "");
+                        row = all.ToArray();
                         sb.AppendLine(string.Join(sep, row));
                     }
                     // con BOM: Excel riconosce gli accenti
