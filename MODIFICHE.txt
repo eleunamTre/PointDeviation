@@ -511,3 +511,7 @@ Ottava tornata (28/10/2026): octree
      (lettura, ordine casuale, normali e sotto-albero) si costruisce in parallelo in memoria, con i propri dati di
      lavoro, e si scrive nel file in ordine correggendo la posizione dei nodi. Con la Libreria aperta fino a 4 pezzi
      insieme (+1 in costruzione), a finestra chiusa uno solo in anticipo.
+133. Normali (dal registro: 260 s sommati su tutti i pezzi, la parte piu' lenta della conversione): calcolo per cella
+     invece che per punto. Le 27 celle vicine si cercano una volta per tutti i punti della cella (prima 27 ricerche in
+     un dizionario per ogni punto) e i vicini si leggono da array ordinati per cella, contigui in memoria. Stesso
+     risultato.

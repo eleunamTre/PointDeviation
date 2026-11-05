@@ -630,50 +630,69 @@ namespace PointDeviation
             var order = new int[n];
             for (int i = 0; i < n; i++) { keys[i] = Key(X[i], Y[i], Z[i], minX, minY, minZ, cell); order[i] = i; }
             Array.Sort(keys, order);
-            var start = new Dictionary<long, int>();
-            for (int i = 0; i < n; i++) if (i == 0 || keys[i] != keys[i - 1]) start[keys[i]] = i;
+            // coordinate in ordine di cella (accesso contiguo in memoria) ed elenco delle celle occupate
+            var SX = new int[n]; var SY = new int[n]; var SZ = new int[n];
+            for (int q = 0; q < n; q++) { int p = order[q]; SX[q] = X[p]; SY[q] = Y[p]; SZ[q] = Z[p]; }
+            var cellStart = new List<int>(n / 4 + 1);
+            var cellIndex = new Dictionary<long, int>(n / 4 + 1);
+            for (int q = 0; q < n; q++)
+                if (q == 0 || keys[q] != keys[q - 1]) { cellIndex[keys[q]] = cellStart.Count; cellStart.Add(q); }
+            int cells = cellStart.Count;
+            cellStart.Add(n);
+            var cs = cellStart.ToArray();
 
             double r2 = (1.5 * cell) * (1.5 * cell);
+            // Per cella e non per punto: le 27 celle vicine si cercano una volta per tutti i punti della cella (prima 27
+            // ricerche per ogni punto) e i punti vicini si leggono da array contigui. Era la parte più lenta della
+            // conversione (registro: 260 s sommati su tutti i pezzi).
             // Libreria aperta: tutti i processori meno uno; chiusa: metà, perché Revit (navigazione compresa) resti fluido
             var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, ConversionQueue.Watched ? Environment.ProcessorCount - 1 : Environment.ProcessorCount / 2) };
-            Parallel.For(0, n, po, () => new int[256], (i, state, buf) =>
+            Parallel.For(0, cells, po, () => new int[256 + 54], (ci, state, buf) =>
             {
-                long cx = (long)Math.Floor((X[i] - minX) / cell), cy = (long)Math.Floor((Y[i] - minY) / cell), cz = (long)Math.Floor((Z[i] - minZ) / cell);
-                int cnt = 0;
+                long key = keys[cs[ci]];
+                long cx = (key >> 42) & 0x1FFFFF, cy = (key >> 21) & 0x1FFFFF, cz = key & 0x1FFFFF;
+                // tratti [inizio, fine) delle celle vicine, in fondo al buffer
+                int nr = 0, rb = 256;
                 for (int a = -1; a <= 1; a++)
                     for (int b = -1; b <= 1; b++)
                         for (int c = -1; c <= 1; c++)
                         {
-                            long k = Pack(cx + a, cy + b, cz + c);
-                            int s;
-                            if (!start.TryGetValue(k, out s)) continue;
-                            for (int q = s; q < n && keys[q] == k; q++)
-                            {
-                                int p = order[q];
-                                double dx = X[p] - X[i], dy = Y[p] - Y[i], dz = Z[p] - Z[i];
-                                if (dx * dx + dy * dy + dz * dz > r2) continue;
-                                if (cnt < buf.Length) buf[cnt] = p;
-                                cnt++;
-                            }
+                            int k;
+                            if (!cellIndex.TryGetValue(Pack(cx + a, cy + b, cz + c), out k)) continue;
+                            buf[rb + nr * 2] = cs[k]; buf[rb + nr * 2 + 1] = cs[k + 1]; nr++;
                         }
-                int m = Math.Min(cnt, buf.Length);
-                if (m < 3) { res[i * 3 + 2] = 127; return buf; }
-                // al massimo 64 vicini, presi a passo regolare
-                int stride = Math.Max(1, m / 64);
-                double sx = 0, sy = 0, sz = 0; int used = 0;
-                for (int q = 0; q < m; q += stride) { int p = buf[q]; sx += X[p]; sy += Y[p]; sz += Z[p]; used++; }
-                double mx = sx / used, my = sy / used, mz = sz / used;
-                double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
-                for (int q = 0; q < m; q += stride)
+                for (int q0 = cs[ci]; q0 < cs[ci + 1]; q0++)
                 {
-                    int p = buf[q];
-                    double dx = X[p] - mx, dy = Y[p] - my, dz = Z[p] - mz;
-                    xx += dx * dx; xy += dx * dy; xz += dx * dz; yy += dy * dy; yz += dy * dz; zz += dz * dz;
+                    int x0 = SX[q0], y0 = SY[q0], z0 = SZ[q0];
+                    int cnt = 0;
+                    for (int r = 0; r < nr; r++)
+                        for (int q = buf[rb + r * 2], qe = buf[rb + r * 2 + 1]; q < qe; q++)
+                        {
+                            double dx = SX[q] - x0, dy = SY[q] - y0, dz = SZ[q] - z0;
+                            if (dx * dx + dy * dy + dz * dz > r2) continue;
+                            if (cnt < 256) buf[cnt] = q;
+                            cnt++;
+                        }
+                    int pi = order[q0];
+                    int m = Math.Min(cnt, 256);
+                    if (m < 3) { res[pi * 3 + 2] = 127; continue; }
+                    // al massimo 64 vicini, presi a passo regolare
+                    int stride = Math.Max(1, m / 64);
+                    double sx = 0, sy = 0, sz = 0; int used = 0;
+                    for (int q = 0; q < m; q += stride) { int p = buf[q]; sx += SX[p]; sy += SY[p]; sz += SZ[p]; used++; }
+                    double mx = sx / used, my = sy / used, mz = sz / used;
+                    double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+                    for (int q = 0; q < m; q += stride)
+                    {
+                        int p = buf[q];
+                        double dx = SX[p] - mx, dy = SY[p] - my, dz = SZ[p] - mz;
+                        xx += dx * dx; xy += dx * dy; xz += dx * dz; yy += dy * dy; yz += dy * dz; zz += dz * dz;
+                    }
+                    double nx, ny, nz;
+                    Normals.SmallestEigenvector(xx, xy, xz, yy, yz, zz, out nx, out ny, out nz);
+                    if (nz < 0 || (nz == 0 && ny < 0)) { nx = -nx; ny = -ny; nz = -nz; }
+                    res[pi * 3] = (sbyte)Math.Round(nx * 127); res[pi * 3 + 1] = (sbyte)Math.Round(ny * 127); res[pi * 3 + 2] = (sbyte)Math.Round(nz * 127);
                 }
-                double nx, ny, nz;
-                Normals.SmallestEigenvector(xx, xy, xz, yy, yz, zz, out nx, out ny, out nz);
-                if (nz < 0 || (nz == 0 && ny < 0)) { nx = -nx; ny = -ny; nz = -nz; }
-                res[i * 3] = (sbyte)Math.Round(nx * 127); res[i * 3 + 1] = (sbyte)Math.Round(ny * 127); res[i * 3 + 2] = (sbyte)Math.Round(nz * 127);
                 return buf;
             }, _ => { });
             return res;
