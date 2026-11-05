@@ -97,27 +97,41 @@ namespace PointDeviation
 
         private long ToPhysical(long logical) { long d = _pageSize - 4; return logical / d * _pageSize + logical % d; }
 
-        /// <summary>Legge count byte logici (saltando i 4 byte di controllo alla fine di ogni pagina).</summary>
+        private byte[] _span = new byte[0];
+
+        /// <summary>
+        /// Legge count byte logici (saltando i 4 byte di controllo alla fine di ogni pagina). Si legge dal disco l'intero
+        /// tratto fisico in una sola volta e poi si tolgono i byte di controllo: prima si riposizionava il file a ogni
+        /// pagina da 1 KB, e la lettura andava a circa 10 MB/s (95 s per passata nel registro).
+        /// </summary>
         private void ReadLogical(Stream fs, long logical, byte[] dst, int off, int count)
         {
-            long d = _pageSize - 4;
+            if (count <= 0) return;
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-            while (count > 0)
-            {
-                long inPage = logical % d;
-                int chunk = (int)Math.Min(count, d - inPage);
-                fs.Position = ToPhysical(logical);
+                long d = _pageSize - 4;
+                long p0 = ToPhysical(logical), p1 = ToPhysical(logical + count - 1) + 1;
+                int len = (int)(p1 - p0);
+                if (_span.Length < len) _span = new byte[Math.Max(len, 1 << 17)];
+                if (fs.Position != p0) fs.Position = p0;
                 int got = 0;
-                while (got < chunk)
+                while (got < len)
                 {
-                    int n = fs.Read(dst, off + got, chunk - got);
+                    int n = fs.Read(_span, got, len - got);
                     if (n <= 0) throw new EndOfStreamException(L.T("File E57 troncato."));
                     got += n;
                 }
-                off += chunk; count -= chunk; logical += chunk;
-            }
+                // copia dei tratti di dati, pagina per pagina
+                int src = 0;
+                while (count > 0)
+                {
+                    long inPage = logical % d;
+                    int chunk = (int)Math.Min(count, d - inPage);
+                    Buffer.BlockCopy(_span, src, dst, off, chunk);
+                    src += chunk + (inPage + chunk == d ? 4 : 0); // fine pagina: si saltano i 4 byte di controllo
+                    off += chunk; count -= chunk; logical += chunk;
+                }
             }
             finally { _ioTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0; }
         }
@@ -456,7 +470,9 @@ namespace PointDeviation
                 int plen = BitConverter.ToUInt16(ph, 2) + 1;
                 if (type == 1)
                 {
-                    ReadLogical(fs, pos, packet, 0, plen);
+                    // il resto del pacchetto, di seguito all'intestazione (nessun ritorno indietro nel file)
+                    Buffer.BlockCopy(ph, 0, packet, 0, 4);
+                    if (plen > 4) ReadLogical(fs, pos + 4, packet, 4, plen - 4);
                     int count = BitConverter.ToUInt16(packet, 4);
                     if (count != s.StreamCount) throw new InvalidDataException(L.T("Pacchetto E57 non coerente con la descrizione dei punti."));
                     int off = 6 + 2 * count;

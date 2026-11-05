@@ -495,3 +495,8 @@ Ottava tornata (28/10/2026): octree
      posto (su Windows 11 compariva prima la cornice trasparente e poi il contenuto).
      Registro della conversione: tempo per fase («[Conversione] … (dopo N s)») e, per gli E57, per ogni passata il
      tempo di lettura dal disco, di decodifica e del convertitore (la conversione E57 resta lenta: 483 s).
+130. E57: dal registro ogni passata sul file richiedeva 95 s di lettura dal disco (circa 10 MB/s) su 113 s; la lettura
+     riposizionava il file a ogni pagina da 1 KB e rileggeva l'intestazione di ogni pacchetto. Ora si legge l'intero
+     tratto fisico di un pacchetto in una volta sola, senza tornare indietro, e si tolgono i byte di controllo in
+     memoria (verificato sui file di prova). Le tre passate (ingombro + due di conversione) dovrebbero scendere da
+     ~5 minuti a decine di secondi.
