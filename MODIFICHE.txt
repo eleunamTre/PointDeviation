@@ -527,3 +527,9 @@ Ottava tornata (28/10/2026): octree
      esportazione CSV (coordinate interne in metri). Opzione «solo dentro i recinti attivi».
      Usa le distanze salvate su disco (se il background non ha finito, le completa prima). Registro: riga
      «[Completezza]» con punti lontani, celle, rumore, zone e tempi (distanze / celle / zone).
+135. Zone mancanti, isolamento: i recinti di prima erano ricordati dalla finestra; chiudendola e riaprendola la zona
+     restava isolata in tutte le modalità, «Mostra tutti i punti» non era piu' disponibile e la nuova ricerca «dentro i
+     recinti» usava i recinti della zona (dal registro: 674.240 punti lontani invece di 12.056.781). Ora i recinti di
+     prima si ricordano per progetto fuori dalla finestra, la zona isolata si riconosce dai suoi due recinti (anche
+     dopo aver riaperto il progetto: «Mostra tutti i punti» li toglie), chiudendo la finestra si torna ai recinti di
+     prima, e la ricerca «dentro i recinti» non usa mai quelli della zona.

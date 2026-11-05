@@ -528,7 +528,7 @@ namespace PointDeviation
             d["Isola la zona"] = "Isolate zone";
             d["Mostra tutti i punti"] = "Show all points";
             d["Esporta CSV..."] = "Export CSV...";
-            d["Doppio clic su una zona per inquadrarla. Superficie stimata dai cubetti; «volume» = oggetti, arredi o angoli."] = "Double-click a zone to frame it. Area estimated from the cubes; \"volume\" = objects, furniture or corners.";
+            d["Doppio clic su una zona per inquadrarla. «Isola» vale finché la finestra è aperta. Superficie stimata dai cubetti; «volume» = oggetti, arredi o angoli."] = "Double-click a zone to frame it. \"Isolate\" lasts while the window is open. Area estimated from the cubes; \"volume\" = objects, furniture or corners.";
             d["Imposta i parametri e premi «Trova zone». Servono le distanze dell'analisi (Analizza vista o selezione)."] = "Set the parameters and press \"Find zones\". The analysis distances are needed (Analyze view or selection).";
             d["Preparazione..."] = "Preparing...";
             d["Nessuna analisi attiva: esegui prima «Analizza vista» o «Analizza selezione»."] = "No active analysis: run \"Analyze view\" or \"Analyze selection\" first.";

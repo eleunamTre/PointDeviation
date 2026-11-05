@@ -59,10 +59,11 @@ namespace PointDeviation
         private int _sortCol = 1;
         private bool _sortDesc = true;
 
-        // isolamento: i recinti di prima si rimettono con «Mostra tutti i punti»
-        private List<ClipRegion> _savedClips;
-        private bool _savedInvert;
-        private List<ClipRegion> _zoneClips;
+        // Isolamento: i recinti di prima si rimettono con «Mostra tutti i punti» o chiudendo la finestra. Si ricordano
+        // per progetto e fuori dalla finestra: prima stavano nella finestra, e richiudendola e riaprendola la zona
+        // restava isolata senza modo di tornare indietro (e la nuova ricerca la prendeva per un recinto dell'utente).
+        private sealed class Saved { public List<ClipRegion> Clips; public bool Invert; }
+        private static readonly Dictionary<string, Saved> _saved = new Dictionary<string, Saved>();
 
         public MissingZonesForm()
         {
@@ -83,7 +84,7 @@ namespace PointDeviation
             SetClamped(_cell, _lastCell);
             SetClamped(_minPts, _lastMinPts);
             SetClamped(_minArea, _lastMinArea);
-            _inClip.Checked = DeviationController.Current.ClipEnabled;
+            _inClip.Checked = DeviationController.Current.ClipEnabled && !ZoneClipsActive(DeviationController.Current);
 
             var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10, 8, 10, 4), WrapContents = true };
             top.Controls.Add(Caption(L.T("Soglia (mm)"))); top.Controls.Add(_thr);
@@ -126,7 +127,7 @@ namespace PointDeviation
             var hint = new Label
             {
                 Dock = DockStyle.Bottom, Height = 22, Padding = new Padding(10, 3, 10, 0), ForeColor = UiTheme.Muted, AutoEllipsis = true,
-                Text = L.T("Doppio clic su una zona per inquadrarla. Superficie stimata dai cubetti; «volume» = oggetti, arredi o angoli.")
+                Text = L.T("Doppio clic su una zona per inquadrarla. «Isola» vale finché la finestra è aperta. Superficie stimata dai cubetti; «volume» = oggetti, arredi o angoli.")
             };
 
             Controls.Add(_list);
@@ -145,11 +146,14 @@ namespace PointDeviation
             UiTheme.Apply(this, _find);
             _summary.Text = L.T("Imposta i parametri e premi «Trova zone». Servono le distanze dell'analisi (Analizza vista o selezione).");
             _summary.ForeColor = UiTheme.Muted;
+            UpdateButtons(); // una zona rimasta isolata (es. progetto riaperto) si può togliere subito
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _cancel = true;
+            // l'isolamento serve a guardare le zone dell'elenco: chiudendo la finestra si torna ai recinti di prima
+            if (ZoneClipsActive(DeviationController.Current)) RestoreClips();
             base.OnFormClosing(e);
         }
 
@@ -174,7 +178,7 @@ namespace PointDeviation
             bool sel = Selected() != null && !_busy;
             _zoom.Enabled = sel;
             _isolate.Enabled = sel;
-            _showAll.Enabled = _zoneClips != null && !_busy;
+            _showAll.Enabled = ZoneClipsActive(DeviationController.Current) && !_busy;
             _export.Enabled = _zones.Count > 0 && !_busy;
             _find.Enabled = !_busy;
         }
@@ -196,7 +200,8 @@ namespace PointDeviation
             {
                 // durante l'isolamento di una zona valgono i recinti di prima, non quelli della zona
                 DeviationSettings s = DeviationController.Current;
-                opt.Clip = ZoneClipsActive(s) ? ClipSet.From(_savedClips, _savedInvert) : ClipSet.From(s.Clips, s.ClipInvert);
+                Saved sv = ZoneClipsActive(s) ? SavedFor() : null;
+                opt.Clip = ZoneClipsActive(s) ? (sv != null ? ClipSet.From(sv.Clips, sv.Invert) : null) : ClipSet.From(s.Clips, s.ClipInvert);
             }
 
             _busy = true; _cancel = false;
@@ -375,18 +380,19 @@ namespace PointDeviation
             if (!ZoneClipsActive(s))
             {
                 // primo isolamento (o i recinti sono stati cambiati da fuori): si ricordano quelli attuali
-                _savedClips = s.Clips != null ? s.Clips.Select(r => r.Clone()).ToList() : new List<ClipRegion>();
-                _savedInvert = s.ClipInvert;
+                string key = DocKey();
+                if (key != null)
+                    _saved[key] = new Saved { Clips = s.Clips != null ? s.Clips.Select(r => r.Clone()).ToList() : new List<ClipRegion>(), Invert = s.ClipInvert };
             }
             XYZ a, b;
             Expanded(z, 0.3, out a, out b);
             string name = string.Format(L.T("Zona {0}"), z.Number);
-            _zoneClips = new List<ClipRegion>
+            var zoneClips = new List<ClipRegion>
             {
                 Rect(name + L.T(" (pianta)"), new[] { 0.0, 0.0, 0.0 }, new[] { 1.0, 0.0, 0.0 }, new[] { 0.0, 1.0, 0.0 }, a.X, a.Y, b.X, b.Y),
                 Rect(name + L.T(" (prospetto)"), new[] { 0.0, 0.0, 0.0 }, new[] { 1.0, 0.0, 0.0 }, new[] { 0.0, 0.0, 1.0 }, a.X, a.Z, b.X, b.Z)
             };
-            s.Clips = _zoneClips;
+            s.Clips = zoneClips;
             s.ClipInvert = false;
             App.SyncRibbon(s);
             DeviationController.NotifySettingsChanged();
@@ -395,16 +401,30 @@ namespace PointDeviation
             UpdateButtons();
         }
 
-        /// <summary>I recinti attivi sono ancora quelli messi per isolare la zona (non cambiati a mano nel frattempo)?</summary>
-        private bool ZoneClipsActive(DeviationSettings s)
+        private static string DocKey()
         {
-            if (_zoneClips == null || s.Clips == null || s.Clips.Count != _zoneClips.Count) return false;
-            for (int i = 0; i < _zoneClips.Count; i++)
-            {
-                ClipRegion a = s.Clips[i], b = _zoneClips[i];
-                if (a == null || a.Name != b.Name || !a.Enabled || a.U == null || !a.U.SequenceEqual(b.U) || !a.V.SequenceEqual(b.V)) return false;
-            }
-            return true;
+            DocumentData d = DeviationController.ActiveData;
+            return d != null ? d.Key : null;
+        }
+
+        private static Saved SavedFor()
+        {
+            string key = DocKey();
+            Saved sv;
+            return key != null && _saved.TryGetValue(key, out sv) ? sv : null;
+        }
+
+        /// <summary>
+        /// I recinti attivi sono quelli di un isolamento di zona? Si riconoscono da soli (due rettangoli «Zona N (pianta)»
+        /// e «Zona N (prospetto)»), così valgono anche dopo aver chiuso la finestra o riaperto il progetto.
+        /// </summary>
+        private static bool ZoneClipsActive(DeviationSettings s)
+        {
+            if (s == null || s.Clips == null || s.Clips.Count != 2) return false;
+            ClipRegion p = s.Clips[0], e = s.Clips[1];
+            return p != null && e != null && p.Name != null && e.Name != null
+                && p.Name.EndsWith(L.T(" (pianta)")) && e.Name.EndsWith(L.T(" (prospetto)"))
+                && p.U != null && p.U.Length == 4 && e.U != null && e.U.Length == 4;
         }
 
         private static ClipRegion Rect(string name, double[] origin, double[] right, double[] up, double u0, double v0, double u1, double v1)
@@ -418,21 +438,24 @@ namespace PointDeviation
             };
         }
 
+        /// <summary>Toglie l'isolamento: i recinti di prima se si conoscono, altrimenti (progetto riaperto) nessun recinto.</summary>
         private void RestoreClips()
         {
-            if (_zoneClips == null) return;
             DeviationSettings s = DeviationController.Current;
             // se nel frattempo i recinti sono stati cambiati a mano, si lasciano come sono
             if (ZoneClipsActive(s))
             {
-                s.Clips = _savedClips ?? new List<ClipRegion>();
-                s.ClipInvert = _savedInvert;
+                Saved sv = SavedFor();
+                s.Clips = sv != null ? sv.Clips : new List<ClipRegion>();
+                s.ClipInvert = sv != null && sv.Invert;
+                string key = DocKey();
+                if (key != null) _saved.Remove(key);
                 App.SyncRibbon(s);
                 DeviationController.NotifySettingsChanged();
                 DeviationController.Apply(Job.Recolor);
+                Log.Write("Completezza", "isolamento della zona tolto: " + (sv != null ? sv.Clips.Count + " recinti di prima rimessi" : "nessun recinto"));
             }
-            _zoneClips = null;
-            UpdateButtons();
+            if (!IsDisposed) UpdateButtons();
         }
 
         // ------------------------------------------------------------------ esportazione
