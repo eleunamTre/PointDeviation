@@ -537,3 +537,9 @@ Ottava tornata (28/10/2026): octree
      progetto (con parametri e zona selezionata): riaprendo la finestra ricompare subito se l'analisi e' la stessa;
      se l'analisi e' cambiata (o non c'e' ancora un elenco) la ricerca parte da sola all'apertura (con le distanze
      salvate dura meno di un secondo).
+137. Zone mancanti: la zona selezionata nell'elenco si evidenzia in viola in qualunque modalita' (RGB, quota,
+     normali, analisi...): i punti lontani dal modello dentro l'ingombro della zona prendono il viola (con un filo di
+     chiaroscuro dalla scansione), tutti gli altri restano nello stile corrente. Opzione «Evidenzia in viola la zona
+     selezionata» (accesa); chiudendo la finestra l'evidenziazione si spegne. La zona fa parte dello stile (impronta)
+     e, fuori dalla modalita' analisi, il caricatore rilegge le distanze salvate dei blocchi (2 byte per punto; le
+     posizioni gia' caricate si conservano) solo finche' la zona e' evidenziata.

@@ -176,7 +176,8 @@ namespace PointDeviation
               .Append('|').Append(s.Brightness).Append('|').Append(s.Contrast).Append('|').Append(s.Transparency).Append('|').Append(s.XrayContrast)
               .Append('|').Append(s.PointScale).Append('|').Append((int)s.Quality).Append('|').Append(s.ClipInvert)
               .Append('|').Append(zmin.ToString("R")).Append('|').Append(zmax.ToString("R"))
-              .Append('|').Append(an != null ? an.Version : 0).Append('|').Append(CloudDebug.Levels);
+              .Append('|').Append(an != null ? an.Version : 0).Append('|').Append(CloudDebug.Levels)
+              .Append('|').Append(ZoneHighlight.Key);
             if (s.CloudColors != null) foreach (var kv in s.CloudColors.OrderBy(k => k.Key)) sb.Append('|').Append(kv.Key).Append('=').Append(kv.Value);
             sb.Append('|').Append(Json(s.Profile)).Append('|').Append(Json(s.Clips));
             return sb.ToString();

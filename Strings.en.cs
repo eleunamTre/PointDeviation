@@ -525,6 +525,7 @@ namespace PointDeviation
             d["Livello"] = "Level";
             d["Da quota (m)"] = "From height (m)";
             d["Zoom sulla zona"] = "Zoom to zone";
+            d["Evidenzia in viola la zona selezionata"] = "Highlight the selected zone in purple";
             d["Isola la zona"] = "Isolate zone";
             d["Mostra tutti i punti"] = "Show all points";
             d["Esporta CSV..."] = "Export CSV...";

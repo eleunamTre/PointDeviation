@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -26,6 +27,41 @@ namespace PointDeviation
     }
 
     internal enum ZoneShape { Verticale, Orizzontale, Inclinata, Volume }
+
+    /// <summary>
+    /// Zona evidenziata nel disegno, in qualunque modalità di visualizzazione: i punti lontani dal modello dentro
+    /// l'ingombro della zona si colorano di viola, gli altri restano nello stile corrente. Fa parte dello stile
+    /// (cambia la sua impronta), quindi accendendola o cambiando zona i blocchi si ripreparano.
+    /// </summary>
+    internal static class ZoneHighlight
+    {
+        private static double[] _box;   // minX, minY, minZ, maxX, maxY, maxZ (piedi, coordinate di Revit)
+        private static double _thrFt;
+
+        public static double[] Box { get { return _box; } }
+        public static double ThresholdFt { get { return _thrFt; } }
+
+        /// <summary>Impronta per lo stile (vuota se spenta).</summary>
+        public static string Key
+        {
+            get
+            {
+                double[] b = _box;
+                return b == null ? "" : string.Join(",", b.Select(v => v.ToString("R"))) + "@" + _thrFt.ToString("R");
+            }
+        }
+
+        /// <summary>Accende l'evidenziazione su una zona (null = spenta). Restituisce true se è cambiata.</summary>
+        public static bool Set(MissingZone z, double thresholdMm)
+        {
+            const double m = 0.05 / 0.3048; // margine: i punti al bordo delle celle
+            double[] nb = z == null ? null : new[] { z.MinX - m, z.MinY - m, z.MinZ - m, z.MaxX + m, z.MaxY + m, z.MaxZ + m };
+            double nt = thresholdMm / 304.8;
+            string before = Key;
+            _box = nb; _thrFt = nt;
+            return Key != before;
+        }
+    }
 
     internal sealed class MissingZoneOptions
     {

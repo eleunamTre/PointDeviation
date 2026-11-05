@@ -40,6 +40,8 @@ namespace PointDeviation
         private readonly NumericUpDown _minPts = new NumericUpDown { Minimum = 1, Maximum = 10000, Increment = 5, DecimalPlaces = 0, Width = 70 };
         private readonly NumericUpDown _minArea = new NumericUpDown { Minimum = 0, Maximum = 1000, Increment = 0.25m, DecimalPlaces = 2, Width = 70 };
         private readonly CheckBox _inClip = new CheckBox { Text = L.T("Solo dentro i recinti attivi"), AutoSize = true };
+        private readonly CheckBox _highlight = new CheckBox { Text = L.T("Evidenzia in viola la zona selezionata"), AutoSize = true, Checked = _lastHighlight };
+        private static bool _lastHighlight = true;
         private readonly Button _find = new Button { Text = L.T("Trova zone"), AutoSize = true };
         private readonly ListView _list = new ListView
         {
@@ -77,7 +79,7 @@ namespace PointDeviation
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(760, 460);
+            ClientSize = new Size(800, 480);
             MinimumSize = new Size(620, 340);
 
             // ---- parametri
@@ -98,6 +100,8 @@ namespace PointDeviation
             top.Controls.Add(Caption(L.T("Superficie minima (m²)"))); top.Controls.Add(_minArea);
             _inClip.Margin = new Padding(3, 6, 12, 0);
             top.Controls.Add(_inClip);
+            _highlight.Margin = new Padding(3, 6, 12, 0);
+            top.Controls.Add(_highlight);
             top.Controls.Add(_find);
 
             var tips = new ToolTip();
@@ -129,6 +133,7 @@ namespace PointDeviation
             var bottom = new Panel { Dock = DockStyle.Bottom, Height = 84, Padding = new Padding(10, 4, 10, 6) };
             bottom.Controls.Add(_summary);
             bottom.Controls.Add(foot);
+            _highlight.CheckedChanged += (s, e) => { _lastHighlight = _highlight.Checked; UpdateHighlight(); };
             var hint = new Label
             {
                 Dock = DockStyle.Bottom, Height = 22, Padding = new Padding(10, 3, 10, 0), ForeColor = UiTheme.Muted, AutoEllipsis = true,
@@ -152,7 +157,7 @@ namespace PointDeviation
             _summary.Text = L.T("Imposta i parametri e premi «Trova zone». Servono le distanze dell'analisi (Analizza vista o selezione).");
             _summary.ForeColor = UiTheme.Muted;
             UpdateButtons(); // una zona rimasta isolata (es. progetto riaperto) si può togliere subito
-            _list.SelectedIndexChanged += (s, e) => RememberSelection();
+            _list.SelectedIndexChanged += (s, e) => { RememberSelection(); UpdateHighlight(); };
             Shown += (s, e) => Resume();
         }
 
@@ -178,6 +183,26 @@ namespace PointDeviation
             Start(); // con le distanze salvate dura meno di un secondo
         }
 
+        /// <summary>
+        /// Colora di viola i punti lontani dal modello della zona selezionata, sopra lo stile corrente (RGB, quota,
+        /// analisi...). L'elenco si ridisegna solo quando la zona cambia davvero.
+        /// </summary>
+        private void UpdateHighlight()
+        {
+            MissingZone z = _highlight.Checked && !_busy ? Selected() : null;
+            double thr = _usedOptions != null ? _usedOptions.ThresholdMm : (double)_thr.Value;
+            if (ZoneHighlight.Set(z, thr)) ApplyStyle();
+        }
+
+        private static void ApplyStyle()
+        {
+            ApiQueue.Run(app =>
+            {
+                DocumentData d = DeviationController.ActiveData;
+                if (d != null) d.RebuildStyle(DeviationController.Current);
+            });
+        }
+
         private void RememberSelection()
         {
             MissingZone z = Selected();
@@ -200,6 +225,8 @@ namespace PointDeviation
             _cancel = true;
             // l'isolamento serve a guardare le zone dell'elenco: chiudendo la finestra si torna ai recinti di prima
             if (ZoneClipsActive(DeviationController.Current)) RestoreClips();
+            // l'evidenziazione della zona vale solo con la finestra aperta
+            if (ZoneHighlight.Set(null, 0)) ApplyStyle();
             base.OnFormClosing(e);
         }
 

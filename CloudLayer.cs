@@ -84,6 +84,32 @@ namespace PointDeviation
         public Dictionary<string, int> CloudColors;
         public AnalysisSnapshot Analysis;
         public bool DebugLevels;      // diagnostica: colori per livello dell'octree
+        public double[] Zone;         // zona evidenziata (vedi ZoneHighlight), null = nessuna
+        public double ZoneThrFt;
+
+        /// <summary>Zona evidenziata attiva (serve l'analisi: si colorano i punti lontani dal modello).</summary>
+        public bool ZoneOn { get { return Zone != null && Analysis != null; } }
+        /// <summary>Servono le distanze dei punti: modalità discrepanze o zona evidenziata.</summary>
+        public bool NeedsDistances { get { return Analysis != null && (Mode == DisplayMode.Discrepanze || Zone != null); } }
+
+        /// <summary>
+        /// Punto della zona evidenziata (dentro l'ingombro e lontano dal modello): viola con un filo di chiaroscuro dalla
+        /// scansione. false = punto fuori dalla zona, si colora secondo la modalità.
+        /// </summary>
+        public bool ZoneColor(TileCpu c, int i, double x, double y, double z, out byte r, out byte g, out byte b)
+        {
+            r = g = b = 0;
+            double[] zb = Zone;
+            if (zb == null || Analysis == null) return false;
+            if (x < zb[0] || y < zb[1] || z < zb[2] || x > zb[3] || y > zb[4] || z > zb[5]) return false;
+            if (c.Dist == null || i >= c.DistCount) return false;
+            float d = c.Dist[i];
+            if (!float.IsNaN(d) && Math.Abs(d) <= ZoneThrFt) return false;
+            int lum = (c.Rgb[i * 3] * 3 + c.Rgb[i * 3 + 1] * 6 + c.Rgb[i * 3 + 2]) / 10;
+            double f = 0.7 + 0.3 * lum / 255.0;
+            r = (byte)(176 * f); g = (byte)(64 * f); b = (byte)(230 * f);
+            return true;
+        }
 
         private const int LutSize = 4096;
         private byte[] _lut;
@@ -129,7 +155,9 @@ namespace PointDeviation
                 ZRange = Math.Max(1e-6, zmax - zmin),
                 CloudColors = new Dictionary<string, int>(s.CloudColors ?? new Dictionary<string, int>(), StringComparer.OrdinalIgnoreCase),
                 Analysis = analysis,
-                DebugLevels = CloudDebug.Levels
+                DebugLevels = CloudDebug.Levels,
+                Zone = ZoneHighlight.Box,
+                ZoneThrFt = ZoneHighlight.ThresholdFt
             };
             // analisi chiesta ma non disponibile: colori della scansione
             if (st.Mode == DisplayMode.Discrepanze && analysis == null) st.Mode = DisplayMode.Rgb;
@@ -892,14 +920,20 @@ namespace PointDeviation
 
         private bool ReadyFor(TileCpu c, Style st)
         {
-            if (st.Mode == DisplayMode.Discrepanze && st.Analysis != null) return c.Dist != null && c.DistKey == DistKey(st.Analysis) && c.DistCount >= c.Count;
+            if (st.NeedsDistances)
+            {
+                // zona evidenziata in un'altra modalità: servono le distanze, ma i normali vanno controllati comunque
+                bool dist = c.Dist != null && c.DistKey == DistKey(st.Analysis) && c.DistCount >= c.Count;
+                if (!dist) return false;
+                if (st.Mode == DisplayMode.Discrepanze) return true;
+            }
             if (st.NeedsNormals) return c.Nrm != null;
             return true;
         }
 
         private static int ColorKey(TileCpu c, Style st)
         {
-            return st.Mode == DisplayMode.Discrepanze ? c.DistKey : st.NeedsNormals ? 1 : 0;
+            return st.Mode == DisplayMode.Discrepanze ? c.DistKey : (st.NeedsNormals ? 1 : 0) + (st.ZoneOn ? 2 + 4 * c.DistKey : 0);
         }
 
         private int LayerArgb(Style st)
@@ -1488,6 +1522,7 @@ namespace PointDeviation
                 if (st.Clip != null && !st.Clip.Contains(x, y, z)) continue;
                 byte r, g, b, t;
                 if (gpu.Highlight) Style.HighlightColor(cpu, k, layerArgb, out r, out g, out b, out t);
+                else if (st.ZoneColor(cpu, k, x, y, z, out r, out g, out b)) t = 0;
                 else if (st.DebugLevels && split) { CloudDebug.LevelColor(Tiles[node].Level, gpu.Points, out r, out g, out b); t = 0; }
                 else if (!st.Color(cpu, k, z, layerArgb, out r, out g, out b, out t)) continue;
                 int oc = split ? (lx >= cx ? 1 : 0) | (ly >= cy ? 2 : 0) | (lz >= cz ? 4 : 0) : 0;
@@ -1596,6 +1631,7 @@ namespace PointDeviation
                 if (st.Clip != null && !st.Clip.Contains(x, y, z)) continue;
                 byte r, g, b, t;
                 if (j.Highlight) Style.HighlightColor(cpu, k, j.Argb, out r, out g, out b, out t);
+                else if (st.ZoneColor(cpu, k, x, y, z, out r, out g, out b)) t = 0;
                 else if (st.DebugLevels) { CloudDebug.LevelColor(Tiles[node].Level, !octa, out r, out g, out b); t = 0; }
                 else if (!st.Color(cpu, k, z, j.Argb, out r, out g, out b, out t)) continue;
                 int oc = (lx >= cx ? 1 : 0) | (ly >= cy ? 2 : 0) | (lz >= cz ? 4 : 0);
@@ -2298,9 +2334,9 @@ namespace PointDeviation
             _queue.Enqueue(new Job
             {
                 Layer = layer, Tile = tile, Target = target,
-                Analysis = st.Mode == DisplayMode.Discrepanze ? st.Analysis : null,
+                Analysis = st.NeedsDistances ? st.Analysis : null,
                 DistKey = layer.DistKey(st.Analysis),
-                NeedDist = st.Mode == DisplayMode.Discrepanze && st.Analysis != null,
+                NeedDist = st.NeedsDistances,
                 Normals = st.NeedsNormals
             });
             EnsureThreads();
