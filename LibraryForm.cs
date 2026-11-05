@@ -111,7 +111,11 @@ namespace PointDeviation
             DeviationController.ActiveChanged += OnActive;
             ConversionQueue.InitUi(); // la finestra nasce sul thread dell'interfaccia di Revit
             ConversionQueue.Changed += OnJob;
-            FormClosed += (s, e) => ConversionQueue.Changed -= OnJob;
+            FormClosed += (s, e) => { ConversionQueue.Changed -= OnJob; ConversionQueue.Watched = false; };
+            // finestra aperta e non ridotta a icona: le conversioni vanno a piena velocità
+            EventHandler watch = (s, e) => ConversionQueue.Watched = Visible && WindowState != FormWindowState.Minimized;
+            VisibleChanged += watch;
+            Resize += watch;
             FormClosing += (s, e) =>
             {
                 // solo la lettura da Revit (prima fase degli RCP) è legata alla finestra; le conversioni continuano

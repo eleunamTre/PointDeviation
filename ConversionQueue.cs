@@ -42,6 +42,9 @@ namespace PointDeviation
         /// <summary>Qualcosa è cambiato (avanzamento o stato); chiamato sul thread dell'interfaccia di Revit.</summary>
         public static event Action<ConversionJob> Changed;
 
+        /// <summary>La finestra Libreria è aperta e visibile: la conversione può usare tutto il computer.</summary>
+        public static volatile bool Watched;
+
         public static List<ConversionJob> Jobs { get { lock (_lock) return new List<ConversionJob>(_jobs); } }
 
         public static bool Busy { get { lock (_lock) return _jobs.Exists(j => j.Active); } }
@@ -120,6 +123,9 @@ namespace PointDeviation
                 {
                     // tempi per fase nel registro (la parte iniziale del messaggio, senza percentuali)
                     string phase = msg == null ? "" : msg.Split(new[] { ':', '(', '…', '.' }, 2)[0].Trim();
+                    // priorità secondo la finestra: piena se la Libreria è aperta, sotto la normale se è chiusa
+                    ThreadPriority want = Watched ? ThreadPriority.Normal : ThreadPriority.BelowNormal;
+                    if (Thread.CurrentThread.Priority != want) Thread.CurrentThread.Priority = want;
                     if (phase != lastPhase)
                     {
                         lastPhase = phase;

@@ -500,3 +500,10 @@ Ottava tornata (28/10/2026): octree
      tratto fisico di un pacchetto in una volta sola, senza tornare indietro, e si tolgono i byte di controllo in
      memoria (verificato sui file di prova). Le tre passate (ingombro + due di conversione) dovrebbero scendere da
      ~5 minuti a decine di secondi.
+131. Velocita' della conversione secondo la Libreria: aperta (visibile e non ridotta a icona) la conversione va a
+     piena velocita' (priorita' normale, normali su tutti i processori meno uno, 3 pezzi preparati in anticipo);
+     chiusa o «Continua in background» rallenta per lasciare il processore a Revit (priorita' sotto la normale, meta'
+     dei processori, 1 pezzo in anticipo). Si adatta durante la conversione.
+     Costruzione dell'octree a catena: lettura, ordine casuale e normali dei pezzi successivi su altri thread mentre si
+     costruisce il sotto-albero del pezzo corrente (prima tutto in sequenza). Registro: tempo di attesa dei pezzi e
+     di costruzione dei sotto-alberi.

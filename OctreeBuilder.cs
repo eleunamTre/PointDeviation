@@ -126,36 +126,42 @@ namespace PointDeviation
             int depth = 0;
             using (var outFs = new FileStream(pointsPath, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
             {
+                // I pezzi si preparano in anticipo su altri thread (lettura, ordine casuale, normali: la parte pesante),
+                // mentre questo thread costruisce i sotto-alberi uno dopo l'altro (scrivono tutti nello stesso file).
+                // Quanti pezzi in anticipo e quanti processori dipende da ConversionQueue.Watched: con la Libreria aperta
+                // la conversione va a piena velocità, a finestra chiusa lascia il processore a Revit.
+                var pending = new Dictionary<int, Task<ChunkPoints>>();
+                int nextPrep = 0;
+                var swPrep = new System.Diagnostics.Stopwatch();
+                var swBuild = new System.Diagnostics.Stopwatch();
                 for (int c = 0; c < chunks.Count; c++)
                 {
                     ct.ThrowIfCancellationRequested();
                     progress(string.Format(L.T("Costruzione dell'octree: blocco {0} di {1}..."), c + 1, chunks.Count), 0.60 + 0.35 * c / chunks.Count);
-                    string tf = Path.Combine(tmpDir, c + ".bin");
-                    if (!File.Exists(tf)) continue;
-                    byte[] data = File.ReadAllBytes(tf);
-                    int n = data.Length / TmpRecord;
-                    File.Delete(tf);
-                    if (n == 0) continue;
-
-                    // punti in ordine casuale
-                    var perm = new int[n];
-                    for (int i = 0; i < n; i++) perm[i] = i;
-                    for (int i = n - 1; i > 0; i--) { int j = rnd.Next(i + 1); int t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
-                    var P = new ChunkPoints(n);
-                    for (int i = 0; i < n; i++)
+                    int ahead = ConversionQueue.Watched ? 3 : 1;
+                    while (nextPrep < chunks.Count && nextPrep <= c + ahead)
                     {
-                        int o = perm[i] * TmpRecord;
-                        P.X[i] = BitConverter.ToInt32(data, o); P.Y[i] = BitConverter.ToInt32(data, o + 4); P.Z[i] = BitConverter.ToInt32(data, o + 8);
-                        P.Rgb[i * 3] = data[o + 12]; P.Rgb[i * 3 + 1] = data[o + 13]; P.Rgb[i * 3 + 2] = data[o + 14];
+                        int k = nextPrep++;
+                        pending[k] = Task.Run(() => PrepareChunk(Path.Combine(tmpDir, k + ".bin"), k, scale, ct));
                     }
-                    data = null;
-                    P.Nrm = PointNormals.Compute(P.X, P.Y, P.Z, n, scale);
+                    swPrep.Start();
+                    ChunkPoints P;
+                    try { P = pending[c].Result; }
+                    catch (AggregateException ae) { throw ae.InnerException ?? ae; }
+                    pending.Remove(c);
+                    swPrep.Stop();
+                    if (P == null) continue;
 
+                    swBuild.Start();
+                    int n = P.X.Length;
                     var idx = new int[n];
                     for (int i = 0; i < n; i++) idx[i] = i;
                     Node chunkRoot = chunks[c];
                     BuildSubtree(chunkRoot, idx, n, P, scale, marks, touched, outFs, ref written, true, ref depth);
+                    swBuild.Stop();
                 }
+                Log.Write("Conversione", string.Format("octree: {0} pezzi, attesa dei pezzi preparati {1:F0} s, costruzione dei sotto-alberi {2:F0} s",
+                    chunks.Count, swPrep.Elapsed.TotalSeconds, swBuild.Elapsed.TotalSeconds));
 
                 // ---------------------------------------------------------- livelli sopra i pezzi
                 progress(L.T("Costruzione dell'octree: livelli superiori..."), 0.96);
@@ -191,6 +197,33 @@ namespace PointDeviation
                 });
             }
             return new Result { Nodes = res, Points = written, Depth = depth };
+        }
+
+        /// <summary>Legge un pezzo dal file temporaneo, lo mette in ordine casuale e ne calcola le normali.</summary>
+        private static ChunkPoints PrepareChunk(string tf, int c, double scale, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!File.Exists(tf)) return null;
+            byte[] data = File.ReadAllBytes(tf);
+            int n = data.Length / TmpRecord;
+            File.Delete(tf);
+            if (n == 0) return null;
+            // ordine casuale (seme per pezzo: il risultato non dipende dall'ordine in cui i thread finiscono)
+            var rnd = new Random(4242 + c);
+            var perm = new int[n];
+            for (int i = 0; i < n; i++) perm[i] = i;
+            for (int i = n - 1; i > 0; i--) { int j = rnd.Next(i + 1); int t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+            var P = new ChunkPoints(n);
+            for (int i = 0; i < n; i++)
+            {
+                int o = perm[i] * TmpRecord;
+                P.X[i] = BitConverter.ToInt32(data, o); P.Y[i] = BitConverter.ToInt32(data, o + 4); P.Z[i] = BitConverter.ToInt32(data, o + 8);
+                P.Rgb[i * 3] = data[o + 12]; P.Rgb[i * 3 + 1] = data[o + 13]; P.Rgb[i * 3 + 2] = data[o + 14];
+            }
+            data = null;
+            ct.ThrowIfCancellationRequested();
+            P.Nrm = PointNormals.Compute(P.X, P.Y, P.Z, n, scale);
+            return P;
         }
 
         private sealed class ChunkPoints
@@ -549,8 +582,8 @@ namespace PointDeviation
             for (int i = 0; i < n; i++) if (i == 0 || keys[i] != keys[i - 1]) start[keys[i]] = i;
 
             double r2 = (1.5 * cell) * (1.5 * cell);
-            // metà dei processori: la conversione gira in background e Revit (navigazione compresa) deve restare fluido
-            var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
+            // Libreria aperta: tutti i processori meno uno; chiusa: metà, perché Revit (navigazione compresa) resti fluido
+            var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, ConversionQueue.Watched ? Environment.ProcessorCount - 1 : Environment.ProcessorCount / 2) };
             Parallel.For(0, n, po, () => new int[256], (i, state, buf) =>
             {
                 long cx = (long)Math.Floor((X[i] - minX) / cell), cy = (long)Math.Floor((Y[i] - minY) / cell), cz = (long)Math.Floor((Z[i] - minZ) / cell);
