@@ -123,7 +123,28 @@ namespace PointDeviation
             }
         }
 
-        // Niente più trasparenza fino al primo disegno: con Windows 11 una finestra trasparente mostra comunque
-        // cornice e ombra («contorno» vuoto che poi sparisce), e ritardava la comparsa. Basta il doppio buffer.
+        // Prima comparsa: la finestra si apre fuori dallo schermo, si disegna per intero e solo allora si sposta al
+        // suo posto. Su Windows 11 altrimenti compariva prima la cornice vuota (trasparente) e poi i contenuti.
+        // (La trasparenza fino al primo disegno non funzionava: Windows mostra comunque cornice e ombra.)
+        private Point? _target;
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e); // qui Windows Forms ha già calcolato la posizione (anche «al centro della finestra madre»)
+            if (WindowState == FormWindowState.Normal && _target == null)
+            {
+                _target = Location;
+                Location = new Point(-32000, -32000);
+            }
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (_target == null) return;
+            try { Refresh(); } catch { }
+            Location = _target.Value;
+            _target = Point.Empty; // non nullo: la prossima volta (finestra nascosta e rimostrata) non si ripete
+        }
     }
 }

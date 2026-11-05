@@ -101,6 +101,9 @@ namespace PointDeviation
         private void ReadLogical(Stream fs, long logical, byte[] dst, int off, int count)
         {
             long d = _pageSize - 4;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
             while (count > 0)
             {
                 long inPage = logical % d;
@@ -115,6 +118,8 @@ namespace PointDeviation
                 }
                 off += chunk; count -= chunk; logical += chunk;
             }
+            }
+            finally { _ioTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0; }
         }
 
         // ------------------------------------------------------------------ XML
@@ -385,10 +390,19 @@ namespace PointDeviation
             return (byte)Math.Max(0, Math.Min(255, Math.Round(t * 255)));
         }
 
+        private long _ioTicks;
+
         public void ReadAll(Action<PointBlock> sink, CancellationToken ct)
         {
             const int Block = 65536;
             var pb = new PointBlock(Block);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            _ioTicks = 0;
+            long sinkTicks = 0, count = 0;
+            Action<PointBlock> inner = sink;
+            sink = b => { count += b.Count; long t0 = System.Diagnostics.Stopwatch.GetTimestamp(); inner(b); sinkTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0; };
+            try
+            {
             using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20))
             {
                 foreach (Scan s in _scans)
@@ -397,6 +411,14 @@ namespace PointDeviation
                     ReadScan(fs, s, pb, sink, ct);
                 }
                 if (pb.Count > 0) { sink(pb); pb.Count = 0; }
+            }
+            }
+            finally
+            {
+                double f = 1.0 / System.Diagnostics.Stopwatch.Frequency;
+                Log.Write("E57", string.Format("passata{0}: {1:N0} punti in {2:F1} s (lettura dal disco {3:F1} s, decodifica {4:F1} s, elaborazione del convertitore {5:F1} s)",
+                    _boundsOnly ? " per l'ingombro" : "", count, sw.Elapsed.TotalSeconds, _ioTicks * f,
+                    sw.Elapsed.TotalSeconds - _ioTicks * f - sinkTicks * f, sinkTicks * f));
             }
         }
 

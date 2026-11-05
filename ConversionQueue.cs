@@ -114,8 +114,17 @@ namespace PointDeviation
                 job.Phase = L.T("Lettura del file...");
                 Raise(job);
                 IPointSource src = job.Make();
+                Log.Write("Conversione", string.Format("«{0}»: sorgente pronta dopo {1:F0} s", job.Name, sw.Elapsed.TotalSeconds));
+                string lastPhase = null;
                 job.ResultFolder = CloudConverter.Convert(src, job.Folder, job.Name, (msg, f) =>
                 {
+                    // tempi per fase nel registro (la parte iniziale del messaggio, senza percentuali)
+                    string phase = msg == null ? "" : msg.Split(new[] { ':', '(', '…', '.' }, 2)[0].Trim();
+                    if (phase != lastPhase)
+                    {
+                        lastPhase = phase;
+                        Log.Write("Conversione", string.Format("«{0}»: {1} (dopo {2:F0} s)", job.Name, phase, sw.Elapsed.TotalSeconds));
+                    }
                     job.Phase = msg; job.Fraction = f;
                     if ((DateTime.Now - lastUi).TotalMilliseconds < 250 && f < 1.0) return;
                     lastUi = DateTime.Now;

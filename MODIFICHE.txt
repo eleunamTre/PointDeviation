@@ -491,3 +491,7 @@ Ottava tornata (28/10/2026): octree
 128. Tolta la trasparenza fino al primo disegno (punto 127): su Windows 11 una finestra trasparente mostra comunque
      cornice e ombra, che comparivano vuote e poi sparivano prima dei contenuti (Libreria, Impostazioni, Avanzate), e
      ritardava la comparsa delle altre. Resta il doppio buffer per tutta la finestra.
+129. Finestre: la prima volta si aprono fuori dallo schermo, si disegnano per intero e solo dopo si spostano al loro
+     posto (su Windows 11 compariva prima la cornice trasparente e poi il contenuto).
+     Registro della conversione: tempo per fase («[Conversione] … (dopo N s)») e, per gli E57, per ogni passata il
+     tempo di lettura dal disco, di decodifica e del convertitore (la conversione E57 resta lenta: 483 s).
