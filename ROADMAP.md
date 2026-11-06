@@ -43,3 +43,13 @@ Possibili sviluppi:
 - Nuvola da qualche centinaio di milioni di punti (conversione e navigazione).
 - Computer meno potente: profilo Leggero e Revit limitato a 4 processori
   (Gestione attività › Dettagli › Revit.exe › Imposta affinità).
+
+## 5. Versioni di Revit successive alla 2024
+Supporto di Revit 2025, 2026 e seguenti, oltre alla 2024.
+- Da Revit 2025 i plugin girano su .NET 8 (non più .NET Framework 4.8): progetto con più destinazioni
+  (`net48` per la 2024, `net8.0-windows` con Windows Forms per la 2025 e successive) e riferimenti alle API della
+  versione giusta per ogni destinazione.
+- Verificare le parti sensibili al cambio: serializzazione JSON delle impostazioni, riflessione sulle API di
+  visibilità delle nuvole, DirectContext3D e scrittura diretta nei buffer, finestre Windows Forms, P/Invoke.
+- File .addin e cartella di installazione per ogni versione di Revit; eventuale installatore unico.
+- Prova su ogni versione con la nuvola di riferimento (conversione, navigazione, analisi).
