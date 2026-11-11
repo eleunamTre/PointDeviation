@@ -697,6 +697,7 @@ namespace PointDeviation
             {
                 Array.Clear(outWant, 0, n); Array.Clear(outPx, 0, n); _orderN = 0;
                 Log.Write("LOD", "«" + Name + "»: la nuvola è fuori dall'inquadratura della vista");
+                FrameStats.OutOfFrame++;
                 return;
             }
 
@@ -1358,6 +1359,8 @@ namespace PointDeviation
             long pts = 0;
             if (adopt)
             {
+                // diagnostica: quanto si è aspettato prima di mostrare la nuova vista
+                if (_pendingSince >= 0) FrameStats.ViewAdopted(now - _pendingSince, readyPts < needPts * SwapReady);
                 _pendingSince = -1;
                 for (int k = 0; k < _shownN; k++) { int j = _shownList[k]; _shownWant[j] = 0; }
                 _shownN = 0;
@@ -1389,8 +1392,8 @@ namespace PointDeviation
                 int cov = _shownCov[i];
                 int pixMask = hp ? (ho ? cov : 0xFF) : 0;
                 int bigMask = ho ? (0xFF & ~pixMask) : 0;
-                if (pixMask != 0) pts += Draw(gp, _shownWant[i], effect, pixMask);
-                if (bigMask != 0) pts += Draw(go, _shownWant[i], effect, bigMask);
+                if (pixMask != 0) { int dn = Draw(gp, _shownWant[i], effect, pixMask); pts += dn; FrameStats.SmallPts += dn; }
+                if (bigMask != 0) { int dn = Draw(go, _shownWant[i], effect, bigMask); pts += dn; FrameStats.BigPts += dn; }
                 nodes++;
             }
 
@@ -1614,7 +1617,10 @@ namespace PointDeviation
                 StyleVersion = st.Version, GeoVersion = GeoVersion, ColorKey = j.Key, Highlight = j.Highlight, Points = !octa,
                 Radius = j.Radius, FullCount = octa ? full : 0
             };
-            var buf = new byte[8][];
+            // Buffer di lavoro riusati dal thread (prima: fino a 8 da 1 MB nuovi a ogni nodo, memoria «large object» di
+            // .NET che obbliga a raccolte complete della memoria di Revit). I dati restano copiati in BakeFlush.
+            if (_tsOcta == null) { _tsOcta = new byte[8][]; _tsPts = new byte[8][]; }
+            var buf = octa ? _tsOcta : _tsPts;
             var nv = new int[8]; var np = new int[8]; var start = new int[8];
             // versione a punti piccoli preparata nello stesso passaggio (posizioni e colori si calcolano una volta sola)
             bool both = octa && j.WithPoints;
@@ -1622,7 +1628,7 @@ namespace PointDeviation
             {
                 StyleVersion = st.Version, GeoVersion = GeoVersion, ColorKey = j.Key, Highlight = j.Highlight, Points = true, Radius = j.Radius
             } : null;
-            var pbuf = both ? new byte[8][] : null;
+            var pbuf = both ? _tsPts : null;
             var pnv = new int[8]; var pnp = new int[8]; var pstart = new int[8];
             double cx = _ocx[node], cy = _ocy[node], cz = _ocz[node];
             for (int k = 0; k < upTo; k++)
@@ -1672,6 +1678,8 @@ namespace PointDeviation
             }
             return bk;
         }
+
+        [ThreadStatic] private static byte[][] _tsOcta, _tsPts;
 
         private static unsafe void Vert(byte* p0, ref int nv, int stride, float x, float y, float z, int oR, int oG, int oB, int oA,
             byte r, byte g, byte b, byte a)
@@ -2390,6 +2398,8 @@ namespace PointDeviation
 
         private static readonly ParallelOptions _par = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
 
+        [ThreadStatic] private static byte[] _tsRaw;
+
         private static bool Process(Job j)
         {
             CloudLayer L = j.Layer;
@@ -2419,11 +2429,14 @@ namespace PointDeviation
                     if (old != null && old.Nrm != null) Array.Copy(old.Nrm, c.Nrm, Math.Min(old.Nrm.Length, have * 3));
                 }
                 double sc = L.Info.Scale / 0.3048;
-                var raw = new byte[(target - have) * R];
+                // buffer di lettura riusato dal thread (serve solo qui: i dati vanno nei vettori del blocco)
+                int rawLen = (target - have) * R;
+                if (_tsRaw == null || _tsRaw.Length < rawLen) _tsRaw = new byte[Math.Max(rawLen, 1 << 16)];
+                byte[] raw = _tsRaw;
                 using (var fs = new FileStream(L.PointsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16))
                 {
                     fs.Position = (t.FirstRecord + have) * R;
-                    int got = LasSource.ReadFully(fs, raw, raw.Length) / R;
+                    int got = LasSource.ReadFully(fs, raw, rawLen) / R;
                     target = have + got;
                     c.Count = target;
                     for (int k = 0; k < got; k++)

@@ -551,3 +551,15 @@ Ottava tornata (28/10/2026): octree
      dell'inserimento «coordinate condivise» (interne = T · condivise, quindi condivise = T⁻¹ · interne); con il nord
      di progetto ruotato l'ingombro condiviso e' quello degli 8 spigoli, un po' piu' grande. Colonne «Interne …» e
      «Condivise …».
+140. Navigazione lenta (nuvola di lavoro da 42,5 M punti): dal registro la preparazione dei vertici va a circa un
+     milione di punti al secondo per thread e prepara molti piu' punti di quelli disegnati, ma il registro non dice
+     se il tempo si perde nel nostro codice, nella scheda video o nell'arrivo dei dati. Nuova riga «[Fotogrammi]»
+     ogni 5 s (livello Debug): fotogrammi al secondo in movimento (intervallo tra due disegni, comprende Revit e la
+     scheda video), nostro tempo per fotogramma (scelta dei blocchi / preparazione e copie / disegno) medio e
+     massimo, nuove viste mostrate con l'attesa media e massima e quante a tempo scaduto, punti grandi (8 triangoli
+     l'uno) e piccoli dell'ultimo fotogramma, raccolte della memoria di .NET (gen0/1/2), volte «fuori
+     dall'inquadratura». Riga «[Hardware]» al primo disegno: processori, memoria, profilo, thread, limite di punti.
+     Preparazione dei vertici: i buffer di lavoro (fino a 8 da 1 MB per nodo, piu' 8 da 256 KB per i punti piccoli)
+     si riusano per thread invece di crearli a ogni nodo; anche il buffer di lettura dei blocchi si riusa. Erano
+     memoria «large object» di .NET, che obbliga a raccolte complete della memoria di Revit (lo stesso problema gia'
+     risolto per il calcolo delle distanze).

@@ -179,8 +179,10 @@ namespace PointDeviation
                 // un solo passaggio per fotogramma: quello trasparente se serve la trasparenza, altrimenti quello opaco
                 if (DrawContext.IsTransparentPass() != st.NeedsTransparentPass) return;
 
+                long f0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 ViewCam cam = ViewCam.From(DrawContext.GetCamera(), view);
                 var budget = new RenderBudget { Moving = CameraMoving(view, cam) };
+                FrameStats.Begin(budget.Moving);
 
                 // livello di dettaglio: punti desiderati per blocco, poi limite complessivo della qualità scelta
                 // con i punti grandi (6 vertici l'uno) bastano molti meno punti
@@ -214,9 +216,13 @@ namespace PointDeviation
                 }
 
                 // prima tutta la vista con lo stile giusto (versioni leggere), poi il dettaglio, poi il disegno
+                long f1 = System.Diagnostics.Stopwatch.GetTimestamp();
                 for (int k = 0; k < visible.Count; k++) visible[k].Prepare(st, budget, wants[k], pxs[k]);
                 for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
+                long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
                 for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]);
+                long f3 = System.Diagnostics.Stopwatch.GetTimestamp();
+                FrameStats.End(f1 - f0, f2 - f1, f3 - f2);
                 if (budget.MoreWork) Redraw.Request();
             }
             catch (Exception ex)
@@ -224,6 +230,85 @@ namespace PointDeviation
                 // un errore di disegno non deve mai far cadere Revit
                 Log.Error("Disegno", ex);
             }
+        }
+    }
+
+    /// <summary>
+    /// Diagnostica della navigazione (riga «[Fotogrammi]» ogni 5 s, livello Debug): fotogrammi al secondo in
+    /// movimento (intervallo tra due disegni: comprende Revit e la scheda video), nostro tempo per fotogramma diviso in
+    /// scelta dei blocchi / preparazione e copie / disegno, attesa prima di mostrare una nuova vista, punti grandi e
+    /// piccoli dell'ultimo fotogramma, raccolte della memoria di .NET. Serve a capire dove va il tempo quando la
+    /// navigazione è lenta: nel nostro codice, nella scheda video (troppi triangoli) o nell'arrivo dei dati.
+    /// </summary>
+    internal static class FrameStats
+    {
+        private static readonly double TickMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        private static long _winStart = -1, _lastFrame = -1;
+        private static int _frames, _moving, _intervals;
+        private static double _intSum, _intMax, _ourSum, _ourMax, _lodSum, _prepSum, _drawSum;
+        private static int _views, _forced;
+        private static double _waitSum, _waitMax;
+        private static int _gc0, _gc1, _gc2;
+        private static bool _hwLogged;
+        private static bool _curMoving;
+        public static long BigPts, SmallPts;      // punti dell'ultimo fotogramma (somma delle nuvole)
+        private static long _lastBig, _lastSmall;
+        public static int OutOfFrame;
+
+        public static void Begin(bool moving)
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (!_hwLogged)
+            {
+                _hwLogged = true;
+                PerfValues v = AdvancedSettings.Current.Effective;
+                Log.Write("Hardware", string.Format("{0}; profilo {1}: {2} thread di preparazione, {3} di lettura, limite punti {4}%, precaricamento {5}",
+                    Hardware.Describe(), AdvancedSettings.Current.ResolvedProfile, v.BakerThreads, v.LoaderThreads, v.BudgetPercent,
+                    v.PrefetchMargin > 0 ? v.PrefetchMargin.ToString("0.0") : "spento"));
+            }
+            if (_winStart < 0) { _winStart = now; _gc0 = GC.CollectionCount(0); _gc1 = GC.CollectionCount(1); _gc2 = GC.CollectionCount(2); }
+            // intervallo tra due fotogrammi consecutivi in movimento: è il tempo che si percepisce navigando
+            if (moving && _curMoving && _lastFrame >= 0)
+            {
+                double ms = (now - _lastFrame) * TickMs;
+                if (ms < 2000) { _intervals++; _intSum += ms; if (ms > _intMax) _intMax = ms; }
+            }
+            _lastFrame = now;
+            _curMoving = moving;
+            _frames++;
+            if (moving) _moving++;
+            if (BigPts + SmallPts > 0) { _lastBig = BigPts; _lastSmall = SmallPts; }
+            BigPts = 0; SmallPts = 0;
+        }
+
+        public static void End(long lodTicks, long prepTicks, long drawTicks)
+        {
+            double lod = lodTicks * TickMs, prep = prepTicks * TickMs, draw = drawTicks * TickMs, our = lod + prep + draw;
+            _lodSum += lod; _prepSum += prep; _drawSum += draw; _ourSum += our;
+            if (our > _ourMax) _ourMax = our;
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if ((now - _winStart) * TickMs < 5000) return;
+            int g0 = GC.CollectionCount(0) - _gc0, g1 = GC.CollectionCount(1) - _gc1, g2 = GC.CollectionCount(2) - _gc2;
+            long big = BigPts + SmallPts > 0 ? BigPts : _lastBig, small = BigPts + SmallPts > 0 ? SmallPts : _lastSmall;
+            Log.Debug("Fotogrammi", string.Format(
+                "{0} fotogrammi ({1} in movimento){2}; nostro tempo per fotogramma medio {3:F1} ms (scelta blocchi {4:F1}, preparazione e copie {5:F1}, disegno {6:F1}), massimo {7:F0} ms; " +
+                "nuove viste {8} (attesa media {9:F0} ms, massima {10:F0} ms, mostrate incomplete {11}); ultimo fotogramma {12:N0} punti grandi (8 triangoli l'uno) e {13:N0} piccoli; " +
+                "raccolte memoria gen0/gen1/gen2 {14}/{15}/{16}{17}",
+                _frames, _moving,
+                _intervals > 0 ? string.Format(", in movimento un fotogramma ogni {0:F0} ms (≈ {1:F1} al secondo), il più lento {2:F0} ms", _intSum / _intervals, 1000.0 / Math.Max(1, _intSum / _intervals), _intMax) : "",
+                _ourSum / Math.Max(1, _frames), _lodSum / Math.Max(1, _frames), _prepSum / Math.Max(1, _frames), _drawSum / Math.Max(1, _frames), _ourMax,
+                _views, _views > 0 ? _waitSum / _views : 0, _waitMax, _forced, big, small, g0, g1, g2,
+                OutOfFrame > 0 ? string.Format("; «fuori dall'inquadratura» {0} volte", OutOfFrame) : ""));
+            _winStart = now; _gc0 = GC.CollectionCount(0); _gc1 = GC.CollectionCount(1); _gc2 = GC.CollectionCount(2);
+            _frames = _moving = _intervals = 0; _intSum = _intMax = _ourSum = _ourMax = _lodSum = _prepSum = _drawSum = 0;
+            _views = _forced = 0; _waitSum = _waitMax = 0; OutOfFrame = 0;
+        }
+
+        /// <summary>Una nuova vista è stata mostrata dopo «ms» di attesa; forced = a tempo scaduto, non ancora completa.</summary>
+        public static void ViewAdopted(long ms, bool forced)
+        {
+            _views++; _waitSum += ms; if (ms > _waitMax) _waitMax = ms;
+            if (forced) _forced++;
         }
     }
 }
