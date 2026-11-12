@@ -1091,7 +1091,11 @@ namespace PointDeviation
             // del 12/11, fino a 45 M punti preparati e 27 M copiati in 5 s per 2-10 M mostrati.
             double cap = 0.85 * Math.Max(_capTarget, 1.0) * px;
             cap = Math.Pow(2.0, Math.Round(Math.Log(cap / 1e-3, 2.0))) * 1e-3;
-            return Math.Min(full, cap);
+            // Il massimo serve solo dove il nodo è più rado di quanto si vede (foglie da vicino, zone senza figli): lì i
+            // punti si allargavano a 20 px. Un nodo abbastanza fitto per questa vista tiene il suo raggio di sempre, che non
+            // dipende dallo zoom: prima ogni raddoppio dello zoom rifaceva tutti i blocchi in vista (registro 12/11 10:59:
+            // 10-24 M punti preparati in 5 s per 0,5-4 M mostrati, attese delle viste nuove fino a 1,3 s).
+            return NodeRadius(i) <= cap ? full : cap;
         }
 
         /// <summary>

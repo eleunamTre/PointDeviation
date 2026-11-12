@@ -604,3 +604,10 @@ Ottava tornata (28/10/2026): octree
        calcolo. Tipico di un portatile a batteria o di Revit sulla scheda integrata. La riga «[Hardware]» ora dice
        l'alimentazione (rete/batteria) e la scheda video scelta in Windows per Revit (Impostazioni › Schermo ›
        Grafica).
+144. Registro del 12/11 10:58-11:00 (alimentazione da rete): il disegno e' tornato veloce (1,5-16 ms per fotogramma,
+     14-31 fotogrammi al secondo in movimento; nei registri lenti il portatile era probabilmente a batteria). Resta
+     molta preparazione inutile: 10-24 M punti preparati e fino a 24 M copiati in 5 s per 0,5-4 M mostrati, attese
+     delle viste nuove fino a 1,3 s. Causa: con la 143 il massimo a schermo valeva per quasi tutti i blocchi scelti
+     (quelli dell'ultimo livello hanno il raggio progressivo appena sopra il massimo), quindi ogni raddoppio dello zoom
+     li rifaceva tutti. Ora il massimo si applica solo ai blocchi piu' radi di quanto si vede (raggio di base oltre il
+     massimo: foglie da vicino, zone senza figli), gli altri tengono il raggio di sempre, che non dipende dallo zoom.
