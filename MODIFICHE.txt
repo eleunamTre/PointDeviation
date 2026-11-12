@@ -582,3 +582,14 @@ Ottava tornata (28/10/2026): octree
      comparivano i vuoti), sopra il 100% piu' grandi e piu' radi; al 100% tutto come prima. Il raggio non dipende piu'
      dalla dimensione. Registro: «[Lavoro]» ora dice anche i blocchi letti (punti e tempo, somma dei thread) e quanti
      blocchi sono in coda di lettura e di preparazione.
+142. Punti troppo grandi e «impastati» da vicino (registro e immagini del 12/11: staccionata a doghe piatte che
+     sembrava fatta di tronchi uniti; nessuna differenza tra dimensione 100% e 70%). Dal registro la distanza a
+     schermo voluta era rispettata (2,0-2,8 px), ma da vicino si arriva al dettaglio massimo della nuvola: li' i punti
+     sono distanti qualche centimetro (42,5 M punti su circa 180 × 180 m: in media un punto ogni ~3 cm solo sul
+     terreno, meno su vegetazione e zone lontane dalle stazioni) e i punti grandi si allargavano fino a coprire i
+     vuoti, cioe' rombi di 20 px e piu'. Con la 141 il raggio non dipendeva piu' dalla dimensione scelta, quindi da
+     vicino 70% e 100% erano identici. Ora il raggio dei punti grandi ha un massimo a schermo: 0,85 × la distanza tra
+     i punti voluta (circa 5 px di diametro al 100%, 3,4 al 70%, piu' grandi sopra il 100%). Dove la nuvola e' piu'
+     rada di cosi' i punti restano piccoli e si vedono i vuoti veri (le doghe separate); dove e' abbastanza fitta non
+     cambia nulla. Il massimo segue lo zoom: il buffer di un blocco si rifa' quando il raggio giusto cambia di oltre il
+     35% (i thread di preparazione hanno margine: occupati al massimo il 20% nel registro).

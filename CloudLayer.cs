@@ -1025,7 +1025,7 @@ namespace PointDeviation
                     byte cov = _wantedOct[i];
                     // raggio di base dal livello del nodo; il raggio di ogni punto dipende poi dalla sua posizione nell'ordine
                     // a strati (vedi BuildRange), così il buffer vale per qualunque zoom e non va mai ricostruito
-                    double radius = NodeRadius(i);
+                    double radius = RadiusKey(i, px[i]);
                     // i punti grandi servono sempre: coprono la zona da soli finché i figli non sono pronti, e un figlio
                     // «copre» il suo ottante nel padre solo quando ha i suoi punti grandi completi
                     if (_raw == 0) CalibrateRaw();
@@ -1058,7 +1058,7 @@ namespace PointDeviation
                     if ((cpu == null || cpu.Count < level || !ready) && CloudLoader.Queued < 6)
                         CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
                     if (!ready || CloudBaker.Queued >= 16) continue;
-                    double radius = NodeRadius(i);
+                    double radius = RadiusKey(i, 0);
                     // in movimento si preparano in background ma non si copiano: il tempo del fotogramma va alla vista
                     EnsureNode(i, radius, cpu, Math.Min(cpu.Count, w), ColorKey(cpu, st), Highlighted, st, argb, budget, now, budget.Moving);
                 }
@@ -1069,6 +1069,23 @@ namespace PointDeviation
         /// dimensione scelta dall'utente agisce sulla densità (vedi DesiredOctree), così i punti si toccano sempre.
         /// </summary>
         private double NodeRadius(int i) { return 0.85 * _nodeSpacing[i]; }
+
+        /// <summary>
+        /// Raggio massimo dei punti grandi di un nodo in questa vista (piedi), che è anche la chiave per decidere se il
+        /// buffer va rifatto: il raggio del nodo con il gonfiamento progressivo, ma mai più di 0,85 × la distanza a schermo
+        /// voluta (circa 5 px di diametro al 100%, 3,4 al 70%). Dove la nuvola è più rada di quanto si vede (da vicino,
+        /// vegetazione, zone lontane dalle stazioni) i punti restano piccoli e si vedono i vuoti veri tra un punto e
+        /// l'altro, invece di rombi di 20 px che impastano tutto (registro e immagini del 12/11: staccionata a doghe che
+        /// sembrava fatta di tronchi uniti). Cambiando zoom il buffer si rifà a scatti del 35%.
+        /// px = piedi per pixel sul nodo (0 = da calcolare con la camera dell'ultimo fotogramma).
+        /// </summary>
+        private double RadiusKey(int i, double px)
+        {
+            double full = NodeRadius(i) * ProgressiveCap;
+            if (px <= 0 && (_lastCam == null || !NodeVisible(_lastCam, i, out px))) return full;
+            if (px <= 0) return full;
+            return Math.Min(full, 0.85 * Math.Max(StatTarget, 1.0) * px);
+        }
 
         /// <summary>
         /// Chiamata dal thread di lettura appena un blocco è in memoria: la preparazione dei vertici parte subito, invece di
@@ -1083,7 +1100,7 @@ namespace PointDeviation
             if (cpu == null || !ReadyFor(cpu, st)) return;
             int key = ColorKey(cpu, st);
             bool hl = Highlighted;
-            double radius = NodeRadius(i);
+            double radius = RadiusKey(i, 0);
             // già pronto per tutti i punti caricati (nella scheda video o preparato in attesa di copia): niente da fare
             TileGpu g = _gpuO[i];
             if (g != null && g.StyleVersion == st.Version && g.GeoVersion == GeoVersion && g.ColorKey == key && g.Highlight == hl
@@ -1567,6 +1584,8 @@ namespace PointDeviation
             int per = gpu.Points ? PointChunk : OctaChunk;
             int vpp = gpu.Points ? 1 : 6;
             float r0 = (float)gpu.Radius;
+            // octree: raggio di base del nodo; gpu.Radius è il massimo (vedi RadiusKey)
+            double rb = node >= 0 && IsOctree ? NodeRadius(node) : gpu.Radius;
             bool split = node >= 0;
             double cx = split ? _ocx[node] : 0, cy = split ? _ocy[node] : 0, cz = split ? _ocz[node] : 0;
             for (int o = 0; o < 8; o++) { _bnv[o] = 0; _bpts[o] = 0; }
@@ -1593,7 +1612,7 @@ namespace PointDeviation
                     // circa quella del nodo intero × √(totale/k). Il k-esimo punto prende il raggio adatto a quella densità:
                     // i primi grandi, gli ultimi piccoli. Qualunque prefisso si disegni, la superficie resta coperta.
                     if (gpu.FullCount > 0)
-                        r0 = (float)(gpu.Radius * Math.Min(ProgressiveCap, Math.Sqrt((double)gpu.FullCount / (k + 1))));
+                        r0 = (float)Math.Min(rb * Math.Min(ProgressiveCap, Math.Sqrt((double)gpu.FullCount / (k + 1))), gpu.Radius);
                     Put(oc, fx + r0, fy, fz, r, g, b, t);
                     Put(oc, fx - r0, fy, fz, r, g, b, t);
                     Put(oc, fx, fy + r0, fz, r, g, b, t);
@@ -1685,6 +1704,7 @@ namespace PointDeviation
             var pbuf = both ? _tsPts : null;
             var pnv = new int[8]; var pnp = new int[8]; var pstart = new int[8];
             double cx = _ocx[node], cy = _ocy[node], cz = _ocz[node];
+            double rb = NodeRadius(node);   // raggio di base; j.Radius è il massimo in questa vista (vedi RadiusKey)
             for (int k = 0; k < upTo; k++)
             {
                 float lx = cpu.Pos[k * 3], ly = cpu.Pos[k * 3 + 1], lz = cpu.Pos[k * 3 + 2];
@@ -1711,7 +1731,7 @@ namespace PointDeviation
                     if (vpp == 1) Vert(p0, ref nv[oc], stride, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
                     else
                     {
-                        float r0 = (float)(j.Radius * Math.Min(ProgressiveCap, Math.Sqrt((double)full / (k + 1))));
+                        float r0 = (float)Math.Min(rb * Math.Min(ProgressiveCap, Math.Sqrt((double)full / (k + 1))), j.Radius);
                         Vert(p0, ref nv[oc], stride, fx + r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
                         Vert(p0, ref nv[oc], stride, fx - r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
                         Vert(p0, ref nv[oc], stride, fx, fy + r0, fz, oR, oG, oB, oA, r, g, b, a);
