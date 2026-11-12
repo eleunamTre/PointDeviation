@@ -311,6 +311,10 @@ namespace PointDeviation
         // raggio progressivo dei punti grandi: i primi punti dell'ordine a strati coprono di più, ma al massimo così
         // (era 2,5: quando di un blocco si disegnava solo l'inizio si vedevano rombi enormi)
         private const double ProgressiveCap = 1.6;
+        private ViewCam _lastCam;                      // octree: camera dell'ultimo fotogramma (per la vista precedente mostrata in attesa)
+        // blocchi in coda di lettura chiesti in un fotogramma: a vista ferma i fotogrammi arrivano al massimo ogni 150 ms, e
+        // con 24 la lettura si fermava a circa 160 blocchi al secondo (vista da 432 blocchi, 292 da leggere: quasi 2 s)
+        private const int LoaderFeed = 64;
         public bool Moving;                            // camera in movimento in questo fotogramma (impostato dal server)
         private double _stableTarget;                  // distanza tra i punti a schermo usata finora (pixel)
         private byte[] _wantedOct = new byte[0];       // octree: ottanti con un figlio scelto (pronto o no)
@@ -688,9 +692,14 @@ namespace PointDeviation
             int n = Tiles.Length;
             StatBudgetHit = false;
             // pixel tra due punti: con i punti grandi ogni punto copre più pixel, quindi ne servono molti meno
+            // «Dimensione punti» (%) agisce sulla distanza a schermo, non sul raggio: sotto il 100% i punti sono più
+            // piccoli e più fitti (la superficie resta coperta), sopra il 100% più grandi e più radi. Prima cambiava solo
+            // il raggio con la stessa densità: rimpicciolendo i punti comparivano i buchi. Dal registro dell'11/11 la
+            // scheda video ha margine (44 M triangoli senza rallentare il fotogramma), quindi i punti in più si reggono.
             double target = st.PointScale > 0
-                ? (st.Quality == Quality.Fine ? 2.0 : st.Quality == Quality.Media ? 3.6 : 2.8)
+                ? Math.Max(1.0, (st.Quality == Quality.Fine ? 2.0 : st.Quality == Quality.Media ? 3.6 : 2.8) * st.PointScale / 100.0)
                 : 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
+            _lastCam = cam;
 
             double px0;
             if (!NodeVisible(cam, 0, out px0))
@@ -987,8 +996,9 @@ namespace PointDeviation
                 bool ready = cpu != null && ReadyFor(cpu, st);
                 bool needData = cpu == null || cpu.Count < level || !ready
                     || (st.NeedsNormals && cpu.NrmCount < cpu.Count * 0.6);
-                // coda corta: si chiede solo il più importante, al fotogramma dopo si rivaluta con la vista aggiornata
-                if (needData && CloudLoader.Queued < 24) CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
+                // coda limitata (LoaderFeed): si chiedono i blocchi in ordine di importanza, al fotogramma dopo si rivaluta
+                // con la vista aggiornata; i blocchi usciti dalla vista da più di 5 s si scartano alla lettura
+                if (needData && CloudLoader.Queued < LoaderFeed) CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
                 if (IsOctree && st.PointScale > 0)
                 {
                     // maschere aggiornate anche per i blocchi in attesa (distanze o normali): si disegnano con quello che
@@ -1015,7 +1025,7 @@ namespace PointDeviation
                     byte cov = _wantedOct[i];
                     // raggio di base dal livello del nodo; il raggio di ogni punto dipende poi dalla sua posizione nell'ordine
                     // a strati (vedi BuildRange), così il buffer vale per qualunque zoom e non va mai ricostruito
-                    double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;
+                    double radius = NodeRadius(i);
                     // i punti grandi servono sempre: coprono la zona da soli finché i figli non sono pronti, e un figlio
                     // «copre» il suo ottante nel padre solo quando ha i suoi punti grandi completi
                     if (_raw == 0) CalibrateRaw();
@@ -1048,10 +1058,44 @@ namespace PointDeviation
                     if ((cpu == null || cpu.Count < level || !ready) && CloudLoader.Queued < 6)
                         CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
                     if (!ready || CloudBaker.Queued >= 16) continue;
-                    double radius = 0.85 * _nodeSpacing[i] * st.PointScale / 100.0;
+                    double radius = NodeRadius(i);
                     // in movimento si preparano in background ma non si copiano: il tempo del fotogramma va alla vista
                     EnsureNode(i, radius, cpu, Math.Min(cpu.Count, w), ColorKey(cpu, st), Highlighted, st, argb, budget, now, budget.Moving);
                 }
+        }
+
+        /// <summary>
+        /// Octree: raggio di base dei punti grandi di un nodo (piedi), dalla distanza tra i punti del suo livello. La
+        /// dimensione scelta dall'utente agisce sulla densità (vedi DesiredOctree), così i punti si toccano sempre.
+        /// </summary>
+        private double NodeRadius(int i) { return 0.85 * _nodeSpacing[i]; }
+
+        /// <summary>
+        /// Chiamata dal thread di lettura appena un blocco è in memoria: la preparazione dei vertici parte subito, invece di
+        /// aspettare il fotogramma successivo (a vista ferma i fotogrammi arrivano ogni 150 ms e ogni passaggio
+        /// lettura → preparazione → copia ne costava uno). Stessi parametri di EnsureNode.
+        /// </summary>
+        internal void BakeAfterLoad(int i, Style st)
+        {
+            if (!IsOctree || st == null || st.PointScale <= 0 || _raw != 1) return;
+            if (st.Version != CurrentStyleVersion || IdleMs(i) > 2000 || CloudBaker.Queued >= 96) return;
+            TileCpu cpu = Volatile.Read(ref Cpu[i]);
+            if (cpu == null || !ReadyFor(cpu, st)) return;
+            int key = ColorKey(cpu, st);
+            bool hl = Highlighted;
+            double radius = NodeRadius(i);
+            // già pronto per tutti i punti caricati (nella scheda video o preparato in attesa di copia): niente da fare
+            TileGpu g = _gpuO[i];
+            if (g != null && g.StyleVersion == st.Version && g.GeoVersion == GeoVersion && g.ColorKey == key && g.Highlight == hl
+                && Math.Abs(g.Radius - radius) <= radius * 0.35 && g.Built >= cpu.Count) return;
+            Baked b = Volatile.Read(ref BakedO[i]);
+            if (b != null && b.StyleVersion == st.Version && b.GeoVersion == GeoVersion && b.ColorKey == key && b.Highlight == hl
+                && b.Built >= cpu.Count) return;
+            CloudBaker.Enqueue(new BakeJob
+            {
+                Layer = this, Node = i, Octa = true, WithPoints = Tiles[i].ChildMask != 0, Radius = radius, UpTo = cpu.Count,
+                Key = key, Highlight = hl, Style = st, Argb = LayerArgb(st)
+            });
         }
 
         /// <summary>Costruisce (in versione leggera) il buffer del blocco se manca o non vale più per lo stile attuale.</summary>
@@ -1390,6 +1434,13 @@ namespace PointDeviation
                 if (!hp && !ho) continue;
                 if (_shownSkip[i]) continue;
                 int cov = _shownCov[i];
+                // vista precedente mostrata in attesa della nuova: con lo zoom i suoi punti grandi si ingrandiscono come
+                // un'immagine (da 208 a 7 ft di ampiezza: 28 volte). Dove ora sono molto più grandi del necessario si usano
+                // i punti piccoli dello stesso blocco: per un attimo la zona è più rada invece che coperta da rombi enormi
+                // (stessa regola dei blocchi molto più radi del necessario nella vista nuova, vedi _coarse)
+                double pxNow;
+                if (!adopt && hp && _lastCam != null && NodeVisible(_lastCam, i, out pxNow) && pxNow > 0
+                    && _nodeSpacing[i] / pxNow > 2.0 * Math.Max(StatTarget, 1.0)) cov = 0xFF;
                 int pixMask = hp ? (ho ? cov : 0xFF) : 0;
                 int bigMask = ho ? (0xFF & ~pixMask) : 0;
                 if (pixMask != 0) { int dn = Draw(gp, _shownWant[i], effect, pixMask); pts += dn; FrameStats.SmallPts += dn; }
@@ -1418,8 +1469,11 @@ namespace PointDeviation
         /// </summary>
         private static void LogWork(long bp, double bms, long up, double ums)
         {
-            if (bp == 0 && up == 0) return;
-            Log.Debug("Lavoro", string.Format("tutte le nuvole: preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms", bp, bms, up, ums));
+            long rb = Interlocked.Exchange(ref CloudLoader.ReadBlocks, 0), rp = Interlocked.Exchange(ref CloudLoader.ReadPoints, 0);
+            double rms = Interlocked.Exchange(ref CloudLoader.ReadTicks, 0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            if (bp == 0 && up == 0 && rb == 0) return;
+            Log.Debug("Lavoro", string.Format("tutte le nuvole: letti {4:N0} blocchi ({5:N0} punti) in {6:F0} ms (somma dei thread), preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms; in coda: lettura {7}, preparazione {8}",
+                bp, bms, up, ums, rb, rp, rms, CloudLoader.Queued, CloudBaker.Queued));
         }
 
         // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
@@ -2332,6 +2386,7 @@ namespace PointDeviation
             public int DistKey;
             public bool Normals;
             public bool NeedDist;
+            public Style St;
         }
 
         private static readonly ConcurrentQueue<Job> _queue = new ConcurrentQueue<Job>();
@@ -2347,7 +2402,8 @@ namespace PointDeviation
                 Analysis = st.NeedsDistances ? st.Analysis : null,
                 DistKey = layer.DistKey(st.Analysis),
                 NeedDist = st.NeedsDistances,
-                Normals = st.NeedsNormals
+                Normals = st.NeedsNormals,
+                St = st
             });
             EnsureThreads();
             _signal.Release();
@@ -2376,6 +2432,8 @@ namespace PointDeviation
         /// <summary>Ci sono blocchi in coda o in lettura?</summary>
         public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty; } }
 
+        public static long ReadTicks, ReadBlocks, ReadPoints;   // diagnostica: blocchi letti, punti nuovi e tempo (somma dei thread)
+
         private static void Loop()
         {
             while (true)
@@ -2384,7 +2442,19 @@ namespace PointDeviation
                 if (!_queue.TryDequeue(out j)) { _signal.Wait(500); continue; }
                 Interlocked.Increment(ref _busy);
                 bool ok = false, changed = false;
-                try { changed = Process(j); ok = true; }
+                try
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    changed = Process(j);
+                    if (changed)
+                    {
+                        Interlocked.Add(ref ReadTicks, sw.ElapsedTicks);
+                        Interlocked.Increment(ref ReadBlocks);
+                        // preparazione subito, senza aspettare il fotogramma successivo (vedi BakeAfterLoad)
+                        j.Layer.BakeAfterLoad(j.Tile, j.St);
+                    }
+                    ok = true;
+                }
                 catch (Exception ex) { Log.Error("Lettura blocco " + j.Tile + " di " + j.Layer.Name, ex); }
                 finally
                 {
@@ -2404,7 +2474,8 @@ namespace PointDeviation
         {
             CloudLayer L = j.Layer;
             // richiesta vecchia (la vista si è spostata altrove da tempo): non serve più
-            if (L.IdleMs(j.Tile) > 15000) { Redraw.Request(); return false; }
+            // (5 s: con la coda più lunga, dopo una rotazione veloce restavano da leggere blocchi non più in vista)
+            if (L.IdleMs(j.Tile) > 5000) { Redraw.Request(); return false; }
             TileEntry t = L.Tiles[j.Tile];
             TileCpu old = Volatile.Read(ref L.Cpu[j.Tile]);
             int have = old != null ? old.Count : 0;
@@ -2449,6 +2520,7 @@ namespace PointDeviation
                         if (fileNormals) { c.Nrm[w] = (sbyte)raw[o + 15]; c.Nrm[w + 1] = (sbyte)raw[o + 16]; c.Nrm[w + 2] = (sbyte)raw[o + 17]; }
                     }
                     if (fileNormals) c.NrmCount = target;
+                    Interlocked.Add(ref ReadPoints, got);
                 }
             }
 

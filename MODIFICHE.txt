@@ -563,3 +563,22 @@ Ottava tornata (28/10/2026): octree
      si riusano per thread invece di crearli a ogni nodo; anche il buffer di lettura dei blocchi si riusa. Erano
      memoria «large object» di .NET, che obbliga a raccolte complete della memoria di Revit (lo stesso problema gia'
      risolto per il calcolo delle distanze).
+141. Navigazione lenta, decisioni dal registro dell'11/11 (nuvola di lavoro, RTX 3070 portatile, livello Debug):
+     - la scheda video non e' il limite: l'intervallo tra i fotogrammi non dipende dai triangoli (44 M triangoli a
+       42 ms, 3 M a 28 ms che e' il minimo di Revit; la parte di Revit va da 22 a 80 ms secondo la vista, la sezione
+       e' piu' lenta con pochi punti); il nostro tempo per fotogramma e' 3-10 ms, 20-44 solo mentre si copiano dati;
+     - i thread di preparazione sono quasi fermi (al massimo 6,8 s di lavoro in 5 s su 12 thread, cioe' l'11%): le
+       attese delle viste nuove (fino a 1,3 s, 3 volte mostrate incomplete, una vista da 432 blocchi pronta al 32%
+       con 292 blocchi da leggere) vengono dall'alimentazione della coda, non dal calcolo. A vista ferma i fotogrammi
+       arrivano al massimo ogni 150 ms e ogni fotogramma chiedeva al massimo 24 blocchi (circa 160 al secondo); poi
+       la preparazione partiva solo al fotogramma dopo la lettura e la copia a quello dopo ancora.
+     Correzioni: un fotogramma chiede fino a 64 blocchi da leggere; appena un blocco e' letto la preparazione dei
+     vertici parte dal thread di lettura senza aspettare il fotogramma; le letture di blocchi non piu' in vista da 5 s
+     (prima 15) si scartano. Punti enormi nei cambi di camera: mentre si aspetta la vista nuova si mostra la vista
+     precedente, che con lo zoom si ingrandisce come un'immagine (da 208 a 7 ft: 28 volte); ora i suoi blocchi molto
+     piu' radi del necessario a schermo si disegnano a punti piccoli (zona per un attimo piu' rada, non rombi enormi),
+     come gia' nella vista nuova. «Dimensione punti» (Aspetto): agisce sulla densita' oltre che sulla grandezza;
+     sotto il 100% i punti sono piu' piccoli e piu' fitti senza buchi (prima si rimpicciolivano a densita' uguale e
+     comparivano i vuoti), sopra il 100% piu' grandi e piu' radi; al 100% tutto come prima. Il raggio non dipende piu'
+     dalla dimensione. Registro: «[Lavoro]» ora dice anche i blocchi letti (punti e tempo, somma dei thread) e quanti
+     blocchi sono in coda di lettura e di preparazione.
