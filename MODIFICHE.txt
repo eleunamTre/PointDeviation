@@ -593,3 +593,14 @@ Ottava tornata (28/10/2026): octree
      rada di cosi' i punti restano piccoli e si vedono i vuoti veri (le doghe separate); dove e' abbastanza fitta non
      cambia nulla. Il massimo segue lo zoom: il buffer di un blocco si rifa' quando il raggio giusto cambia di oltre il
      35% (i thread di preparazione hanno margine: occupati al massimo il 20% nel registro).
+143. Ancora lento dopo la 142 (registro del 12/11, 10:36-10:40). Due cause dai numeri:
+     - il massimo dei punti a schermo (142) cambiava a scatti del 35% e seguiva la distanza reale tra i punti, che
+       sale quando si tocca il limite: quasi ogni zoom rifaceva tutti i blocchi vicini (fino a 45 M punti preparati e
+       27 M copiati in 5 s, 1,2 s di copie sul thread di Revit, per 2-10 M punti mostrati). Ora va a scatti di 2
+       (diametro tra 0,7 e 1,4 volte quello nominale) e dipende solo da qualita' e dimensione scelte: i blocchi si
+       rifanno solo quando lo zoom raddoppia o dimezza;
+     - il disegno dei punti costa oggi 2-3 ms per milione di triangoli (130-200 ms per 45 M), contro circa 0,1 ms
+       nei registri dell'11/11 sullo stesso computer (5 ms per 44 M): il tempo va alla scheda video, non al nostro
+       calcolo. Tipico di un portatile a batteria o di Revit sulla scheda integrata. La riga «[Hardware]» ora dice
+       l'alimentazione (rete/batteria) e la scheda video scelta in Windows per Revit (Impostazioni › Schermo ›
+       Grafica).

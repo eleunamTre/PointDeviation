@@ -49,6 +49,37 @@ namespace PointDeviation
             return RamGb > 0 ? string.Format(L.T("{0} processori, {1:F0} GB di memoria"), Cores, RamGb) : string.Format(L.T("{0} processori"), Cores);
         }
 
+        /// <summary>
+        /// Diagnostica della grafica per il registro: alimentazione (rete o batteria) e scheda video scelta in Windows per
+        /// Revit (Impostazioni › Schermo › Grafica). Sui portatili con due schede, a batteria o con la scheda integrata, il
+        /// disegno dei punti rallenta di molte volte (registri del 12/11: da 0,1 a 2-3 ms per milione di triangoli).
+        /// </summary>
+        public static string GraphicsDiag()
+        {
+            string power = "?";
+            try
+            {
+                var ps = System.Windows.Forms.SystemInformation.PowerStatus;
+                power = ps.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Online ? "rete"
+                    : ps.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Offline ? string.Format("batteria ({0:P0})", ps.BatteryLifePercent) : "sconosciuta";
+            }
+            catch { }
+            string gpu = "predefinita (nessuna scelta in Windows)";
+            try
+            {
+                string exe = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\DirectX\UserGpuPreferences"))
+                {
+                    string v = k != null ? k.GetValue(exe) as string : null;
+                    if (!string.IsNullOrEmpty(v))
+                        gpu = v.Contains("GpuPreference=2") ? "prestazioni elevate" : v.Contains("GpuPreference=1") ? "risparmio energia (integrata)"
+                            : v.Contains("GpuPreference=0") ? "lascia decidere a Windows" : v;
+                }
+            }
+            catch { }
+            return "alimentazione " + power + ", scheda video per Revit in Windows: " + gpu;
+        }
+
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         private struct MemoryStatusEx
         {

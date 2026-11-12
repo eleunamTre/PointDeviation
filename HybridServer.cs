@@ -262,9 +262,9 @@ namespace PointDeviation
             {
                 _hwLogged = true;
                 PerfValues v = AdvancedSettings.Current.Effective;
-                Log.Write("Hardware", string.Format("{0}; profilo {1}: {2} thread di preparazione, {3} di lettura, limite punti {4}%, precaricamento {5}",
+                Log.Write("Hardware", string.Format("{0}; profilo {1}: {2} thread di preparazione, {3} di lettura, limite punti {4}%, precaricamento {5}; {6}",
                     Hardware.Describe(), AdvancedSettings.Current.ResolvedProfile, v.BakerThreads, v.LoaderThreads, v.BudgetPercent,
-                    v.PrefetchMargin > 0 ? v.PrefetchMargin.ToString("0.0") : "spento"));
+                    v.PrefetchMargin > 0 ? v.PrefetchMargin.ToString("0.0") : "spento", Hardware.GraphicsDiag()));
             }
             if (_winStart < 0) { _winStart = now; _gc0 = GC.CollectionCount(0); _gc1 = GC.CollectionCount(1); _gc2 = GC.CollectionCount(2); }
             // intervallo tra due fotogrammi consecutivi in movimento: è il tempo che si percepisce navigando
