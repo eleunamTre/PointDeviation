@@ -193,6 +193,9 @@ namespace PointDeviation
         [DataMember] public int MemKeepSeconds = 60;
         /// <summary>Analisi: la finestra aspetta il calcolo di tutte le distanze (invece dei soli livelli principali).</summary>
         [DataMember] public bool AnalysisFullWait;
+        /// <summary>Navigazione: resta la vista precedente finché la nuova non è pronta, poi cambio tutto insieme (voce 106).
+        /// Spento (predefinito): il dettaglio compare man mano, zona per zona.</summary>
+        [DataMember] public bool HoldViewUntilReady;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 

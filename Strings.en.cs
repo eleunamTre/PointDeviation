@@ -9,6 +9,8 @@ namespace PointDeviation
         {
             d["Livelli principali pronti: puoi navigare. Il dettaglio fine ({0:F0}% dei punti) si completa in background, circa {1:F0} s."] = "Main levels ready: you can navigate. The fine detail ({0:F0}% of points) is completed in the background, about {1:F0} s.";
             d["Analisi: aspetta il calcolo completo delle distanze"] = "Analysis: wait for all distances to be computed";
+            d["Navigazione: mostra la vista nuova solo quando è pronta"] = "Navigation: show the new view only when it is ready";
+            d["Spento (consigliato): zoomando e spostandosi il dettaglio compare man mano, zona per zona. Acceso: resta la vista precedente, ingrandita come un'immagine, e si passa a quella nuova tutta insieme quando è pronta (al massimo dopo 1,2 s)."] = "Off (recommended): while zooming and moving, detail appears progressively, area by area. On: the previous view stays, enlarged like an image, and the new view replaces it all at once when ready (after 1.2 s at most).";
             d["Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta."] = "Off (recommended): the window closes when the main levels are ready (about a third of the time) and the fine detail is completed in the background. On: wait for everything, then every zoom level is ready and the share of points near the model is exact.";
             d["Automatico (questo computer: {0})"] = "Automatic (this computer: {0})";
             d["Leggero"] = "Light";

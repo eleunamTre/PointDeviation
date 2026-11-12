@@ -611,3 +611,20 @@ Ottava tornata (28/10/2026): octree
      (quelli dell'ultimo livello hanno il raggio progressivo appena sopra il massimo), quindi ogni raddoppio dello zoom
      li rifaceva tutti. Ora il massimo si applica solo ai blocchi piu' radi di quanto si vede (raggio di base oltre il
      massimo: foglie da vicino, zone senza figli), gli altri tengono il raggio di sempre, che non dipende dallo zoom.
+145. Navigazione a scatti (registro del 12/11 11:07-11:10, nuvola di lavoro, alimentazione da rete): la nuvola
+     spariva e ricompariva di colpo e il passaggio tra due densita' durante lo zoom era a scatti. Tre cause dai numeri:
+     - cambio atomico della vista (voce 106): finche' la vista nuova non era pronta al 97% restava quella vecchia, poi
+       si passava tutto insieme; le attese arrivavano a 1,1-1,3 s («nuova vista pronta 85-93% (si mostra la vista
+       precedente)»), e il cambio si vedeva come uno scatto. Ora il modo predefinito e' graduale: si disegna sempre la
+       vista nuova e dove un blocco non e' ancora pronto resta il livello sopra, cosi' il dettaglio arriva zona per
+       zona mentre si zooma. Il cambio tutto insieme resta come scelta in Impostazioni avanzate › Prestazioni
+       («Navigazione: mostra la vista nuova solo quando e' pronta»);
+     - zoomando in fretta i blocchi del livello sopra, appena piu' radi di 2 volte il necessario, passavano ai punti
+       piccoli in attesa del figlio: la zona sembrava sparire per un attimo. Ora succede solo oltre 4 volte;
+     - preparazione inutile: fino a 14 M punti preparati in 5 s senza nessun blocco letto (Sezione 32/33). I nodi
+       con figli si rifacevano a ogni raddoppio dello zoom per il massimo dei punti a schermo (voce 142-144), che per
+       loro conta solo per poco (poi arrivano i figli). Ora per i nodi con figli il buffer vale finche' il raggio voluto
+       resta entro il doppio; le foglie come prima (35%).
+     Diagnostica: la riga «[Lavoro]» dice per quale motivo si e' preparato (senza buffer, stile, raggio, piu' punti,
+     altro); in modo graduale «nuove viste, attesa» misura il tempo perche' la vista nuova sia pronta, e la riga
+     «[Stato]» scrive «(graduale)».

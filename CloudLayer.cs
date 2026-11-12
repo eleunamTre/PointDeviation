@@ -330,6 +330,12 @@ namespace PointDeviation
         private long _pendingSince = -1;
         private const double SwapReady = 0.97;   // frazione dei punti della nuova vista che deve essere pronta
         private const long SwapTimeoutMs = 1200; // oltre, si passa comunque alla nuova vista (con i ripieghi)
+        // Blocco «molto più rado del necessario»: dove il figlio non è ancora pronto si mostra a punti piccoli invece che
+        // con i suoi punti grandi. Era 2 (un livello sopra): zoomando in fretta i blocchi del livello sopra passavano
+        // subito ai punti piccoli e la zona sembrava sparire per un attimo (registro del 12/11 11:08). Con 4 i punti
+        // grandi del livello sopra restano finché arriva il figlio (al massimo il doppio di quelli giusti, raramente il
+        // quadruplo); oltre si passa ai punti piccoli, per non mostrare rombi enormi.
+        private const double CoarseFactor = 4.0;
         private int[] _pfWant = new int[0];             // precaricamento: punti voluti per i blocchi da preparare in anticipo
         private int[] _pfOrder = new int[0];            // precaricamento: blocchi in ordine di importanza
         private int _pfN;
@@ -1009,7 +1015,7 @@ namespace PointDeviation
                     _covered[i] = CoveredOctants(i, want);
                     // blocco molto più rado di quanto serve a schermo: dove manca ancora il figlio si mostra a punti
                     // piccoli invece che con rombi grandi
-                    _coarse[i] = px[i] > 0 && _nodeSpacing[i] / px[i] > 2.0 * Math.Max(StatTarget, 1.0);
+                    _coarse[i] = px[i] > 0 && _nodeSpacing[i] / px[i] > CoarseFactor * Math.Max(StatTarget, 1.0);
                 }
                 if (!ready) continue; // si continua a disegnare quello che c'era finché arrivano distanze o normali
 
@@ -1099,6 +1105,34 @@ namespace PointDeviation
         }
 
         /// <summary>
+        /// Il buffer di un nodo con raggio «have» va ancora bene per il raggio voluto «want»? Foglie: entro il 35% (sono il
+        /// dettaglio definitivo, il massimo a schermo conta). Nodi con figli: entro il doppio. Un nodo con figli è più rado
+        /// del necessario solo per poco (finché arrivano i figli, poi si disegna a punti piccoli dove ci sono), e con il
+        /// massimo a scatti di 2 ogni raddoppio dello zoom lo faceva rifare: registro del 12/11 11:09, fino a 14 M punti
+        /// preparati in 5 s senza nessun blocco letto, mentre la vista nuova aspettava.
+        /// </summary>
+        private bool RadiusOk(int i, double have, double want)
+        {
+            if (Tiles[i].ChildMask == 0) return Math.Abs(have - want) <= want * 0.35 + 1e-12;
+            return have <= want * 2.01 && have >= want / 2.01;
+        }
+
+        /// <summary>
+        /// Diagnostica (riga «[Lavoro]»): perché si prepara un nodo. 0 = nessun buffer (nuovo o liberato), 1 = stile o
+        /// posizione cambiati, 2 = raggio dei punti cambiato, 3 = più punti caricati, 4 = altro (versione mancante).
+        /// Letto dal thread di preparazione: valori del fotogramma più recente, solo per il registro.
+        /// </summary>
+        internal int BakeReason(BakeJob j)
+        {
+            TileGpu g = j.Octa ? _gpuO[j.Node] : _gpu[j.Node];
+            if (g == null) return 0;
+            if (g.StyleVersion != j.Style.Version || g.GeoVersion != GeoVersion || g.ColorKey != j.Key || g.Highlight != j.Highlight) return 1;
+            if (j.Octa && !RadiusOk(j.Node, g.Radius, j.Radius)) return 2;
+            if (g.Built < j.UpTo) return 3;
+            return 4;
+        }
+
+        /// <summary>
         /// Chiamata dal thread di lettura appena un blocco è in memoria: la preparazione dei vertici parte subito, invece di
         /// aspettare il fotogramma successivo (a vista ferma i fotogrammi arrivano ogni 150 ms e ogni passaggio
         /// lettura → preparazione → copia ne costava uno). Stessi parametri di EnsureNode.
@@ -1115,7 +1149,7 @@ namespace PointDeviation
             // già pronto per tutti i punti caricati (nella scheda video o preparato in attesa di copia): niente da fare
             TileGpu g = _gpuO[i];
             if (g != null && g.StyleVersion == st.Version && g.GeoVersion == GeoVersion && g.ColorKey == key && g.Highlight == hl
-                && Math.Abs(g.Radius - radius) <= radius * 0.35 && g.Built >= cpu.Count) return;
+                && RadiusOk(i, g.Radius, radius) && g.Built >= cpu.Count) return;
             Baked b = Volatile.Read(ref BakedO[i]);
             if (b != null && b.StyleVersion == st.Version && b.GeoVersion == GeoVersion && b.ColorKey == key && b.Highlight == hl
                 && b.Built >= cpu.Count) return;
@@ -1134,7 +1168,7 @@ namespace PointDeviation
             TileGpu gpu = arr[i];
             bool stale = gpu == null || gpu.StyleVersion != st.Version || gpu.GeoVersion != GeoVersion
                 || gpu.ColorKey != key || gpu.Highlight != hl
-                || (octa && Math.Abs(gpu.Radius - radius) > radius * 0.35);
+                || (octa && !RadiusOk(i, gpu.Radius, radius));
 
             // octree con scrittura diretta: i vertici si preparano in background (calcolo di posizioni, colori, ottanti) e
             // qui si copiano soltanto nella scheda video, che costa pochissimo. Il fotogramma non aspetta mai il calcolo.
@@ -1145,7 +1179,7 @@ namespace PointDeviation
                 Baked[] barr = octa ? BakedO : BakedP;
                 Baked bk = Volatile.Read(ref barr[i]);
                 if (bk != null && bk.StyleVersion == st.Version && bk.GeoVersion == GeoVersion && bk.ColorKey == key && bk.Highlight == hl
-                    && bk.Points == !octa && Math.Abs(bk.Radius - radius) <= radius * 0.35 + 1e-12 && bk.Built >= need)
+                    && bk.Points == !octa && RadiusOk(i, bk.Radius, radius) && bk.Built >= need)
                 {
                     if (!budget.CoarseTime) { budget.MoreWork = true; return; }
                     var usw = System.Diagnostics.Stopwatch.StartNew();
@@ -1215,11 +1249,11 @@ namespace PointDeviation
             TileGpu gpu = arr[i];
             bool stale = gpu == null || gpu.StyleVersion != st.Version || gpu.GeoVersion != GeoVersion
                 || gpu.ColorKey != key || gpu.Highlight != hl
-                || (octa && Math.Abs(gpu.Radius - radius) > radius * 0.35);
+                || (octa && !RadiusOk(i, gpu.Radius, radius));
             if (!stale && gpu.Built >= need) return 0;
             Baked bk = Volatile.Read(ref barr[i]);
             if (bk == null || bk.StyleVersion != st.Version || bk.GeoVersion != GeoVersion || bk.ColorKey != key || bk.Highlight != hl
-                || bk.Points == octa || (octa && Math.Abs(bk.Radius - radius) > radius * 0.35 + 1e-12) || bk.Built < need)
+                || bk.Points == octa || (octa && !RadiusOk(i, bk.Radius, radius)) || bk.Built < need)
                 return 2;
             if (noUpload || !budget.CoarseTime) { budget.MoreWork = true; return 1; }
             var usw = System.Diagnostics.Stopwatch.StartNew();
@@ -1425,15 +1459,32 @@ namespace PointDeviation
                 if (!hp && (go == null || go.Chunks.Count == 0)) missing++;
             }
 
-            bool adopt = _shownN == 0 || needPts == 0 || readyPts >= needPts * SwapReady
+            // Due modi (Impostazioni avanzate › Prestazioni):
+            // - graduale (predefinito): si disegna sempre la vista nuova; dove un blocco non è ancora pronto resta il
+            //   livello sopra (punti grandi nel suo ottante), quindi il dettaglio arriva zona per zona mentre si zooma;
+            // - «vista nuova solo quando è pronta» (cambio atomico, voce 106): resta l'ultima vista completa, ingrandita
+            //   come un'immagine, e si passa a quella nuova tutta insieme. Dal registro del 12/11 11:08 l'attesa arrivava
+            //   a 1,1-1,3 s e il cambio si vedeva come uno scatto.
+            bool hold = AdvancedSettings.Current.HoldViewUntilReady;
+            bool complete = needPts == 0 || readyPts >= needPts * SwapReady;
+            bool adopt = !hold || _shownN == 0 || complete
                 || (_pendingSince >= 0 && now - _pendingSince > SwapTimeoutMs);
             int nodes = 0;
             long pts = 0;
+            // diagnostica: quanto ci vuole perché la vista nuova sia pronta (graduale) o mostrata (atomico)
+            if (complete || (hold && adopt))
+            {
+                if (_pendingSince >= 0) FrameStats.ViewAdopted(now - _pendingSince, !complete);
+                _pendingSince = -1;
+            }
+            else
+            {
+                if (_pendingSince < 0) _pendingSince = now;
+                // si ricontrolla ai fotogrammi successivi (senza fine se un blocco non arriva mai)
+                if (now - _pendingSince < 5000) Redraw.Request();
+            }
             if (adopt)
             {
-                // diagnostica: quanto si è aspettato prima di mostrare la nuova vista
-                if (_pendingSince >= 0) FrameStats.ViewAdopted(now - _pendingSince, readyPts < needPts * SwapReady);
-                _pendingSince = -1;
                 for (int k = 0; k < _shownN; k++) { int j = _shownList[k]; _shownWant[j] = 0; }
                 _shownN = 0;
                 for (int i = 0; i < Tiles.Length; i++)
@@ -1444,11 +1495,6 @@ namespace PointDeviation
                     _shownList[_shownN++] = i;
                     _shownWant[i] = want[i]; _shownCov[i] = (byte)cov; _shownSkip[i] = _skipStale[i];
                 }
-            }
-            else
-            {
-                if (_pendingSince < 0) _pendingSince = now;
-                Redraw.Request(); // si ricontrolla al prossimo fotogramma
             }
 
             // si disegna l'insieme mostrato (appena aggiornato, o quello dell'ultima vista completa)
@@ -1468,7 +1514,7 @@ namespace PointDeviation
                 // (stessa regola dei blocchi molto più radi del necessario nella vista nuova, vedi _coarse)
                 double pxNow;
                 if (!adopt && hp && _lastCam != null && NodeVisible(_lastCam, i, out pxNow) && pxNow > 0
-                    && _nodeSpacing[i] / pxNow > 2.0 * Math.Max(StatTarget, 1.0)) cov = 0xFF;
+                    && _nodeSpacing[i] / pxNow > CoarseFactor * Math.Max(StatTarget, 1.0)) cov = 0xFF;
                 int pixMask = hp ? (ho ? cov : 0xFF) : 0;
                 int bigMask = ho ? (0xFF & ~pixMask) : 0;
                 if (pixMask != 0) { int dn = Draw(gp, _shownWant[i], effect, pixMask); pts += dn; FrameStats.SmallPts += dn; }
@@ -1486,7 +1532,7 @@ namespace PointDeviation
                 CloudBaker.UploadPoints = 0; CloudBaker.UploadTicks = 0;
                 Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; nuova vista pronta {8:F0}%{9}",
                     Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "",
-                    needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? "" : " (si mostra la vista precedente)"));
+                    needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? (hold ? "" : " (graduale)") : " (si mostra la vista precedente)"));
                 LogWork(bp, bt * f, up, ut * f);
             }
         }
@@ -1500,8 +1546,11 @@ namespace PointDeviation
             long rb = Interlocked.Exchange(ref CloudLoader.ReadBlocks, 0), rp = Interlocked.Exchange(ref CloudLoader.ReadPoints, 0);
             double rms = Interlocked.Exchange(ref CloudLoader.ReadTicks, 0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             if (bp == 0 && up == 0 && rb == 0) return;
-            Log.Debug("Lavoro", string.Format("tutte le nuvole: letti {4:N0} blocchi ({5:N0} punti) in {6:F0} ms (somma dei thread), preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms; in coda: lettura {7}, preparazione {8}",
-                bp, bms, up, ums, rb, rp, rms, CloudLoader.Queued, CloudBaker.Queued));
+            long[] why = CloudBaker.ReasonPoints;
+            long w0 = Interlocked.Exchange(ref why[0], 0), w1 = Interlocked.Exchange(ref why[1], 0), w2 = Interlocked.Exchange(ref why[2], 0),
+                w3 = Interlocked.Exchange(ref why[3], 0), w4 = Interlocked.Exchange(ref why[4], 0);
+            Log.Debug("Lavoro", string.Format("tutte le nuvole: letti {4:N0} blocchi ({5:N0} punti) in {6:F0} ms (somma dei thread), preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms; in coda: lettura {7}, preparazione {8}; preparati perché: senza buffer {9:N0}, stile {10:N0}, raggio {11:N0}, più punti {12:N0}, altro {13:N0}",
+                bp, bms, up, ums, rb, rp, rms, CloudLoader.Queued, CloudBaker.Queued, w0, w1, w2, w3, w4));
         }
 
         // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
@@ -2046,6 +2095,7 @@ namespace PointDeviation
         public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty; } }
         public static long BakeTicks, BakePoints;         // diagnostica: tempo e punti preparati
         public static long UploadTicks, UploadPoints;     // diagnostica: tempo e punti copiati nella scheda video
+        public static readonly long[] ReasonPoints = new long[5]; // diagnostica: punti preparati per motivo (vedi BakeReason)
 
         public static void Enqueue(BakeJob j)
         {
@@ -2083,12 +2133,14 @@ namespace PointDeviation
                     // nodo uscito dalla vista mentre era in coda (rotazione veloce): non si prepara
                     if (j.Style.Version == j.Layer.CurrentStyleVersion && j.Layer.IdleMs(j.Node) < 2000)
                     {
+                        int why = j.Layer.BakeReason(j);
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         Baked bk = j.Layer.Bake(j);
                         if (bk != null)
                         {
                             Interlocked.Add(ref BakeTicks, sw.ElapsedTicks);
                             Interlocked.Add(ref BakePoints, bk.Built);
+                            Interlocked.Add(ref ReasonPoints[why], bk.Built);
                             if (bk.PointsTwin != null) { Volatile.Write(ref j.Layer.BakedP[j.Node], bk.PointsTwin); bk.PointsTwin = null; }
                             Volatile.Write(ref dest[j.Node], bk);
                             done = true;
