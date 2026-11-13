@@ -723,3 +723,10 @@ Ottava tornata (28/10/2026): octree
      da un'altra cartella. L'inserimento resta temporaneo (la transazione si annulla alla fine).
 157. Registro, riga «[Fotogrammi]» con punti da 1 pixel (dimensione 0) o senza octree: diceva sempre «0 punti grandi e
      0 piccoli» perche' il disegno non atomico non contava i punti. Ora li conta come il disegno dell'octree.
+158. Piante che «si ricaricano di continuo» (registro 13/11 17:48, pianta 003_1_0_FFL): si sceglievano i blocchi di
+     tutta l'altezza della nuvola, cioe' tutti i piani uno sopra l'altro (7-11 M punti, «limite raggiunto», 100-165 ms
+     di disegno per fotogramma, 5-7 fotogrammi al secondo), anche se Revit mostra solo la fascia dell'intervallo di
+     vista. Ora nelle piante si escludono i blocchi interamente fuori dalla fascia tra la profondita' di vista (o il
+     limite inferiore, se piu' basso) e il piano di taglio; nelle piante dei controsoffitti tra il taglio e il limite
+     superiore. Livelli «illimitato» o «livello sotto»: nessun limite da quella parte. «[Stato]» dice quanti blocchi
+     l'intervallo di vista ha escluso.

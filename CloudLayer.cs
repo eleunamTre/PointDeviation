@@ -1656,7 +1656,7 @@ namespace PointDeviation
                 Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; nuova vista pronta {8:F0}%{9}",
                     Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "",
                     needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? (hold ? "" : " (graduale)") : " (si mostra la vista precedente)")
-                    + (_lastCam != null && _lastCam.HasBox ? string.Format("; riquadro di sezione: {0} blocchi esclusi", _lastCam.BoxCulled) : ""));
+                    + (_lastCam != null && _lastCam.HasBox ? string.Format(_lastCam.PlanRange ? "; intervallo di vista della pianta: {0} blocchi esclusi" : "; riquadro di sezione: {0} blocchi esclusi", _lastCam.BoxCulled) : ""));
                 LogWork(bp, bt * f, up, ut * f);
             }
         }
@@ -2400,6 +2400,9 @@ namespace PointDeviation
         private void SetBox(View view)
         {
             _box = null;
+            PlanRange = false;
+            var vp = view as ViewPlan;
+            if (vp != null) { SetPlanRange(vp); return; }
             var v3 = view as View3D;
             if (v3 == null || !v3.IsSectionBoxActive) return;
             BoundingBoxXYZ b = v3.GetSectionBox();
@@ -2407,6 +2410,46 @@ namespace PointDeviation
             Transform t = b.Transform ?? Transform.Identity;
             XYZ o = t.Origin, x = t.BasisX.Normalize(), y = t.BasisY.Normalize(), z = t.BasisZ.Normalize();
             _box = new[] { o.X, o.Y, o.Z, x.X, x.Y, x.Z, y.X, y.Y, y.Z, z.X, z.Y, z.Z, b.Min.X, b.Min.Y, b.Min.Z, b.Max.X, b.Max.Y, b.Max.Z };
+        }
+
+        // Piante: intervallo di vista. Prima si sceglievano i blocchi di tutta l'altezza della nuvola (tutti i piani uno
+        // sopra l'altro, 7-11 M punti e 100-160 ms di disegno per fotogramma) anche se Revit mostra solo la fascia tra
+        // il piano di taglio e la profondità di vista. Si escludono i blocchi interamente fuori da quella fascia
+        // (pianta: dalla profondità di vista al piano di taglio; pianta del controsoffitto: dal taglio al limite
+        // superiore). Livelli «illimitato» o «livello sotto»: nessun limite da quella parte.
+        private void SetPlanRange(ViewPlan vp)
+        {
+            PlanViewRange r = vp.GetViewRange();
+            if (r == null) return;
+            Document doc = vp.Document;
+            bool ceiling = vp.ViewType == ViewType.CeilingPlan;
+            double cut = PlaneZ(doc, vp, r, PlanViewPlane.CutPlane);
+            if (double.IsNaN(cut)) return;
+            double lo, hi;
+            if (ceiling) { lo = cut; hi = PlaneZ(doc, vp, r, PlanViewPlane.TopClipPlane); if (double.IsNaN(hi)) hi = 1e30; }
+            else
+            {
+                hi = cut;
+                lo = PlaneZ(doc, vp, r, PlanViewPlane.ViewDepthPlane);
+                double bottom = PlaneZ(doc, vp, r, PlanViewPlane.BottomClipPlane);
+                if (double.IsNaN(lo) || (!double.IsNaN(bottom) && bottom < lo)) lo = bottom;
+                if (double.IsNaN(lo)) lo = -1e30;
+            }
+            if (hi <= lo) return;
+            _box = new[] { 0.0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, -1e30, -1e30, lo, 1e30, 1e30, hi };
+            PlanRange = true;
+        }
+
+        public bool PlanRange;         // il ritaglio viene dall'intervallo di vista di una pianta
+
+        private static double PlaneZ(Document doc, ViewPlan vp, PlanViewRange r, PlanViewPlane plane)
+        {
+            ElementId id = r.GetLevelId(plane);
+            if (id == null || id == ElementId.InvalidElementId || id == PlanViewRange.Unlimited || id == PlanViewRange.LevelBelow)
+                return double.NaN;
+            Level lv = id == PlanViewRange.Current ? vp.GenLevel : doc.GetElement(id) as Level;
+            if (lv == null) return double.NaN;
+            return lv.ProjectElevation + r.GetOffset(plane);
         }
 
         /// <summary>La sfera (centro, raggio) tocca il riquadro di sezione? (sempre vero senza riquadro)</summary>
