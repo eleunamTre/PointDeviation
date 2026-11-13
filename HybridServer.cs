@@ -21,6 +21,7 @@ namespace PointDeviation
 
         // ridisegni chiesti da noi: mai più di uno ogni tanto, perché Revit ridisegna tutta la vista (modello compreso)
         private const int MinRefreshMs = 150;
+        private const int MinRefreshFlatMs = 700;
         private const int ZoomSettleMs = 150;
         private static long _lastRefresh, _zoomTick, _lastVisLog;
         private static bool _zoomDirty;
@@ -64,9 +65,18 @@ namespace PointDeviation
                 long now = Environment.TickCount;
                 if (ZoomCache.Update(app.ActiveUIDocument)) { _zoomDirty = true; _zoomTick = now; }
 
+                // Piante, sezioni e prospetti: RefreshActiveView ridisegna tutta la vista, anche griglie, simboli e
+                // annotazioni, che si vedono lampeggiare (registro 13/11 17:59: «a ogni zoom si ricaricano tutti gli
+                // elementi»). Lì niente ridisegno extra a fine zoom (Revit ha appena ridisegnato da solo; se manca
+                // dettaglio lo chiede il disegno) e i ridisegni per i blocchi in arrivo al massimo ogni 700 ms.
+                bool flat = !(app.ActiveUIDocument.ActiveView is View3D);
                 bool refresh = false;
-                if (_zoomDirty && now - _zoomTick >= ZoomSettleMs) { _zoomDirty = false; refresh = true; }
-                if (Redraw.Pending && now - _lastRefresh >= MinRefreshMs) { Redraw.Take(); refresh = true; }
+                if (_zoomDirty && now - _zoomTick >= ZoomSettleMs)
+                {
+                    _zoomDirty = false;
+                    if (!flat) refresh = true;
+                }
+                if (Redraw.Pending && now - _lastRefresh >= (flat ? MinRefreshFlatMs : MinRefreshMs)) { Redraw.Take(); refresh = true; }
                 if (refresh)
                 {
                     _lastRefresh = now;

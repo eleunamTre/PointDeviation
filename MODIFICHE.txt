@@ -734,3 +734,9 @@ Ottava tornata (28/10/2026): octree
      davanti al piano della sezione (solo sezioni e dettagli), oltre il limite lontano se attivo, fuori dalla regione
      di ritaglio se attiva. Assi dalla vista (destra, alto, verso la scena), origine dal ritaglio della vista.
      «[Stato]» dice quanti blocchi il campo della sezione ha escluso.
+160. Piante, sezioni e prospetti che lampeggiano a ogni zoom (registro 13/11 17:59: griglie, simboli di sezione e
+     annotazioni si ridisegnano di continuo). Il plugin chiedeva a Revit di ridisegnare la vista attiva (RefreshActiveView)
+     150 ms dopo ogni zoom e poi ogni 150 ms finche' arrivavano blocchi: nelle viste 3D non si nota, in quelle piane
+     Revit ridisegna anche tutte le annotazioni. Ora nelle viste non 3D niente ridisegno a fine zoom (Revit ha appena
+     ridisegnato; se manca dettaglio lo chiede il disegno stesso) e ridisegni per i blocchi in arrivo al massimo ogni
+     700 ms. Nelle viste 3D resta tutto come prima.
