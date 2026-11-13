@@ -20,7 +20,13 @@ namespace PointDeviation
     internal static class OctreeBuilder
     {
         public const int NodeGrid = 128;       // celle per lato nel campionamento di un nodo
-        private const int LeafMax = 30000;      // punti massimi in una foglia
+        // Punti massimi in un nodo (indice versione 3, voce 152): un nodo che con la griglia terrebbe di più ne tiene
+        // solo questi (sottocampione uniforme), il resto scende ai figli, e l'albero diventa più profondo dove la nuvola
+        // è più fitta. Prima i nodi interni arrivavano a 210 mila punti (vegetazione, volumi), le foglie a 30 mila: da
+        // vicino si leggevano e preparavano blocchi interi che uscivano molto dalla vista. Riferimento: l'octree Potree
+        // della stessa nuvola ha una mediana di ~6 mila punti per nodo e 10 livelli.
+        public const int NodeCap = 20000;
+        private const int LeafMax = 20000;      // punti massimi in una foglia
         private const int ChunkMax = 2000000;   // punti massimi di un pezzo elaborato in memoria
         private const int MaxLevel = 24;
         private const int TmpRecord = 15;       // record dei file temporanei: int32 x, y, z + rgb
@@ -34,6 +40,7 @@ namespace PointDeviation
             public int Chunk = -1;
             public long First;
             public int Count;
+            public float Spacing;                       // distanza tra i punti del nodo (m) se ridotto dal tetto; 0 = cella
             public byte[] Mem;                          // punti tenuti in memoria (radici dei pezzi e livelli superiori)
             public double[] Box = { double.MaxValue, double.MaxValue, double.MaxValue, double.MinValue, double.MinValue, double.MinValue };
 
@@ -194,7 +201,8 @@ namespace PointDeviation
                     FirstRecord = nd.First, Count = nd.Count,
                     MinX = (float)b[0], MinY = (float)b[1], MinZ = (float)b[2], MaxX = (float)b[3], MaxY = (float)b[4], MaxZ = (float)b[5],
                     Level = (byte)Math.Min(255, nd.Level), ChildMask = mask, FirstChild = Math.Max(0, first),
-                    CubeX = (float)nd.CubeX, CubeY = (float)nd.CubeY, CubeZ = (float)nd.CubeZ, CubeSize = (float)nd.Size
+                    CubeX = (float)nd.CubeX, CubeY = (float)nd.CubeY, CubeZ = (float)nd.CubeZ, CubeSize = (float)nd.Size,
+                    Spacing = nd.Spacing
                 });
             }
             return new Result { Nodes = res, Points = written, Depth = depth };
@@ -320,8 +328,9 @@ namespace PointDeviation
             int[] keep;
             int keepN;
             var childIdx = new List<int>[8];
+            bool leaf = count <= LeafMax || node.Level >= MaxLevel;
 
-            if (count <= LeafMax || node.Level >= MaxLevel)
+            if (leaf)
             {
                 keep = idx; keepN = count;
             }
@@ -365,6 +374,23 @@ namespace PointDeviation
                 var sorted = new int[keepN];
                 for (int k = 0; k < keepN; k++) sorted[k] = keep[ord[k]];
                 keep = sorted;
+            }
+            // tetto di punti del nodo: si tiene l'inizio dell'ordine a strati (uniforme su tutto il cubo), il resto scende
+            // ai figli; la distanza tra i punti del nodo cresce di √(punti della griglia / punti tenuti)
+            if (!leaf && keepN > NodeCap)
+            {
+                double half = node.Size * 0.5;
+                double mx = node.CubeX + half, my = node.CubeY + half, mz = node.CubeZ + half;
+                for (int k = NodeCap; k < keepN; k++)
+                {
+                    int p = keep[k];
+                    double x = P.X[p] * scale, y = P.Y[p] * scale, z = P.Z[p] * scale;
+                    int oct = (x >= mx ? 1 : 0) | (y >= my ? 2 : 0) | (z >= mz ? 4 : 0);
+                    if (childIdx[oct] == null) childIdx[oct] = new List<int>();
+                    childIdx[oct].Add(p);
+                }
+                node.Spacing = (float)(node.Size / NodeGrid * Math.Sqrt((double)keepN / NodeCap));
+                keepN = NodeCap;
             }
             byte[] rec = Serialize(P, keep, keepN, scale, node);
             if (isChunkRoot) node.Mem = rec;
@@ -449,6 +475,17 @@ namespace PointDeviation
             }
             foreach (int t in touched) marks[t] = false;
             touched.Clear();
+            // tetto di punti del nodo (vedi BuildSubtree): i punti in più restano nei figli (acc è in ordine casuale)
+            if (acc.Count > NodeCap)
+            {
+                for (int k = NodeCap; k < acc.Count; k++)
+                {
+                    int c = (int)(acc[k] >> 32), i = (int)(acc[k] & 0xFFFFFFFF);
+                    removed[c][i] = false;
+                }
+                node.Spacing = (float)(node.Size / NodeGrid * Math.Sqrt((double)acc.Count / NodeCap));
+                acc.RemoveRange(NodeCap, acc.Count - NodeCap);
+            }
 
             // punti saliti nel nodo
             var mine = new byte[acc.Count * Record];

@@ -421,6 +421,8 @@ namespace PointDeviation
                     // cella). Usare la cella intera faceva scegliere livelli troppo fitti e punti grandi troppo larghi:
                     // circa il doppio dei punti necessari per la stessa resa a schermo.
                     double sp = t.CubeSize * FtPerM / g * SpacingFactor;
+                    // nodo ridotto dal tetto di punti (indice versione 3): più rado della cella
+                    if (t.Spacing > 0) sp = Math.Max(sp, t.Spacing * FtPerM * SpacingFactor);
                     // foglia: tiene tutti i punti della sua zona, quindi può essere più fitta della griglia
                     if (_childCount[i] == 0 && t.Count > 0) sp = Math.Min(sp, Math.Sqrt(_area[i] / t.Count));
                     _nodeSpacing[i] = _effSpacing[i] = sp;
@@ -1047,13 +1049,18 @@ namespace PointDeviation
 
             // blocchi in vista, dal più importante (octree: più grande a schermo) al meno importante
             int count = IsOctree ? _orderN : Tiles.Length;
-            if (IsOctree) Array.Clear(_viewNow, 0, _viewNow.Length);
+            if (IsOctree)
+            {
+                Array.Clear(_viewNow, 0, _viewNow.Length); Array.Clear(_pxNow, 0, _pxNow.Length);
+                // prima del giro: i padri guardano già i pixel dei figli (CoveredOctants, PixelFine)
+                for (int oi = 0; oi < count; oi++) { int i = _order[oi]; if (want[i] > 0) _pxNow[i] = px[i]; }
+            }
             for (int oi = 0; oi < count; oi++)
             {
                 int i = IsOctree ? _order[oi] : oi;
                 int w = want[i];
                 if (w <= 0) continue;
-                if (IsOctree) { _viewNow[i] = true; _pxNow[i] = px[i]; }
+                if (IsOctree) _viewNow[i] = true;
                 Request(i, w, now);
                 int level = Level(i, _want[i]);
 
@@ -1205,6 +1212,23 @@ namespace PointDeviation
             int key = ColorKey(cpu, st);
             bool hl = Highlighted;
             double radius = RadiusKey(i, 0);
+            int prio = i < _viewNow.Length && _viewNow[i] ? 0 : 1;
+            if (PixelFine(i, cpu.Count))
+            {
+                // nodo fitto a schermo: solo la versione a punti di un pixel (vedi EnsureNode)
+                TileGpu gp = _gpu[i];
+                if (gp != null && gp.StyleVersion == st.Version && gp.GeoVersion == GeoVersion && gp.ColorKey == key && gp.Highlight == hl
+                    && gp.Built >= cpu.Count) return;
+                Baked bp = Volatile.Read(ref BakedP[i]);
+                if (bp != null && bp.StyleVersion == st.Version && bp.GeoVersion == GeoVersion && bp.ColorKey == key && bp.Highlight == hl
+                    && bp.Built >= cpu.Count) return;
+                CloudBaker.Enqueue(new BakeJob
+                {
+                    Layer = this, Node = i, Octa = false, WithPoints = false, Radius = radius, UpTo = cpu.Count,
+                    Key = key, Highlight = hl, Style = st, Argb = LayerArgb(st), Prio = prio
+                });
+                return;
+            }
             // già pronto per tutti i punti caricati (nella scheda video o preparato in attesa di copia): niente da fare
             TileGpu g = _gpuO[i];
             if (g != null && g.StyleVersion == st.Version && g.GeoVersion == GeoVersion && g.ColorKey == key && g.Highlight == hl
@@ -1215,7 +1239,7 @@ namespace PointDeviation
             CloudBaker.Enqueue(new BakeJob
             {
                 Layer = this, Node = i, Octa = true, WithPoints = true, Radius = radius, UpTo = cpu.Count,
-                Key = key, Highlight = hl, Style = st, Argb = LayerArgb(st), Prio = i < _viewNow.Length && _viewNow[i] ? 0 : 1
+                Key = key, Highlight = hl, Style = st, Argb = LayerArgb(st), Prio = prio
             });
         }
 
@@ -1292,6 +1316,20 @@ namespace PointDeviation
             // versione a punti di un pixel per tutti i nodi (anche le foglie): è quella che si disegna dove il nodo è
             // abbastanza fitto a schermo (vedi PixelFine)
             bool withPts = true;
+            // Nodo fitto a schermo: si disegna solo a punti di un pixel, quindi si prepara solo quella versione (16 byte per
+            // punto invece di 16 + 64). I punti grandi si preparano quando servono (zoom avanti). Registro del 13/11 17:10:
+            // dal 25 al 50% della preparazione era per punti grandi poi non disegnati.
+            if (PixelFine(i, need))
+            {
+                int fp = UseBaked(_gpu, BakedP, i, false, radius, need, key, hl, st, budget, now, noUpload);
+                if (fp == 2 && (CloudBaker.Queued < 48 || (!prefetch && CloudBaker.QueuedUrgent < 48)))
+                    CloudBaker.Enqueue(new BakeJob
+                    {
+                        Layer = this, Node = i, Octa = false, WithPoints = false, Radius = radius, UpTo = cpu.Count,
+                        Key = key, Highlight = hl, Style = st, Argb = argb, Prio = prefetch ? 1 : 0
+                    });
+                return;
+            }
             int so = UseBaked(_gpuO, BakedO, i, true, radius, need, key, hl, st, budget, now, noUpload);
             int sp = withPts ? UseBaked(_gpu, BakedP, i, false, radius, need, key, hl, st, budget, now, noUpload) : 0;
             if (so != 2 && sp != 2) return;
@@ -1372,6 +1410,13 @@ namespace PointDeviation
                 // vecchi non copre il padre aggiornato, così non si vedono riquadri dei due stili mescolati
                 if (b != null && b.Chunks.Count > 0 && b.StyleVersion == CurrentStyleVersion
                     && (b.Built >= need / 2 || b.Built >= cc.Count)) res |= 1 << o;
+                else
+                {
+                    // figlio fitto a schermo: si disegna a punti di un pixel e può non avere i punti grandi
+                    TileGpu pb = _gpu[ch];
+                    if (pb != null && pb.Chunks.Count > 0 && pb.StyleVersion == CurrentStyleVersion && PixelFine(ch, need)
+                        && (pb.Built >= need / 2 || pb.Built >= cc.Count)) res |= 1 << o;
+                }
             }
             return (byte)res;
         }
@@ -1526,7 +1571,9 @@ namespace PointDeviation
                 bool hp = gp != null && gp.Chunks.Count > 0;
                 bool okO = go != null && go.Chunks.Count > 0 && go.StyleVersion == st.Version && go.Built >= need;
                 bool okP = _wantedOct[i] == 0 || (hp && gp.StyleVersion == st.Version);
-                if (okO && okP) readyPts += need; else notBuilt++;
+                // nodo fitto a schermo: basta la versione a punti di un pixel
+                bool ok = PixelFine(i, need) ? hp && gp.StyleVersion == st.Version && gp.Built >= need : okO && okP;
+                if (ok) readyPts += need; else notBuilt++;
                 if (!hp && (go == null || go.Chunks.Count == 0)) missing++;
             }
 

@@ -522,7 +522,7 @@ namespace PointDeviation
                         progress(L.T("Suddivisione in blocchi..."), 0.35 + 0.25 * written / seen);
                     }, ct),
                     progress, ct);
-                TileEntry.Write(Path.Combine(workDir, CloudInfo.IndexName), tree.Nodes, 2);
+                TileEntry.Write(Path.Combine(workDir, CloudInfo.IndexName), tree.Nodes, 3);
 
                 // ---------------------------------------------------------- anteprima e metadati
                 progress(L.T("Anteprima..."), 0.98);
@@ -537,6 +537,7 @@ namespace PointDeviation
                     PointCount = tree.Points,
                     FormatVersion = CloudInfo.CurrentFormat,
                     OctreeGrid = OctreeBuilder.NodeGrid,
+                    NodeCap = OctreeBuilder.NodeCap,
                     OctreeDepth = tree.Depth,
                     HasRgb = src.HasRgb,
                     Scale = Scale,

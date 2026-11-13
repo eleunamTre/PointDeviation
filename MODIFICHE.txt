@@ -690,3 +690,17 @@ Ottava tornata (28/10/2026): octree
      distano al massimo 1,2 px, altrimenti a punti grandi. «Dimensione punti» decide ora solo la grandezza massima dei
      punti grandi dove la nuvola e' rada (100% = circa 5 px di diametro, come prima). Tutti i nodi (anche le foglie)
      hanno la versione a punti di un pixel. Precaricamento alla stessa densita' della vista (era 0,75).
+152. Punti grandi preparati solo dove servono. Registro del 13/11 17:05-17:12 (effetto foto, dimensione 100%): nostro
+     tempo per fotogramma quasi sempre 2-15 ms, 15-35 fotogrammi al secondo; ma dal 25 al 50% della preparazione era per
+     rifare i punti grandi di nodi che poi si disegnano a punti di un pixel. Ora un nodo fitto a schermo (PixelFine) si
+     prepara solo nella versione a punti di un pixel (16 byte per punto invece di 16 + 64); i punti grandi si preparano
+     quando il nodo diventa rado a schermo (zoom avanti). La vista nuova e' pronta quando i nodi fitti hanno i punti
+     piccoli; un figlio fitto con i soli punti piccoli copre il suo ottante nel padre.
+153. Octree con tetto di punti per nodo (indice versione 3). Confronto con l'octree Potree della stessa nuvola (13/11):
+     da noi nodi fino a 210 mila punti e foglie fino a 30 mila (3.505 nodi, 8 livelli), da Potree mediana ~6 mila e 10
+     livelli. Ora nessun nodo supera 20.000 punti: un nodo che con la griglia 128³ ne terrebbe di piu' tiene l'inizio del
+     suo ordine a strati (sottocampione uniforme) e il resto scende ai figli, quindi l'albero si approfondisce dove la
+     nuvola e' fitta; foglie al massimo 20.000 punti. L'indice salva per questi nodi la distanza reale tra i punti (cella
+     × √(punti della griglia / 20.000)), usata dal motore per la scelta dei livelli e il raggio dei punti. Le nuvole
+     convertite prima continuano a funzionare come sono; per i blocchi piccoli vanno riconvertite (le distanze
+     dell'analisi si ricalcolano).

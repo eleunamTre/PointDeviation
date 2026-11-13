@@ -55,6 +55,7 @@ namespace PointDeviation
         [DataMember] public string Notes;          // diagnostica della conversione
         [DataMember] public int OctreeGrid;        // celle per lato nel campionamento dei nodi (formato 2)
         [DataMember] public int OctreeDepth;
+        [DataMember] public int NodeCap;           // punti massimi per nodo (0 = nessun tetto: conversioni prima della voce 152)
 
         /// <summary>Byte per punto in points.bin.</summary>
         public int RecordSize { get { return FormatVersion >= 2 ? RecordSizeV2 : RecordSizeV1; } }
@@ -111,6 +112,8 @@ namespace PointDeviation
         public byte Level, ChildMask;
         public int FirstChild;                           // indice del primo figlio; i figli sono consecutivi
         public float CubeX, CubeY, CubeZ, CubeSize;      // cubo del nodo (metri, relativi a CenterM)
+        // indice versione 3: distanza tra i punti del nodo (m) quando il tetto di punti l'ha ridotto; 0 = cella della griglia
+        public float Spacing;
 
         public int ChildCount
         {
@@ -136,6 +139,7 @@ namespace PointDeviation
                         bw.Write(t.Level); bw.Write(t.ChildMask); bw.Write(t.FirstChild);
                         bw.Write(t.CubeX); bw.Write(t.CubeY); bw.Write(t.CubeZ); bw.Write(t.CubeSize);
                     }
+                    if (version >= 3) bw.Write(t.Spacing);
                 }
             }
         }
@@ -159,6 +163,7 @@ namespace PointDeviation
                         res[i].Level = br.ReadByte(); res[i].ChildMask = br.ReadByte(); res[i].FirstChild = br.ReadInt32();
                         res[i].CubeX = br.ReadSingle(); res[i].CubeY = br.ReadSingle(); res[i].CubeZ = br.ReadSingle(); res[i].CubeSize = br.ReadSingle();
                     }
+                    if (version >= 3) res[i].Spacing = br.ReadSingle();
                 }
                 return res;
             }
