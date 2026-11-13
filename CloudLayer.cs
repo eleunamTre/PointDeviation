@@ -337,8 +337,20 @@ namespace PointDeviation
         // grandi del livello sopra restano finché arriva il figlio (al massimo il doppio di quelli giusti, raramente il
         // quadruplo); oltre si passa ai punti piccoli, per non mostrare rombi enormi.
         private const double CoarseFactor = 4.0;
-        private bool[] _viewNow = new bool[0];         // octree: nodo scelto per la vista nell'ultimo fotogramma (priorità di preparazione)
-        private const double PrefetchDensity = 0.75;   // precaricamento: distanza tra i punti rispetto a quella della vista
+        private bool[] _viewNow = new bool[0];
+        private double[] _pxNow = new double[0];        // piedi per pixel sul nodo nell'ultimo fotogramma (0 = non in vista)
+        // un nodo con i punti a meno di 1,2 px l'uno dall'altro a schermo si disegna a punti di un pixel (effetto foto);
+        // oltre, a punti grandi
+        private const double PixelSwitch = 1.2;
+
+        /// <summary>Il nodo, con n punti disegnati, è abbastanza fitto a schermo per i punti di un pixel?</summary>
+        private bool PixelFine(int i, int n)
+        {
+            double px = i < _pxNow.Length ? _pxNow[i] : 0;
+            if (px <= 0) return false;
+            return OwnSpacing(i, n) / px <= PixelSwitch;
+        }         // octree: nodo scelto per la vista nell'ultimo fotogramma (priorità di preparazione)
+        private const double PrefetchDensity = 1.0;    // precaricamento: distanza tra i punti rispetto a quella della vista (era 0,75: con la densità dei punti di un pixel (151) bastava la stessa)
         private int[] _pfWant = new int[0];             // precaricamento: punti voluti per i blocchi da preparare in anticipo
         private int[] _pfOrder = new int[0];            // precaricamento: blocchi in ordine di importanza
         private int _pfN;
@@ -369,7 +381,7 @@ namespace PointDeviation
             _shownWant = new int[n]; _shownCov = new byte[n]; _shownSkip = new bool[n];
             _coarse = new bool[n];
             BakePendP = new int[n]; BakePendO = new int[n];
-            _viewNow = new bool[n];
+            _viewNow = new bool[n]; _pxNow = new double[n];
             _covered = new byte[n];
             _ocx = new double[n]; _ocy = new double[n]; _ocz = new double[n];
             _want = new int[n];
@@ -712,11 +724,17 @@ namespace PointDeviation
             // piccoli e più fitti (la superficie resta coperta), sopra il 100% più grandi e più radi. Prima cambiava solo
             // il raggio con la stessa densità: rimpicciolendo i punti comparivano i buchi. Dal registro dell'11/11 la
             // scheda video ha margine (44 M triangoli senza rallentare il fotogramma), quindi i punti in più si reggono.
-            double target = st.PointScale > 0
-                ? Math.Max(1.0, (st.Quality == Quality.Fine ? 2.0 : st.Quality == Quality.Media ? 3.6 : 2.8) * st.PointScale / 100.0)
-                : 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
+            // Modo automatico «effetto foto» (voce 151): la densità si sceglie come per i punti di un pixel (circa 2 punti
+            // per pixel², 0,7 px tra i punti con qualità Normale), quindi dove la nuvola è abbastanza fitta si vedono punti
+            // di un pixel uno accanto all'altro, come un'immagine. Solo dove la nuvola è più rada dello schermo (da vicino,
+            // vegetazione, bordi a fuoco) si usano i punti grandi, con la grandezza massima data da «Dimensione punti»
+            // (100% = circa 5 px di diametro). Prima la densità era 2,8 px con punti grandi ovunque: superfici granulose e
+            // piene di buchi bianchi (immagini del concorrente e prova a 1 px dell'utente, 13/11).
+            double target = 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
             _lastCam = cam;
-            _capTarget = target;
+            _capTarget = st.PointScale > 0
+                ? Math.Max(1.0, (st.Quality == Quality.Fine ? 2.0 : st.Quality == Quality.Media ? 3.6 : 2.8) * st.PointScale / 100.0)
+                : target;
             _focus = !AdvancedSettings.Current.UniformDetail;
 
             double px0;
@@ -1035,7 +1053,7 @@ namespace PointDeviation
                 int i = IsOctree ? _order[oi] : oi;
                 int w = want[i];
                 if (w <= 0) continue;
-                if (IsOctree) _viewNow[i] = true;
+                if (IsOctree) { _viewNow[i] = true; _pxNow[i] = px[i]; }
                 Request(i, w, now);
                 int level = Level(i, _want[i]);
 
@@ -1196,7 +1214,7 @@ namespace PointDeviation
                 && b.Built >= cpu.Count) return;
             CloudBaker.Enqueue(new BakeJob
             {
-                Layer = this, Node = i, Octa = true, WithPoints = Tiles[i].ChildMask != 0, Radius = radius, UpTo = cpu.Count,
+                Layer = this, Node = i, Octa = true, WithPoints = true, Radius = radius, UpTo = cpu.Count,
                 Key = key, Highlight = hl, Style = st, Argb = LayerArgb(st), Prio = i < _viewNow.Length && _viewNow[i] ? 0 : 1
             });
         }
@@ -1271,7 +1289,9 @@ namespace PointDeviation
             bool noUpload = false, bool prefetch = false)
         {
             int need = Math.Min(drawN, cpu.Count);
-            bool withPts = Tiles[i].ChildMask != 0;
+            // versione a punti di un pixel per tutti i nodi (anche le foglie): è quella che si disegna dove il nodo è
+            // abbastanza fitto a schermo (vedi PixelFine)
+            bool withPts = true;
             int so = UseBaked(_gpuO, BakedO, i, true, radius, need, key, hl, st, budget, now, noUpload);
             int sp = withPts ? UseBaked(_gpu, BakedP, i, false, radius, need, key, hl, st, budget, now, noUpload) : 0;
             if (so != 2 && sp != 2) return;
@@ -1559,6 +1579,8 @@ namespace PointDeviation
                 if (!hp && !ho) continue;
                 if (_shownSkip[i]) continue;
                 int cov = _shownCov[i];
+                // effetto foto: nodo fitto a schermo → tutto a punti di un pixel
+                if (hp && gp.StyleVersion == st.Version && PixelFine(i, _shownWant[i])) cov = 0xFF;
                 // vista precedente mostrata in attesa della nuova: con lo zoom i suoi punti grandi si ingrandiscono come
                 // un'immagine (da 208 a 7 ft di ampiezza: 28 volte). Dove ora sono molto più grandi del necessario si usano
                 // i punti piccoli dello stesso blocco: per un attimo la zona è più rada invece che coperta da rombi enormi

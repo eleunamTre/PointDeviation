@@ -186,9 +186,9 @@ namespace PointDeviation
 
                 // livello di dettaglio: punti desiderati per blocco, poi limite complessivo della qualità scelta
                 // con i punti grandi (4 vertici l'uno) bastano molti meno punti
-                long limit = st.PointScale > 0
-                    ? (st.Quality == Quality.Fine ? 7000000 : st.Quality == Quality.Media ? 2500000 : 4500000)
-                    : (st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000);
+                // limite dei punti di un pixel anche con i punti grandi: dalla voce 151 la densità è quella dei punti di un
+                // pixel e i punti grandi restano solo dove la nuvola è rada
+                long limit = st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000;
                 limit = limit * AdvancedSettings.Current.Effective.BudgetPercent / 100;
                 var wants = new List<int[]>();
                 var pxs = new List<double[]>();

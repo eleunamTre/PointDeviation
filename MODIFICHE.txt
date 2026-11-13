@@ -681,3 +681,12 @@ Ottava tornata (28/10/2026): octree
      e le superfici si leggono ancora. Da noi il massimo a schermo (142) li riduceva a puntini sparsi («da lontano un
      po' rado»). Ora il massimo cresce con lo stesso fattore del fuoco (148): al centro come prima, sul bordo fino a 3
      volte piu' grande, cosi' la grandezza segue la distanza tra i punti.
+151. «Effetto foto» automatico. Prova dell'utente (13/11 17:01) con «Dimensione punti» a 0 (punti di un pixel): da
+     lontano uguale al concorrente, «quasi una foto»; da vicino no (punti staccati dove la nuvola e' piu' rada dello
+     schermo). Registro della prova: nostro tempo per fotogramma 1-32 ms con 2-13 M punti, disegno 2-14 ms. Con i
+     punti grandi invece (densita' 2,8 px) le superfici erano granulose e piene di buchi bianchi. Ora, con dimensione
+     punti > 0, la densita' si sceglie come per i punti di un pixel (0,7 px tra i punti con qualita' Normale, 0,5
+     Fine, 1,0 Media; stesso limite di punti) e ogni nodo si disegna a punti di un pixel se a schermo i suoi punti
+     distano al massimo 1,2 px, altrimenti a punti grandi. «Dimensione punti» decide ora solo la grandezza massima dei
+     punti grandi dove la nuvola e' rada (100% = circa 5 px di diametro, come prima). Tutti i nodi (anche le foglie)
+     hanno la versione a punti di un pixel. Precaricamento alla stessa densita' della vista (era 0,75).
