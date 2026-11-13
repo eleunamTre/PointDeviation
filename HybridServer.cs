@@ -185,7 +185,7 @@ namespace PointDeviation
                 FrameStats.Begin(budget.Moving);
 
                 // livello di dettaglio: punti desiderati per blocco, poi limite complessivo della qualità scelta
-                // con i punti grandi (6 vertici l'uno) bastano molti meno punti
+                // con i punti grandi (4 vertici l'uno) bastano molti meno punti
                 long limit = st.PointScale > 0
                     ? (st.Quality == Quality.Fine ? 7000000 : st.Quality == Quality.Media ? 2500000 : 4500000)
                     : (st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000);
@@ -292,7 +292,7 @@ namespace PointDeviation
             long big = BigPts + SmallPts > 0 ? BigPts : _lastBig, small = BigPts + SmallPts > 0 ? SmallPts : _lastSmall;
             Log.Debug("Fotogrammi", string.Format(
                 "{0} fotogrammi ({1} in movimento){2}; nostro tempo per fotogramma medio {3:F1} ms (scelta blocchi {4:F1}, preparazione e copie {5:F1}, disegno {6:F1}), massimo {7:F0} ms; " +
-                "nuove viste {8} (attesa media {9:F0} ms, massima {10:F0} ms, mostrate incomplete {11}); ultimo fotogramma {12:N0} punti grandi (8 triangoli l'uno) e {13:N0} piccoli; " +
+                "nuove viste {8} (attesa media {9:F0} ms, massima {10:F0} ms, mostrate incomplete {11}); ultimo fotogramma {12:N0} punti grandi (4 triangoli l'uno) e {13:N0} piccoli; " +
                 "raccolte memoria gen0/gen1/gen2 {14}/{15}/{16}{17}",
                 _frames, _moving,
                 _intervals > 0 ? string.Format(", in movimento un fotogramma ogni {0:F0} ms (≈ {1:F1} al secondo), il più lento {2:F0} ms", _intSum / _intervals, 1000.0 / Math.Max(1, _intSum / _intervals), _intMax) : "",

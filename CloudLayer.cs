@@ -31,7 +31,7 @@ namespace PointDeviation
         public int NrmCount;     // punti per cui sono state calcolate le normali
     }
 
-    /// <summary>Un pezzo di buffer grafico: al massimo 16k punti (o 10.9k ottaedri), sorgente fino a SrcEnd.</summary>
+    /// <summary>Un pezzo di buffer grafico: al massimo 16k punti (o 16k tetraedri), sorgente fino a SrcEnd.</summary>
     internal sealed class GpuChunk
     {
         public VertexBuffer Vb;
@@ -47,8 +47,8 @@ namespace PointDeviation
     internal sealed class TileGpu : IDisposable
     {
         public readonly List<GpuChunk> Chunks = new List<GpuChunk>();
-        public bool Points;            // true = punti di un pixel, false = ottaedri
-        public double Radius;          // raggio degli ottaedri (piedi)
+        public bool Points;            // true = punti di un pixel, false = punti grandi (tetraedri)
+        public double Radius;          // raggio dei punti grandi (piedi, come ottaedro equivalente)
         public int RadiusN;            // punti disegnati per cui è stato calcolato il raggio
         public int FullCount;          // octree: punti dell'intero nodo; > 0 = raggio progressivo (vedi BuildRange)
         public readonly int[] OctEnd = new int[8]; // fine del tratto di sorgente dell'ultimo pezzo di ogni ottante
@@ -311,6 +311,7 @@ namespace PointDeviation
         // raggio progressivo dei punti grandi: i primi punti dell'ordine a strati coprono di più, ma al massimo così
         // (era 2,5: quando di un blocco si disegnava solo l'inizio si vedevano rombi enormi)
         private const double ProgressiveCap = 1.6;
+        private const double SpacingFactor = 0.75;     // distanza reale tra i punti / cella della griglia (vedi costruttore)
         private ViewCam _lastCam;
         private double _capTarget = 2.8;               // distanza a schermo scelta (qualità × dimensione), senza gli aumenti per il limite di punti                      // octree: camera dell'ultimo fotogramma (per la vista precedente mostrata in attesa)
         // blocchi in coda di lettura chiesti in un fotogramma: a vista ferma i fotogrammi arrivano al massimo ogni 150 ms, e
@@ -402,7 +403,12 @@ namespace PointDeviation
                     TileEntry t = Tiles[i];
                     _firstChild[i] = t.FirstChild;
                     _childCount[i] = t.ChildCount;
-                    double sp = t.CubeSize * FtPerM / g;
+                    // distanza reale tra i punti di un nodo: circa 0,75 × la cella della griglia. Con un punto per cella i
+                    // punti di celle vicine stanno più stretti della cella (sulla nuvola di lavoro: 1,9 volte i punti per
+                    // livello di un octree Potree con la stessa cella alla radice; stima superficie/punti 0,56-0,66 della
+                    // cella). Usare la cella intera faceva scegliere livelli troppo fitti e punti grandi troppo larghi:
+                    // circa il doppio dei punti necessari per la stessa resa a schermo.
+                    double sp = t.CubeSize * FtPerM / g * SpacingFactor;
                     // foglia: tiene tutti i punti della sua zona, quindi può essere più fitta della griglia
                     if (_childCount[i] == 0 && t.Count > 0) sp = Math.Min(sp, Math.Sqrt(_area[i] / t.Count));
                     _nodeSpacing[i] = _effSpacing[i] = sp;
@@ -1611,8 +1617,16 @@ namespace PointDeviation
         private static EffectInstance _effect;
         private static IndexBuffer _pointIb, _octaIb;
         private const int PointChunk = 16384;
-        private const int OctaChunk = 65532 / 6;
-        private static readonly int[] OctaFaces = { 0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5 };
+        // Punti grandi = tetraedri regolari (4 vertici, 4 triangoli) invece di ottaedri (6 vertici, 8 triangoli): da
+        // qualunque direzione coprono una superficie mai nulla, e con il raggio × 1,225 coprono almeno quanto l'ottaedro
+        // (area proiettata minima 0,94 r² contro 1,42 r², verificata in Python su 20.000 direzioni). Metà triangoli per la
+        // scheda video e un terzo di dati in meno da preparare e copiare (registro del 13/11: il disegno dei punti grandi
+        // era la parte più lunga del fotogramma).
+        private const int BigVerts = 4, BigTris = 4;
+        private const int OctaChunk = 65532 / BigVerts;
+        private static readonly int[] OctaFaces = { 0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2 };
+        private const double TetraScale = 1.225;                       // raggio del tetraedro rispetto all'ottaedro equivalente
+        private static readonly float TetraK = (float)(TetraScale / Math.Sqrt(3.0)); // componente dei vertici (±k, ±k, ±k)
 
         /// <summary>Indici uguali per tutti i pezzi: si creano una volta sola e si condividono.</summary>
         private static void EnsureShared()
@@ -1630,14 +1644,14 @@ namespace PointDeviation
             }
             if (_octaIb == null)
             {
-                int tris = OctaChunk * 8;
+                int tris = OctaChunk * BigTris;
                 var ib = new IndexBuffer(tris * IndexTriangle.GetSizeInShortInts());
                 ib.Map(tris * IndexTriangle.GetSizeInShortInts());
                 IndexStreamTriangle s = ib.GetIndexStreamTriangle();
                 for (int j = 0; j < OctaChunk; j++)
                 {
-                    int o = j * 6;
-                    for (int f = 0; f < 8; f++) s.AddTriangle(new IndexTriangle(o + OctaFaces[f * 3], o + OctaFaces[f * 3 + 1], o + OctaFaces[f * 3 + 2]));
+                    int o = j * BigVerts;
+                    for (int f = 0; f < BigTris; f++) s.AddTriangle(new IndexTriangle(o + OctaFaces[f * 3], o + OctaFaces[f * 3 + 1], o + OctaFaces[f * 3 + 2]));
                 }
                 ib.Unmap();
                 _octaIb = ib;
@@ -1646,7 +1660,7 @@ namespace PointDeviation
 
         /// <summary>Aggiunge al blocco i punti della sorgente da gpu.Built a end (si ferma prima se il tempo è finito).</summary>
         // punti scelti per i pezzi in costruzione, uno per ottante del nodo (solo thread di Revit)
-        private const int BucketCap = OctaChunk * 6 > PointChunk ? OctaChunk * 6 : PointChunk;
+        private const int BucketCap = OctaChunk * BigVerts > PointChunk ? OctaChunk * BigVerts : PointChunk;
         private static readonly float[][] _bx = NewBuckets(), _by = NewBuckets(), _bz = NewBuckets();
         private static readonly byte[][] _bc = NewColorBuckets();
         private static readonly int[] _bnv = new int[8], _bpts = new int[8];
@@ -1659,7 +1673,7 @@ namespace PointDeviation
         {
             EnsureShared();
             int per = gpu.Points ? PointChunk : OctaChunk;
-            int vpp = gpu.Points ? 1 : 6;
+            int vpp = gpu.Points ? 1 : BigVerts;
             float r0 = (float)gpu.Radius;
             // octree: raggio di base del nodo; gpu.Radius è il massimo (vedi RadiusKey)
             double rb = node >= 0 && IsOctree ? NodeRadius(node) : gpu.Radius;
@@ -1690,12 +1704,11 @@ namespace PointDeviation
                     // i primi grandi, gli ultimi piccoli. Qualunque prefisso si disegni, la superficie resta coperta.
                     if (gpu.FullCount > 0)
                         r0 = (float)Math.Min(rb * Math.Min(ProgressiveCap, Math.Sqrt((double)gpu.FullCount / (k + 1))), gpu.Radius);
-                    Put(oc, fx + r0, fy, fz, r, g, b, t);
-                    Put(oc, fx - r0, fy, fz, r, g, b, t);
-                    Put(oc, fx, fy + r0, fz, r, g, b, t);
-                    Put(oc, fx, fy - r0, fz, r, g, b, t);
-                    Put(oc, fx, fy, fz + r0, r, g, b, t);
-                    Put(oc, fx, fy, fz - r0, r, g, b, t);
+                    float q = r0 * TetraK;
+                    Put(oc, fx + q, fy + q, fz + q, r, g, b, t);
+                    Put(oc, fx + q, fy - q, fz - q, r, g, b, t);
+                    Put(oc, fx - q, fy + q, fz - q, r, g, b, t);
+                    Put(oc, fx - q, fy - q, fz + q, r, g, b, t);
                 }
                 if (++_bpts[oc] >= per) Flush(gpu, oc, k + 1, split);
             }
@@ -1757,7 +1770,7 @@ namespace PointDeviation
             Style st = j.Style;
             int node = j.Node;
             bool octa = j.Octa;
-            int per = octa ? OctaChunk : PointChunk, vpp = octa ? 6 : 1, stride = _stride;
+            int per = octa ? OctaChunk : PointChunk, vpp = octa ? BigVerts : 1, stride = _stride;
             int oR = _offR, oG = _offG, oB = _offB, oA = _offA;
             bool op = _alphaOpacity;
             int upTo = Math.Min(j.UpTo, cpu.Count);
@@ -1809,12 +1822,11 @@ namespace PointDeviation
                     else
                     {
                         float r0 = (float)Math.Min(rb * Math.Min(ProgressiveCap, Math.Sqrt((double)full / (k + 1))), j.Radius);
-                        Vert(p0, ref nv[oc], stride, fx + r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx - r0, fy, fz, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx, fy + r0, fz, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx, fy - r0, fz, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx, fy, fz + r0, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx, fy, fz - r0, oR, oG, oB, oA, r, g, b, a);
+                        float q = r0 * TetraK;
+                        Vert(p0, ref nv[oc], stride, fx + q, fy + q, fz + q, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx + q, fy - q, fz - q, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx - q, fy + q, fz - q, oR, oG, oB, oA, r, g, b, a);
+                        Vert(p0, ref nv[oc], stride, fx - q, fy - q, fz + q, oR, oG, oB, oA, r, g, b, a);
                     }
                 }
                 if (++np[oc] >= per) { BakeFlush(bk, buf, nv, np, start, oc, k + 1, stride); }
@@ -1984,8 +1996,8 @@ namespace PointDeviation
                     DrawContext.FlushBuffer(c.Vb, c.Points, _pointIb, n * IndexPoint.GetSizeInShortInts(),
                         _format, effect, PrimitiveType.PointList, 0, n);
                 else
-                    DrawContext.FlushBuffer(c.Vb, c.Points * 6, _octaIb, n * 8 * IndexTriangle.GetSizeInShortInts(),
-                        _format, effect, PrimitiveType.TriangleList, 0, n * 8);
+                    DrawContext.FlushBuffer(c.Vb, c.Points * BigVerts, _octaIb, n * BigTris * IndexTriangle.GetSizeInShortInts(),
+                        _format, effect, PrimitiveType.TriangleList, 0, n * BigTris);
             }
             return drawn;
         }

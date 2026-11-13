@@ -642,3 +642,21 @@ Ottava tornata (28/10/2026): octree
      del giusto). Precaricamento piu' stretto, come i visualizzatori che caricano solo cio' che si vede: fascia del 25%
      attorno all'inquadratura (era 60%) e densita' 0,75 di quella della vista (era 0,55, quasi il doppio dei punti);
      profilo Medio 20% (era 40%). Registro: nei motivi della preparazione anche «precaricamento».
+147. Motore di disegno, dai file della nuvola di lavoro convertita da noi e dal plugin concorrente (formato Potree
+     2.0: metadata.json + hierarchy.bin) e dal registro del 13/11 16:16-16:18:
+     - nel registro il disegno e' ancora la parte piu' lunga del fotogramma (20-170 ms di media, contro 2-28 ms di
+       preparazione e copie), con 1-6 M punti grandi da 8 triangoli: 10-45 M triangoli per fotogramma;
+     - confronto degli octree (stessa nuvola, stessa cella alla radice 1,07 m): i nostri nodi hanno circa il doppio dei
+       punti per livello (livelli 0-5: 23,1 M contro 11,4 M; radice 34 mila contro 15,7 mila). Con un punto per cella
+       della griglia i punti di celle vicine stanno piu' stretti della cella: la distanza reale e' circa 0,6-0,75 della
+       cella (stima superficie/punti pesata sui punti 0,56-0,66). Il motore usava la cella intera come distanza: per la
+       distanza a schermo voluta sceglieva livelli troppo fitti (circa il doppio dei punti) e punti grandi troppo larghi
+       (molte sovrapposizioni).
+     Correzioni: distanza tra i punti di un nodo = 0,75 × la cella (le foglie come prima, se piu' fitte); a parita' di
+     dimensione a schermo dei punti se ne disegnano circa il 40% in meno. Punti grandi come tetraedri regolari (4
+     vertici, 4 triangoli) invece di ottaedri (6 vertici, 8 triangoli), con raggio × 1,225 perche' coprano almeno
+     quanto prima da qualunque direzione (area proiettata minima verificata in Python): meta' triangoli e un terzo di
+     dati in meno da preparare e copiare. Insieme: circa un quarto dei triangoli di prima per la stessa vista.
+     Da valutare dopo (richiede di riconvertire le nuvole): nodi piu' piccoli e octree piu' profondo come Potree (16.201
+     nodi, mediana ~6 mila punti, 10 livelli; noi 3.505 nodi, fino a 210 mila punti, 8 livelli), per caricare e
+     preparare solo cio' che e' davvero nell'inquadratura.
