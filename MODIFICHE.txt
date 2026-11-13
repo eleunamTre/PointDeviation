@@ -730,3 +730,7 @@ Ottava tornata (28/10/2026): octree
      limite inferiore, se piu' basso) e il piano di taglio; nelle piante dei controsoffitti tra il taglio e il limite
      superiore. Livelli «illimitato» o «livello sotto»: nessun limite da quella parte. «[Stato]» dice quanti blocchi
      l'intervallo di vista ha escluso.
+159. Sezioni e prospetti: come nelle piante (158), si escludono i blocchi interamente fuori dal campo della vista:
+     davanti al piano della sezione (solo sezioni e dettagli), oltre il limite lontano se attivo, fuori dalla regione
+     di ritaglio se attiva. Assi dalla vista (destra, alto, verso la scena), origine dal ritaglio della vista.
+     «[Stato]» dice quanti blocchi il campo della sezione ha escluso.

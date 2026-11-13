@@ -1656,7 +1656,7 @@ namespace PointDeviation
                 Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; nuova vista pronta {8:F0}%{9}",
                     Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "",
                     needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? (hold ? "" : " (graduale)") : " (si mostra la vista precedente)")
-                    + (_lastCam != null && _lastCam.HasBox ? string.Format(_lastCam.PlanRange ? "; intervallo di vista della pianta: {0} blocchi esclusi" : "; riquadro di sezione: {0} blocchi esclusi", _lastCam.BoxCulled) : ""));
+                    + (_lastCam != null && _lastCam.HasBox ? string.Format(_lastCam.PlanRange ? "; intervallo di vista della pianta: {0} blocchi esclusi" : _lastCam.SectionRange ? "; campo della sezione: {0} blocchi esclusi" : "; riquadro di sezione: {0} blocchi esclusi", _lastCam.BoxCulled) : ""));
                 LogWork(bp, bt * f, up, ut * f);
             }
         }
@@ -2400,9 +2400,10 @@ namespace PointDeviation
         private void SetBox(View view)
         {
             _box = null;
-            PlanRange = false;
+            PlanRange = false; SectionRange = false;
             var vp = view as ViewPlan;
             if (vp != null) { SetPlanRange(vp); return; }
+            if (view is ViewSection) { SetSectionRange(view); return; }
             var v3 = view as View3D;
             if (v3 == null || !v3.IsSectionBoxActive) return;
             BoundingBoxXYZ b = v3.GetSectionBox();
@@ -2441,6 +2442,43 @@ namespace PointDeviation
         }
 
         public bool PlanRange;         // il ritaglio viene dall'intervallo di vista di una pianta
+        public bool SectionRange;      // il ritaglio viene dal campo di una sezione o di un prospetto
+
+        // Sezioni e prospetti: Revit mostra solo cio' che sta nel loro campo, cioe' oltre il piano della sezione (verso la
+        // scena), entro il limite lontano se attivo ed entro la regione di ritaglio se attiva. Si escludono i blocchi
+        // interamente fuori. Assi del ritaglio: destra, alto e direzione verso la scena (-ViewDirection, che in Revit
+        // punta verso chi guarda), origine sul piano della vista. Il piano vicino vale solo per le sezioni e i dettagli:
+        // nei prospetti il segno sta fuori dall'edificio e non serve.
+        private void SetSectionRange(View view)
+        {
+            XYZ o = view.Origin, x = view.RightDirection.Normalize(), y = view.UpDirection.Normalize(), z = view.ViewDirection.Normalize().Negate();
+            // origine: quella del ritaglio della vista, che sta sul piano della sezione o del prospetto
+            BoundingBoxXYZ cb0 = view.CropBox;
+            if (cb0 != null && cb0.Transform != null) o = cb0.Transform.Origin;
+            bool section = view.ViewType == ViewType.Section || view.ViewType == ViewType.Detail;
+            double xmin = -1e30, xmax = 1e30, ymin = -1e30, ymax = 1e30, zmin = section ? 0 : -1e30, zmax = 1e30;
+            Parameter fc = view.get_Parameter(BuiltInParameter.VIEWER_BOUND_FAR_CLIPPING);
+            Parameter fo = view.get_Parameter(BuiltInParameter.VIEWER_BOUND_OFFSET_FAR);
+            if (fc != null && fc.AsInteger() != 0 && fo != null && fo.AsDouble() > 0) zmax = fo.AsDouble();
+            if (view.CropBoxActive)
+            {
+                BoundingBoxXYZ b = view.CropBox;
+                if (b != null)
+                {
+                    Transform t = b.Transform ?? Transform.Identity;
+                    xmin = ymin = 1e30; xmax = ymax = -1e30;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        XYZ c = t.OfPoint(new XYZ((k & 1) == 0 ? b.Min.X : b.Max.X, (k & 2) == 0 ? b.Min.Y : b.Max.Y, (k & 4) == 0 ? b.Min.Z : b.Max.Z)) - o;
+                        double u = c.DotProduct(x), v = c.DotProduct(y);
+                        xmin = Math.Min(xmin, u); xmax = Math.Max(xmax, u); ymin = Math.Min(ymin, v); ymax = Math.Max(ymax, v);
+                    }
+                }
+            }
+            if (zmin <= -1e30 && zmax >= 1e30 && xmin <= -1e30) return;
+            _box = new[] { o.X, o.Y, o.Z, x.X, x.Y, x.Z, y.X, y.Y, y.Z, z.X, z.Y, z.Z, xmin, ymin, zmin, xmax, ymax, zmax };
+            SectionRange = true;
+        }
 
         private static double PlaneZ(Document doc, ViewPlan vp, PlanViewRange r, PlanViewPlane plane)
         {
