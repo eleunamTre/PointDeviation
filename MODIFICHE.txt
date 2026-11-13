@@ -721,3 +721,5 @@ Ottava tornata (28/10/2026): octree
      nel progetto c'e' gia' un tipo ReCap dello stesso file, si usa quello invece di crearne un secondo (che restava
      senza ingombro). Se l'ingombro manca comunque, ultimo tentativo con un tipo ReCap dello stesso nome di file anche
      da un'altra cartella. L'inserimento resta temporaneo (la transazione si annulla alla fine).
+157. Registro, riga «[Fotogrammi]» con punti da 1 pixel (dimensione 0) o senza octree: diceva sempre «0 punti grandi e
+     0 piccoli» perche' il disegno non atomico non contava i punti. Ora li conta come il disegno dell'octree.

@@ -1521,8 +1521,8 @@ namespace PointDeviation
                     int cov = _covered[i] | (_coarse[i] ? _wantedOct[i] : 0);
                     int pixMask = hp ? (ho ? cov : 0xFF) : 0;
                     int bigMask = ho ? (0xFF & ~pixMask) : 0;
-                    if (pixMask != 0) { gp.LastDraw = now; pts += Draw(gp, want[i], effect, pixMask); }
-                    if (bigMask != 0) { go.LastDraw = now; pts += Draw(go, want[i], effect, bigMask); }
+                    if (pixMask != 0) { gp.LastDraw = now; int dn = Draw(gp, want[i], effect, pixMask); pts += dn; FrameStats.SmallPts += dn; }
+                    if (bigMask != 0) { go.LastDraw = now; int dn = Draw(go, want[i], effect, bigMask); pts += dn; FrameStats.BigPts += dn; }
                     nodes++;
                     continue;
                 }
@@ -1531,7 +1531,10 @@ namespace PointDeviation
                 if (gpu == null || gpu.Chunks.Count == 0) gpu = _mode[i] == 1 ? _gpu[i] : _gpuO[i];
                 if (gpu == null || gpu.Chunks.Count == 0) continue;
                 gpu.LastDraw = now;
-                pts += Draw(gpu, want[i], effect, 0xFF);
+                {
+                    int dn = Draw(gpu, want[i], effect, 0xFF); pts += dn;
+                    if (gpu.Points) FrameStats.SmallPts += dn; else FrameStats.BigPts += dn;
+                }
                 nodes++;
             }
             StatPoints = pts; StatNodes = nodes; StatWanted = wanted; StatTick = now; StatMissing = missing; StatNotLoaded = notLoaded; StatNotBuilt = notBuilt;
