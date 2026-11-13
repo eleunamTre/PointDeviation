@@ -628,3 +628,17 @@ Ottava tornata (28/10/2026): octree
      Diagnostica: la riga «[Lavoro]» dice per quale motivo si e' preparato (senza buffer, stile, raggio, piu' punti,
      altro); in modo graduale «nuove viste, attesa» misura il tempo perche' la vista nuova sia pronta, e la riga
      «[Stato]» scrive «(graduale)».
+146. Ancora lento (registro del 13/11 15:16-15:28, versione con la 145, alimentazione da rete). Dai numeri:
+     - preparazione: in 4 minuti 251 M punti preparati, di cui 168 M (67%) solo perche' era cambiato il raggio dei
+       punti (massimo a schermo, voci 142-145) di blocchi gia' disegnati, 60 M per blocchi senza buffer, 24 M per
+       piu' punti. I rifacimenti per il raggio stavano nella stessa coda dei blocchi mancanti e li facevano aspettare
+       (fino a 48 in coda), e poi occupavano le copie sul thread di Revit;
+     - disegno: 1-6 ms per milione di triangoli (6-184 ms per fotogramma), contro 0,13-0,46 ms il 12/11 alle 11:12
+       con quasi la stessa versione e quasi gli stessi triangoli: la scheda video lavora molto piu' lenta che ieri
+       (alimentazione da rete; scheda per Revit «predefinita» in Windows, quindi decide il sistema).
+     Correzioni: la preparazione ha tre code per priorita': prima i blocchi in vista senza buffer o con piu' punti
+     (anche quelli appena letti), poi il precaricamento, per ultimi i blocchi da rifare solo per il raggio, che si
+     chiedono soltanto a camera ferma (in movimento resta il buffer che c'e', con punti al massimo il doppio o la meta'
+     del giusto). Precaricamento piu' stretto, come i visualizzatori che caricano solo cio' che si vede: fascia del 25%
+     attorno all'inquadratura (era 60%) e densita' 0,75 di quella della vista (era 0,55, quasi il doppio dei punti);
+     profilo Medio 20% (era 40%). Registro: nei motivi della preparazione anche «precaricamento».

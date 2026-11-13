@@ -109,10 +109,10 @@ namespace PointDeviation
                         LoaderThreads = 2, PrefetchMargin = 0, UploadMovingMs = 15, UploadStillMs = 80 };
                 case HardwareProfile.Potente:
                     return new PerfValues { BudgetPercent = 130, GpuKeepSeconds = 60, MemKeepSeconds = 120, BakerThreads = Math.Max(2, Math.Min(12, c - 4)),
-                        LoaderThreads = c >= 16 ? 6 : 4, PrefetchMargin = 1.6, UploadMovingMs = 20, UploadStillMs = 120 };
+                        LoaderThreads = c >= 16 ? 6 : 4, PrefetchMargin = 1.25, UploadMovingMs = 20, UploadStillMs = 120 };
                 default:
                     return new PerfValues { BudgetPercent = 100, GpuKeepSeconds = 45, MemKeepSeconds = 60, BakerThreads = Math.Max(2, Math.Min(6, c - 2)),
-                        LoaderThreads = c >= 8 ? 4 : 2, PrefetchMargin = 1.4, UploadMovingMs = 20, UploadStillMs = 120 };
+                        LoaderThreads = c >= 8 ? 4 : 2, PrefetchMargin = 1.2, UploadMovingMs = 20, UploadStillMs = 120 };
             }
         }
     }

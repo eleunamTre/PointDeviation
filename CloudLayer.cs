@@ -336,6 +336,8 @@ namespace PointDeviation
         // grandi del livello sopra restano finché arriva il figlio (al massimo il doppio di quelli giusti, raramente il
         // quadruplo); oltre si passa ai punti piccoli, per non mostrare rombi enormi.
         private const double CoarseFactor = 4.0;
+        private bool[] _viewNow = new bool[0];         // octree: nodo scelto per la vista nell'ultimo fotogramma (priorità di preparazione)
+        private const double PrefetchDensity = 0.75;   // precaricamento: distanza tra i punti rispetto a quella della vista
         private int[] _pfWant = new int[0];             // precaricamento: punti voluti per i blocchi da preparare in anticipo
         private int[] _pfOrder = new int[0];            // precaricamento: blocchi in ordine di importanza
         private int _pfN;
@@ -366,6 +368,7 @@ namespace PointDeviation
             _shownWant = new int[n]; _shownCov = new byte[n]; _shownSkip = new bool[n];
             _coarse = new bool[n];
             BakePendP = new int[n]; BakePendO = new int[n];
+            _viewNow = new bool[n];
             _covered = new byte[n];
             _ocx = new double[n]; _ocy = new double[n]; _ocz = new double[n];
             _want = new int[n];
@@ -724,7 +727,9 @@ namespace PointDeviation
             double pfMargin = AdvancedSettings.Current.Effective.PrefetchMargin;
             if (st.PointScale > 0 && pfMargin > 0)
             {
-                SelectOctree(cam.Widened(pfMargin), (_stableTarget > 0 ? Math.Max(target, _stableTarget) : target) * 0.55, budget, outWant, outPx);
+                // densità poco più fine di quella della vista (era 0,55: quasi il doppio dei punti, in un'area 2,6 volte la
+                // finestra); ora fascia stretta attorno all'inquadratura, come i visualizzatori che caricano solo ciò che si vede
+                SelectOctree(cam.Widened(pfMargin), (_stableTarget > 0 ? Math.Max(target, _stableTarget) : target) * PrefetchDensity, budget, outWant, outPx);
                 if (_pfOrder.Length < _orderN) _pfOrder = new int[_order.Length];
                 Array.Copy(_order, _pfOrder, _orderN);
                 _pfN = _orderN;
@@ -992,11 +997,13 @@ namespace PointDeviation
 
             // blocchi in vista, dal più importante (octree: più grande a schermo) al meno importante
             int count = IsOctree ? _orderN : Tiles.Length;
+            if (IsOctree) Array.Clear(_viewNow, 0, _viewNow.Length);
             for (int oi = 0; oi < count; oi++)
             {
                 int i = IsOctree ? _order[oi] : oi;
                 int w = want[i];
                 if (w <= 0) continue;
+                if (IsOctree) _viewNow[i] = true;
                 Request(i, w, now);
                 int level = Level(i, _want[i]);
 
@@ -1068,7 +1075,7 @@ namespace PointDeviation
                     if (!ready || CloudBaker.Queued >= 16) continue;
                     double radius = RadiusKey(i, 0);
                     // in movimento si preparano in background ma non si copiano: il tempo del fotogramma va alla vista
-                    EnsureNode(i, radius, cpu, Math.Min(cpu.Count, w), ColorKey(cpu, st), Highlighted, st, argb, budget, now, budget.Moving);
+                    EnsureNode(i, radius, cpu, Math.Min(cpu.Count, w), ColorKey(cpu, st), Highlighted, st, argb, budget, now, budget.Moving, true);
                 }
         }
 
@@ -1156,7 +1163,7 @@ namespace PointDeviation
             CloudBaker.Enqueue(new BakeJob
             {
                 Layer = this, Node = i, Octa = true, WithPoints = Tiles[i].ChildMask != 0, Radius = radius, UpTo = cpu.Count,
-                Key = key, Highlight = hl, Style = st, Argb = LayerArgb(st)
+                Key = key, Highlight = hl, Style = st, Argb = LayerArgb(st), Prio = i < _viewNow.Length && _viewNow[i] ? 0 : 1
             });
         }
 
@@ -1227,18 +1234,28 @@ namespace PointDeviation
         /// nodo ha figli, punti piccoli), preparate insieme in un solo passaggio in background.
         /// </summary>
         private void EnsureNode(int i, double radius, TileCpu cpu, int drawN, int key, bool hl, Style st, int argb, RenderBudget budget, long now,
-            bool noUpload = false)
+            bool noUpload = false, bool prefetch = false)
         {
             int need = Math.Min(drawN, cpu.Count);
             bool withPts = Tiles[i].ChildMask != 0;
             int so = UseBaked(_gpuO, BakedO, i, true, radius, need, key, hl, st, budget, now, noUpload);
             int sp = withPts ? UseBaked(_gpu, BakedP, i, false, radius, need, key, hl, st, budget, now, noUpload) : 0;
-            if ((so == 2 || sp == 2) && CloudBaker.Queued < 48)
+            if (so != 2 && sp != 2) return;
+            // Solo il raggio è cambiato (il nodo si disegna già, con punti un po' più grandi o più piccoli del giusto):
+            // registro del 13/11, 168 M punti preparati su 251 M erano per questo motivo, in coda insieme ai blocchi che
+            // mancavano ancora. Ora si rifanno solo a camera ferma e dopo tutto il resto.
+            TileGpu g = _gpuO[i];
+            bool radiusOnly = g != null && g.Chunks.Count > 0 && g.StyleVersion == st.Version && g.GeoVersion == GeoVersion
+                && g.ColorKey == key && g.Highlight == hl && g.Built >= need && !RadiusOk(i, g.Radius, radius)
+                && (!withPts || _gpu[i] != null);
+            if (radiusOnly && budget.Moving) return;
+            int prio = prefetch ? 1 : radiusOnly ? 2 : 0;
+            if (CloudBaker.Queued < 48 || (prio == 0 && CloudBaker.QueuedUrgent < 48))
                 CloudBaker.Enqueue(new BakeJob
                 {
                     // tutti i punti caricati del nodo, così zoomando non va rifatto (vedi MODIFICHE 97)
                     Layer = this, Node = i, Octa = true, WithPoints = withPts, Radius = radius, UpTo = cpu.Count,
-                    Key = key, Highlight = hl, Style = st, Argb = argb
+                    Key = key, Highlight = hl, Style = st, Argb = argb, Prio = prio
                 });
         }
 
@@ -1548,9 +1565,9 @@ namespace PointDeviation
             if (bp == 0 && up == 0 && rb == 0) return;
             long[] why = CloudBaker.ReasonPoints;
             long w0 = Interlocked.Exchange(ref why[0], 0), w1 = Interlocked.Exchange(ref why[1], 0), w2 = Interlocked.Exchange(ref why[2], 0),
-                w3 = Interlocked.Exchange(ref why[3], 0), w4 = Interlocked.Exchange(ref why[4], 0);
-            Log.Debug("Lavoro", string.Format("tutte le nuvole: letti {4:N0} blocchi ({5:N0} punti) in {6:F0} ms (somma dei thread), preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms; in coda: lettura {7}, preparazione {8}; preparati perché: senza buffer {9:N0}, stile {10:N0}, raggio {11:N0}, più punti {12:N0}, altro {13:N0}",
-                bp, bms, up, ums, rb, rp, rms, CloudLoader.Queued, CloudBaker.Queued, w0, w1, w2, w3, w4));
+                w3 = Interlocked.Exchange(ref why[3], 0), w4 = Interlocked.Exchange(ref why[4], 0), w5 = Interlocked.Exchange(ref why[5], 0);
+            Log.Debug("Lavoro", string.Format("tutte le nuvole: letti {4:N0} blocchi ({5:N0} punti) in {6:F0} ms (somma dei thread), preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms; in coda: lettura {7}, preparazione {8}; preparati perché: senza buffer {9:N0}, stile {10:N0}, raggio {11:N0}, più punti {12:N0}, altro {13:N0}, precaricamento {14:N0}",
+                bp, bms, up, ums, rb, rp, rms, CloudLoader.Queued, CloudBaker.Queued, w0, w1, w2, w3, w4, w5));
         }
 
         // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
@@ -2078,6 +2095,7 @@ namespace PointDeviation
         public bool Octa, Highlight, WithPoints;   // WithPoints: insieme ai punti grandi si preparano anche quelli piccoli
         public double Radius;
         public Style Style;
+        public int Prio;          // 0 = blocco in vista senza buffer o con più punti, 1 = precaricamento, 2 = solo raggio cambiato
     }
 
     /// <summary>
@@ -2086,22 +2104,33 @@ namespace PointDeviation
     /// </summary>
     internal static class CloudBaker
     {
-        private static readonly ConcurrentQueue<BakeJob> _queue = new ConcurrentQueue<BakeJob>();
+        // tre code per priorità (vedi BakeJob.Prio): prima i blocchi che mancano nella vista, poi il precaricamento, per
+        // ultimi i blocchi già disegnati da rifare solo per il raggio. Con una coda sola i blocchi mancanti aspettavano
+        // dietro a quelli da rifare (registro del 13/11: fino a 48 in coda).
+        private static readonly ConcurrentQueue<BakeJob>[] _queues = { new ConcurrentQueue<BakeJob>(), new ConcurrentQueue<BakeJob>(), new ConcurrentQueue<BakeJob>() };
         private static readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
         private static Thread[] _threads;
         private static int _busy;
 
-        public static int Queued { get { return _queue.Count; } }
-        public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty; } }
+        public static int Queued { get { return _queues[0].Count + _queues[1].Count + _queues[2].Count; } }
+        public static int QueuedUrgent { get { return _queues[0].Count; } }
+        public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || Queued > 0; } }
+
+        private static bool TryTake(out BakeJob j)
+        {
+            for (int p = 0; p < _queues.Length; p++) if (_queues[p].TryDequeue(out j)) return true;
+            j = null;
+            return false;
+        }
         public static long BakeTicks, BakePoints;         // diagnostica: tempo e punti preparati
         public static long UploadTicks, UploadPoints;     // diagnostica: tempo e punti copiati nella scheda video
-        public static readonly long[] ReasonPoints = new long[5]; // diagnostica: punti preparati per motivo (vedi BakeReason)
+        public static readonly long[] ReasonPoints = new long[6]; // diagnostica: punti preparati per motivo (vedi BakeReason)
 
         public static void Enqueue(BakeJob j)
         {
             int[] pend = j.Octa ? j.Layer.BakePendO : j.Layer.BakePendP;
             if (Interlocked.CompareExchange(ref pend[j.Node], 1, 0) != 0) return;
-            _queue.Enqueue(j);
+            _queues[Math.Max(0, Math.Min(2, j.Prio))].Enqueue(j);
             if (_threads == null)
             {
                 // preparatori: tanti quanti i processori lasciando liberi quelli di Revit (con 16 processori: 12)
@@ -2122,7 +2151,7 @@ namespace PointDeviation
             while (true)
             {
                 BakeJob j;
-                if (!_queue.TryDequeue(out j)) { _signal.Wait(500); continue; }
+                if (!TryTake(out j)) { _signal.Wait(500); continue; }
                 Interlocked.Increment(ref _busy);
                 bool done = false;
                 Baked[] dest = j.Octa ? j.Layer.BakedO : j.Layer.BakedP;
@@ -2133,7 +2162,7 @@ namespace PointDeviation
                     // nodo uscito dalla vista mentre era in coda (rotazione veloce): non si prepara
                     if (j.Style.Version == j.Layer.CurrentStyleVersion && j.Layer.IdleMs(j.Node) < 2000)
                     {
-                        int why = j.Layer.BakeReason(j);
+                        int why = j.Prio == 1 ? 5 : j.Layer.BakeReason(j);   // 5 = precaricamento
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         Baked bk = j.Layer.Bake(j);
                         if (bk != null)
