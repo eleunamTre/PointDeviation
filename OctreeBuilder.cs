@@ -205,6 +205,15 @@ namespace PointDeviation
                     Spacing = nd.Spacing
                 });
             }
+            // diagnostica: struttura dell'octree (da confrontare tra conversioni)
+            {
+                var counts = new List<int>(res.Count);
+                int capped = 0;
+                foreach (TileEntry t in res) { counts.Add(t.Count); if (t.Spacing > 0) capped++; }
+                counts.Sort();
+                Log.Write("Conversione", string.Format("octree: {0} nodi, {1} livelli, punti per nodo mediana {2}, 90% {3}, massimo {4}; nodi ridotti dal tetto di {5}: {6}",
+                    res.Count, depth + 1, counts[counts.Count / 2], counts[(int)(counts.Count * 0.9)], counts[counts.Count - 1], NodeCap, capped));
+            }
             return new Result { Nodes = res, Points = written, Depth = depth };
         }
 
