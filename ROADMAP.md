@@ -45,10 +45,17 @@ Possibili sviluppi:
   (Gestione attività › Dettagli › Revit.exe › Imposta affinità).
 
 ## 5. Versioni di Revit successive alla 2024
-Supporto di Revit 2025, 2026 e seguenti, oltre alla 2024.
-- Da Revit 2025 i plugin girano su .NET 8 (non più .NET Framework 4.8): progetto con più destinazioni
-  (`net48` per la 2024, `net8.0-windows` con Windows Forms per la 2025 e successive) e riferimenti alle API della
-  versione giusta per ogni destinazione.
+Supporto di Revit 2025, 2026, 2027 e seguenti, oltre alla 2024.
+- Runtime (verificato a novembre 2026): Revit 2024 = .NET Framework 4.8; Revit 2025 e 2026 = .NET 8, ma Autodesk le
+  sta portando a .NET 10 con gli aggiornamenti di versione (2026.5 in beta è già su .NET 10; il supporto di
+  Microsoft a .NET 8 finisce il 10/11/2026); Revit 2027 = .NET 10.
+- Progetto con più destinazioni: `net48` per la 2024 e `net8.0-windows` (Windows Forms) per la 2025 e 2026; per la
+  2027 `net10.0-windows` con SDK .NET 10. Un plugin compilato per .NET 8 dovrebbe caricarsi anche in Revit su .NET 10
+  (non il contrario): per 2025/2026 restare su `net8.0-windows` copre sia le build .NET 8 sia quelle .NET 10; da
+  provare comunque su entrambe. Riferimenti alle API della versione giusta per ogni destinazione.
+- Controllare le modifiche incompatibili di .NET 10 rispetto a .NET 8 (elenco Microsoft «compatibility/10.0») e le
+  novità API della 2027 (isolamento dei plugin, nuova cartella dei plugin per tutti gli utenti, regioni cloud con
+  `ModelPathUtils.GetAllCloudRegions()`).
 - Verificare le parti sensibili al cambio: serializzazione JSON delle impostazioni, riflessione sulle API di
   visibilità delle nuvole, DirectContext3D e scrittura diretta nei buffer, finestre Windows Forms, P/Invoke.
 - File .addin e cartella di installazione per ogni versione di Revit; eventuale installatore unico.
