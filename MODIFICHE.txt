@@ -660,3 +660,13 @@ Ottava tornata (28/10/2026): octree
      Da valutare dopo (richiede di riconvertire le nuvole): nodi piu' piccoli e octree piu' profondo come Potree (16.201
      nodi, mediana ~6 mila punti, 10 livelli; noi 3.505 nodi, fino a 210 mila punti, 8 livelli), per caricare e
      preparare solo cio' che e' davvero nell'inquadratura.
+148. Caricamento a fuoco (richiesta dell'utente dopo il confronto con il plugin concorrente: da loro piena densita'
+     solo nella fascia inquadrata, pochi punti sparsi altrove; da noi «la nuvola c'e' sempre tutta» con lo stesso
+     dettaglio). Registro del 13/11 16:31 con la 147: nostro tempo per fotogramma 3-17 ms (era 20-170), disegno 1-7 ms,
+     14-31 fotogrammi al secondo; quindi ora conta quanto si legge e si prepara. Nella scelta dei blocchi la distanza
+     voluta tra i punti cresce con la distanza dal centro della finestra: pieno dettaglio entro il 35% della mezza
+     finestra attorno al centro (in vista 3D anche in profondita', lungo la direzione di vista), poi sempre piu' rado
+     fino a punti 4 volte piu' distanti sul bordo (16 volte meno punti) e ancora di piu' fuori dall'inquadratura (il
+     precaricamento attorno alla finestra resta quindi leggero). Con il massimo a schermo (142) i blocchi radi ai bordi
+     si vedono come punti sparsi, non come macchie. Impostazioni avanzate › Prestazioni: «Navigazione: stesso dettaglio
+     su tutta la vista» (spento = a fuoco, predefinito).

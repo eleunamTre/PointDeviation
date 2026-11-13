@@ -27,6 +27,7 @@ namespace PointDeviation
         private readonly Label _profileInfo = new Label { AutoSize = true, MaximumSize = new Size(520, 0), ForeColor = UiTheme.Muted, Margin = new Padding(0, 6, 0, 4) };
         private readonly System.Windows.Forms.CheckBox _fullWait = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _holdView = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
         {
@@ -171,6 +172,9 @@ namespace PointDeviation
             _holdView.Text = L.T("Navigazione: mostra la vista nuova solo quando è pronta");
             p.Controls.Add(_holdView);
             p.Controls.Add(Note(L.T("Spento (consigliato): zoomando e spostandosi il dettaglio compare man mano, zona per zona. Acceso: resta la vista precedente, ingrandita come un'immagine, e si passa a quella nuova tutta insieme quando è pronta (al massimo dopo 1,2 s).")));
+            _uniform.Text = L.T("Navigazione: stesso dettaglio su tutta la vista");
+            p.Controls.Add(_uniform);
+            p.Controls.Add(Note(L.T("Spento (consigliato): dettaglio pieno al centro della finestra, sempre più rado verso i bordi; si leggono e si preparano molti meno punti. Acceso: tutta la vista con lo stesso dettaglio.")));
             _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
@@ -216,6 +220,7 @@ namespace PointDeviation
             ShowProfile();
             _fullWait.Checked = a.AnalysisFullWait;
             _holdView.Checked = a.HoldViewUntilReady;
+            _uniform.Checked = a.UniformDetail;
         }
 
         private void Apply()
@@ -231,6 +236,7 @@ namespace PointDeviation
             }
             a.AnalysisFullWait = _fullWait.Checked;
             a.HoldViewUntilReady = _holdView.Checked;
+            a.UniformDetail = _uniform.Checked;
             a.Save();
             bool levelsChanged = CloudDebug.Levels != _levels.Checked;
             CloudDebug.Levels = _levels.Checked;

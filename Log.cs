@@ -196,6 +196,9 @@ namespace PointDeviation
         /// <summary>Navigazione: resta la vista precedente finché la nuova non è pronta, poi cambio tutto insieme (voce 106).
         /// Spento (predefinito): il dettaglio compare man mano, zona per zona.</summary>
         [DataMember] public bool HoldViewUntilReady;
+        /// <summary>Navigazione: stesso dettaglio su tutta la vista. Spento (predefinito): dettaglio pieno al centro della
+        /// finestra e sempre più rado verso i bordi (caricamento a fuoco, voce 148).</summary>
+        [DataMember] public bool UniformDetail;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 

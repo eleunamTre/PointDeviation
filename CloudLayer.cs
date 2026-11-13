@@ -717,6 +717,7 @@ namespace PointDeviation
                 : 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
             _lastCam = cam;
             _capTarget = target;
+            _focus = !AdvancedSettings.Current.UniformDetail;
 
             double px0;
             if (!NodeVisible(cam, 0, out px0))
@@ -814,6 +815,27 @@ namespace PointDeviation
         /// </summary>
         private long _lastActual;
 
+        /// <summary>
+        /// Caricamento a fuoco (come i visualizzatori di nuvole dedicati): pieno dettaglio nella fascia centrale della
+        /// finestra (e in profondità lungo la direzione di vista), sempre più rado verso i bordi e fuori dall'inquadratura.
+        /// Restituisce il fattore per la distanza tra i punti voluta: 1 al centro, FocusEdge sul bordo, di più oltre.
+        /// Senza, tutta la vista aveva lo stesso dettaglio e si leggevano e preparavano anche i bordi (registro del 13/11:
+        /// la nuvola «c'è sempre tutta»).
+        /// </summary>
+        private double FocusFactor(ViewCam cam, int i)
+        {
+            if (!_focus) return 1.0;
+            double cx, cy, cz;
+            ToModel(_cx[i], _cy[i], _cz[i], out cx, out cy, out cz);
+            double d = cam.CenterDistanceSphere(cx, cy, cz, _rad[i]);
+            if (d <= FocusBand) return 1.0;
+            double t = (d - FocusBand) / (1.0 - FocusBand);
+            return 1.0 + (FocusEdge - 1.0) * t * t;
+        }
+        private bool _focus;
+        private const double FocusBand = 0.35;   // fascia centrale a pieno dettaglio: 35% della mezza finestra attorno al centro
+        private const double FocusEdge = 4.0;    // sul bordo della finestra punti 4 volte più distanti (16 volte meno punti)
+
         private long SelectOctree(ViewCam cam, double target, long cap, int[] outWant, double[] outPx)
         {
             long actual = 0;
@@ -836,10 +858,11 @@ namespace PointDeviation
                 int cnt = Tiles[i].Count;
                 // un blocco più fitto di quanto serve a questa distanza se ne disegna solo la parte necessaria
                 // (i punti sono in ordine a strati: l'inizio copre tutto il blocco in modo uniforme)
+                double focus = FocusFactor(cam, i);
                 if (cnt > 0)
                 {
                     double sOwn = _childCount[i] == 0 ? Math.Sqrt(_area[i] / cnt) : _nodeSpacing[i];
-                    double sWant = target * px;
+                    double sWant = target * focus * px;
                     if (sOwn < sWant) cnt = (int)Math.Max(Math.Min(cnt, 512), cnt * (sOwn / sWant) * (sOwn / sWant));
                 }
                 outWant[i] = cnt;
@@ -854,7 +877,7 @@ namespace PointDeviation
                 // chiaramente più fitti del necessario. Senza, ai blocchi vicini alla soglia bastava un piccolo zoom per
                 // perdere e riprendere i figli: a ogni movimento tornavano per un attimo i punti grandi del livello sopra.
                 double ratio = _nodeSpacing[i] / Math.Max(px, 1e-9);
-                if (ratio <= (_wasRefined[i] ? target * 0.6 : target) || _childCount[i] == 0) continue;
+                if (ratio <= (_wasRefined[i] ? target * 0.6 : target) * focus || _childCount[i] == 0) continue;
                 for (int k = 0; k < _childCount[i]; k++)
                 {
                     int c = _firstChild[i] + k;
@@ -2438,6 +2461,26 @@ namespace PointDeviation
         }
 
         /// <summary>Distanza dal centro dello schermo, in frazioni di mezza finestra (0 = centro, 1 = bordo).</summary>
+        /// <summary>
+        /// Distanza a schermo del punto più vicino al centro di una sfera (centro, raggio) dal centro della finestra: 0 se
+        /// la sfera tocca il centro, 1 sul bordo della finestra (si misura come CenterDistance).
+        /// </summary>
+        public double CenterDistanceSphere(double x, double y, double z, double radius)
+        {
+            if (!Valid) return 0;
+            double dx = x - Pos.X, dy = y - Pos.Y, dz = z - Pos.Z;
+            double u = dx * Right.X + dy * Right.Y + dz * Right.Z;
+            double v = dx * Up.X + dy * Up.Y + dz * Up.Z;
+            double s = 1;
+            if (Perspective)
+            {
+                double depth = dx * Dir.X + dy * Dir.Y + dz * Dir.Z;
+                s = Math.Max(0.1, depth) / Target;
+                u -= OffU * s; v -= OffV * s;
+            }
+            return Math.Max(Math.Max(0, Math.Abs(u) - radius) / (HalfW * s), Math.Max(0, Math.Abs(v) - radius) / (HalfH * s));
+        }
+
         public double CenterDistance(double x, double y, double z)
         {
             if (!Valid) return 0;
