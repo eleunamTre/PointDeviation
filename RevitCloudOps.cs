@@ -48,7 +48,23 @@ namespace PointDeviation
                     doc.Regenerate();
 
                     BoundingBoxXYZ bb = inst.get_BoundingBox(null);
-                    if (bb == null) throw new InvalidOperationException(L.T("Revit non restituisce l'ingombro della nuvola."));
+                    // Revit carica le scansioni in background: subito dopo l'inserimento l'ingombro può mancare (succedeva
+                    // riconvertendo una nuvola dal file mentre lo stesso RCP era già collegato al progetto). Si riprova per
+                    // qualche secondo, anche con l'ingombro nella vista attiva.
+                    for (int attempt = 0; bb == null && attempt < 20; attempt++)
+                    {
+                        System.Threading.Thread.Sleep(300);
+                        doc.Regenerate();
+                        bb = inst.get_BoundingBox(null);
+                        if (bb == null && doc.ActiveView != null) { try { bb = inst.get_BoundingBox(doc.ActiveView); } catch { } }
+                    }
+                    if (bb == null)
+                    {
+                        Log.Write("Estrazione", string.Format("ingombro non disponibile: file «{0}» (esiste: {1}), tipo «{2}», nuvole ReCap già nel progetto: {3}",
+                            filePath, filePath != null && File.Exists(filePath), type.Name,
+                            new FilteredElementCollector(doc).OfClass(typeof(PointCloudType)).GetElementCount()));
+                        throw new InvalidOperationException(L.T("Revit non restituisce l'ingombro della nuvola."));
+                    }
 
                     XYZ offset = XYZ.Zero;
                     try { offset = type.Offset; } catch { }

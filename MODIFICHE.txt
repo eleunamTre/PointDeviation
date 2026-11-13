@@ -713,3 +713,7 @@ Ottava tornata (28/10/2026): octree
      passano prima in una cartella di riserva e tornano al loro posto se lo scambio non riesce (si riprova fino a 10
      volte: i lettori in background possono tenere un file aperto per un attimo). Serve per passare le nuvole
      all'octree con tetto di punti (153).
+155. Riconversione di un RCP: «Revit non restituisce l'ingombro della nuvola» (13/11). Subito dopo l'inserimento
+     temporaneo l'ingombro puo' mancare perche' Revit carica la scansione in background (lo stesso RCP era anche gia'
+     collegato al progetto). Ora si riprova per circa 6 secondi, anche con l'ingombro nella vista attiva; se manca
+     ancora, il registro («[Estrazione]») dice file, se esiste, tipo e quante nuvole ReCap sono nel progetto.
