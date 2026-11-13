@@ -670,3 +670,10 @@ Ottava tornata (28/10/2026): octree
      precaricamento attorno alla finestra resta quindi leggero). Con il massimo a schermo (142) i blocchi radi ai bordi
      si vedono come punti sparsi, non come macchie. Impostazioni avanzate › Prestazioni: «Navigazione: stesso dettaglio
      su tutta la vista» (spento = a fuoco, predefinito).
+149. Registro del 13/11 16:43-16:45 con la 148 (vista 3D con riquadro di sezione): fotogrammi fluidi (nostro tempo
+     2-16 ms, 15-35 fotogrammi al secondo in movimento, attese delle viste nuove di solito sotto 0,4 s). L'utente: da
+     vicino bene, da lontano un po' rado, e mancano ancora «i punti che non si vedono in camera». Il motore ignorava il
+     riquadro di sezione della vista 3D: sceglieva, leggeva e preparava anche i blocchi fuori dal riquadro, che Revit
+     poi non mostra. Ora i blocchi interamente fuori dal riquadro di sezione sono esclusi come quelli fuori
+     dall'inquadratura (anche dal precaricamento); la riga «[Stato]» dice quanti. Fuoco piu' morbido: pieno dettaglio
+     nella meta' centrale della finestra (era 35%) e punti 3 volte piu' distanti sul bordo (era 4).

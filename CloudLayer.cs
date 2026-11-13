@@ -833,13 +833,16 @@ namespace PointDeviation
             return 1.0 + (FocusEdge - 1.0) * t * t;
         }
         private bool _focus;
-        private const double FocusBand = 0.35;   // fascia centrale a pieno dettaglio: 35% della mezza finestra attorno al centro
-        private const double FocusEdge = 4.0;    // sul bordo della finestra punti 4 volte più distanti (16 volte meno punti)
+        // fascia centrale a pieno dettaglio: metà della mezza finestra attorno al centro; sul bordo punti 3 volte più distanti
+        // (9 volte meno punti). Era 35% e 4 volte: da lontano la vista risultava troppo rada (utente, 13/11).
+        private const double FocusBand = 0.5;
+        private const double FocusEdge = 3.0;
 
         private long SelectOctree(ViewCam cam, double target, long cap, int[] outWant, double[] outPx)
         {
             long actual = 0;
             int n = Tiles.Length;
+            cam.BoxCulled = 0;
             Array.Clear(outWant, 0, n);
             Array.Clear(outPx, 0, n);
             _orderN = 0;
@@ -1578,7 +1581,8 @@ namespace PointDeviation
                 CloudBaker.UploadPoints = 0; CloudBaker.UploadTicks = 0;
                 Log.Debug("Stato", string.Format("«{0}»: blocchi scelti {1}, disegnati {2}, da caricare {3}, da costruire {4}, punti {5:N0}, distanza punti {6:F1} px{7}; nuova vista pronta {8:F0}%{9}",
                     Name, wanted, nodes, notLoaded, notBuilt, pts, StatTarget, StatBudgetHit ? ", limite raggiunto" : "",
-                    needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? (hold ? "" : " (graduale)") : " (si mostra la vista precedente)"));
+                    needPts > 0 ? 100.0 * readyPts / needPts : 100, adopt ? (hold ? "" : " (graduale)") : " (si mostra la vista precedente)")
+                    + (_lastCam != null && _lastCam.HasBox ? string.Format("; riquadro di sezione: {0} blocchi esclusi", _lastCam.BoxCulled) : ""));
                 LogWork(bp, bt * f, up, ut * f);
             }
         }
@@ -2313,6 +2317,37 @@ namespace PointDeviation
         public double OffU, OffV;      // prospettiva: centro della finestra rispetto all'asse (alla distanza del bersaglio)
         public double Margin = 1.0;    // allargamento dell'inquadratura (precaricamento: blocchi appena fuori dai bordi)
 
+        // Riquadro di sezione della vista 3D (null = nessuno): i blocchi interamente fuori non si scelgono, non si leggono
+        // e non si preparano. Prima si caricavano comunque (Revit poi non li mostrava): lavoro per punti che non si vedono.
+        private double[] _box;         // origine, assi X Y Z (3 ciascuno), min, max nelle coordinate del riquadro
+        public int BoxCulled;          // diagnostica: blocchi esclusi dal riquadro nell'ultima scelta
+        public bool HasBox { get { return _box != null; } }
+
+        private void SetBox(View view)
+        {
+            _box = null;
+            var v3 = view as View3D;
+            if (v3 == null || !v3.IsSectionBoxActive) return;
+            BoundingBoxXYZ b = v3.GetSectionBox();
+            if (b == null) return;
+            Transform t = b.Transform ?? Transform.Identity;
+            XYZ o = t.Origin, x = t.BasisX.Normalize(), y = t.BasisY.Normalize(), z = t.BasisZ.Normalize();
+            _box = new[] { o.X, o.Y, o.Z, x.X, x.Y, x.Z, y.X, y.Y, y.Z, z.X, z.Y, z.Z, b.Min.X, b.Min.Y, b.Min.Z, b.Max.X, b.Max.Y, b.Max.Z };
+        }
+
+        /// <summary>La sfera (centro, raggio) tocca il riquadro di sezione? (sempre vero senza riquadro)</summary>
+        public bool InBox(double px, double py, double pz, double radius)
+        {
+            double[] b = _box;
+            if (b == null) return true;
+            double dx = px - b[0], dy = py - b[1], dz = pz - b[2];
+            double lx = dx * b[3] + dy * b[4] + dz * b[5];
+            double ly = dx * b[6] + dy * b[7] + dz * b[8];
+            double lz = dx * b[9] + dy * b[10] + dz * b[11];
+            return lx >= b[12] - radius && lx <= b[15] + radius && ly >= b[13] - radius && ly <= b[16] + radius
+                && lz >= b[14] - radius && lz <= b[17] + radius;
+        }
+
         /// <summary>Copia con l'inquadratura allargata di un fattore.</summary>
         public ViewCam Widened(double f)
         {
@@ -2322,6 +2357,13 @@ namespace PointDeviation
         }
 
         public static ViewCam From(Camera c, View view)
+        {
+            ViewCam v = FromCamera(c, view);
+            try { v.SetBox(view); } catch { }
+            return v;
+        }
+
+        private static ViewCam FromCamera(Camera c, View view)
         {
             // camera di DirectContext3D: posizione, direzioni e ampiezza esatte di questo fotogramma
             try
@@ -2502,6 +2544,7 @@ namespace PointDeviation
         {
             px = 0.05;
             if (!Valid) return true;
+            if (_box != null && !InBox(x, y, z, radius)) { BoxCulled++; return false; }
             double dx = x - Pos.X, dy = y - Pos.Y, dz = z - Pos.Z;
             double depth = dx * Dir.X + dy * Dir.Y + dz * Dir.Z;
             double u = dx * Right.X + dy * Right.Y + dz * Right.Z;
