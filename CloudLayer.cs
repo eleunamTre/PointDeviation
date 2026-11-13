@@ -1134,7 +1134,9 @@ namespace PointDeviation
             // Il massimo va a scatti di 2 (diametro tra 0,7 e 1,4 volte quello nominale): con scatti del 35% e la distanza
             // reale (che sale quando si tocca il limite di punti) quasi ogni zoom rifaceva tutti i blocchi vicini: registro
             // del 12/11, fino a 45 M punti preparati e 27 M copiati in 5 s per 2-10 M mostrati.
-            double cap = 0.85 * Math.Max(_capTarget, 1.0) * px;
+            // con il caricamento a fuoco verso i bordi i punti sono più radi: lì possono essere anche più grandi, così le
+            // superfici restano leggibili come macchie di colore invece di puntini sparsi (immagine del concorrente, 13/11)
+            double cap = 0.85 * Math.Max(_capTarget, 1.0) * px * (_lastCam != null ? FocusFactor(_lastCam, i) : 1.0);
             cap = Math.Pow(2.0, Math.Round(Math.Log(cap / 1e-3, 2.0))) * 1e-3;
             // Il massimo serve solo dove il nodo è più rado di quanto si vede (foglie da vicino, zone senza figli): lì i
             // punti si allargavano a 20 px. Un nodo abbastanza fitto per questa vista tiene il suo raggio di sempre, che non

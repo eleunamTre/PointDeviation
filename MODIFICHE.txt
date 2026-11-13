@@ -677,3 +677,7 @@ Ottava tornata (28/10/2026): octree
      poi non mostra. Ora i blocchi interamente fuori dal riquadro di sezione sono esclusi come quelli fuori
      dall'inquadratura (anche dal precaricamento); la riga «[Stato]» dice quanti. Fuoco piu' morbido: pieno dettaglio
      nella meta' centrale della finestra (era 35%) e punti 3 volte piu' distanti sul bordo (era 4).
+150. Dall'immagine del plugin concorrente (13/11): verso il fondo e i bordi i punti sono piu' radi ma anche piu' grandi,
+     e le superfici si leggono ancora. Da noi il massimo a schermo (142) li riduceva a puntini sparsi («da lontano un
+     po' rado»). Ora il massimo cresce con lo stesso fattore del fuoco (148): al centro come prima, sul bordo fino a 3
+     volte piu' grande, cosi' la grandezza segue la distanza tra i punti.
