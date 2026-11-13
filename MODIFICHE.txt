@@ -717,3 +717,7 @@ Ottava tornata (28/10/2026): octree
      temporaneo l'ingombro puo' mancare perche' Revit carica la scansione in background (lo stesso RCP era anche gia'
      collegato al progetto). Ora si riprova per circa 6 secondi, anche con l'ingombro nella vista attiva; se manca
      ancora, il registro («[Estrazione]») dice file, se esiste, tipo e quante nuvole ReCap sono nel progetto.
+156. Estrazione di un RCP che e' anche collegato al progetto (causa confermata dall'utente per l'errore della 155): se
+     nel progetto c'e' gia' un tipo ReCap dello stesso file, si usa quello invece di crearne un secondo (che restava
+     senza ingombro). Se l'ingombro manca comunque, ultimo tentativo con un tipo ReCap dello stesso nome di file anche
+     da un'altra cartella. L'inserimento resta temporaneo (la transazione si annulla alla fine).

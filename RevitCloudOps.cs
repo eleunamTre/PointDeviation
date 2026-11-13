@@ -39,8 +39,15 @@ namespace PointDeviation
                     }
                     else
                     {
-                        string engine = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant(); // "rcp" o "rcs"
-                        type = PointCloudType.Create(doc, engine, filePath);
+                        // Lo stesso RCP già collegato al progetto (per esempio per un confronto): se ne usa il tipo. Creare un
+                        // secondo tipo dello stesso file dava un'istanza senza ingombro (13/11, riconversione).
+                        type = ExistingRecapType(doc, filePath, false);
+                        if (type == null)
+                        {
+                            string engine = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant(); // "rcp" o "rcs"
+                            type = PointCloudType.Create(doc, engine, filePath);
+                        }
+                        else Log.Write("Estrazione", "uso il tipo già nel progetto per «" + filePath + "»");
                     }
 
                     // inserita con trasformazione identità: coordinate di modello = coordinate della nuvola
@@ -57,6 +64,19 @@ namespace PointDeviation
                         doc.Regenerate();
                         bb = inst.get_BoundingBox(null);
                         if (bb == null && doc.ActiveView != null) { try { bb = inst.get_BoundingBox(doc.ActiveView); } catch { } }
+                    }
+                    if (bb == null && (existingType == null || existingType == ElementId.InvalidElementId))
+                    {
+                        // ultimo tentativo: un RCP con lo stesso nome di file già nel progetto (magari da un'altra cartella)
+                        PointCloudType same = ExistingRecapType(doc, filePath, true);
+                        if (same != null && same.Id != type.Id)
+                        {
+                            Log.Write("Estrazione", "ingombro mancante: uso il tipo «" + same.Name + "» già nel progetto (stesso nome di file)");
+                            type = same;
+                            inst = PointCloudInstance.Create(doc, type.Id, Transform.Identity);
+                            doc.Regenerate();
+                            bb = inst.get_BoundingBox(null);
+                        }
                     }
                     if (bb == null)
                     {
@@ -348,6 +368,30 @@ namespace PointDeviation
         }
 
         /// <summary>Nuvole ReCap inserite nel progetto: selezionata, altrimenti tutte.</summary>
+        /// <summary>
+        /// Tipo di nuvola ReCap (non del plugin) già nel progetto per questo file: stesso percorso, oppure (byName) stesso
+        /// nome di file in un'altra cartella. null se non c'è.
+        /// </summary>
+        private static PointCloudType ExistingRecapType(Document doc, string filePath, bool byName)
+        {
+            if (string.IsNullOrEmpty(filePath)) return null;
+            string full = null, name = Path.GetFileName(filePath);
+            try { full = Path.GetFullPath(filePath); } catch { }
+            foreach (PointCloudType pt in new FilteredElementCollector(doc).OfClass(typeof(PointCloudType)).Cast<PointCloudType>())
+            {
+                if (NativeClouds.IsOurs(pt)) continue;
+                string p = NativeClouds.PathOf(pt);
+                if (string.IsNullOrEmpty(p)) continue;
+                try
+                {
+                    if (full != null && string.Equals(Path.GetFullPath(p), full, StringComparison.OrdinalIgnoreCase)) return pt;
+                    if (byName && string.Equals(Path.GetFileName(p), name, StringComparison.OrdinalIgnoreCase)) return pt;
+                }
+                catch { }
+            }
+            return null;
+        }
+
         public static List<PointCloudInstance> FindInstances(Autodesk.Revit.UI.UIDocument uidoc)
         {
             Document doc = uidoc.Document;
