@@ -22,6 +22,7 @@ namespace PointDeviation
         public readonly CancellationTokenSource Cts = new CancellationTokenSource();
         internal Func<IPointSource> Make;
         internal string RawToDelete;
+        public string ReplaceFolder;   // riconversione: a fine lavoro i dati nuovi sostituiscono quelli di questa cartella
         public bool Active { get { return State == ConversionState.InCoda || State == ConversionState.InCorso; } }
     }
 
@@ -63,10 +64,10 @@ namespace PointDeviation
             _ui = c;
         }
 
-        public static ConversionJob Enqueue(Func<IPointSource> make, string name, string folder, string rawToDelete)
+        public static ConversionJob Enqueue(Func<IPointSource> make, string name, string folder, string rawToDelete, string replaceFolder = null)
         {
             InitUi();
-            var job = new ConversionJob { Make = make, Name = name, Folder = folder, RawToDelete = rawToDelete, Phase = L.T("In coda"), State = ConversionState.InCoda };
+            var job = new ConversionJob { Make = make, Name = name, Folder = folder, RawToDelete = rawToDelete, ReplaceFolder = replaceFolder, Phase = L.T("In coda"), State = ConversionState.InCoda };
             lock (_lock)
             {
                 job.Id = ++_nextId;
@@ -164,6 +165,18 @@ namespace PointDeviation
         private static void Finish(ConversionJob job)
         {
             lock (_lock) _jobs.Remove(job);
+            // riconversione: i dati nuovi prendono il posto dei vecchi (sul thread di Revit), poi si avvisa la Libreria
+            if (job.State == ConversionState.Completata && job.ReplaceFolder != null && job.ResultFolder != null)
+            {
+                string oldDir = job.ReplaceFolder, newDir = job.ResultFolder;
+                Post(() => ApiQueue.Run(app =>
+                {
+                    string err = NativeSync.ReplaceCloud(app, oldDir, newDir);
+                    if (err == null) job.ResultFolder = oldDir;
+                    else { job.State = ConversionState.NonRiuscita; job.Error = L.T("Sostituzione della versione precedente non riuscita: ") + err; }
+                    Raise(job);
+                }));
+            }
             Raise(job);
             if (job.State == ConversionState.Completata || job.State == ConversionState.NonRiuscita) Post(() => ConversionToast.Show(job));
         }

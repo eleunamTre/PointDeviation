@@ -120,6 +120,9 @@ namespace PointDeviation
 
         // ------------------------------------------------------------------ dizionario per documento
 
+        /// <summary>Dati di tutti i progetti aperti (copia).</summary>
+        internal static List<DocumentData> AllData { get { return m_docData.Values.ToList(); } }
+
         internal static DocumentData GetData(Document doc)
         {
             if (doc == null) return null;
@@ -870,6 +873,88 @@ namespace PointDeviation
         /// Toglie da tutti i progetti aperti la nuvola di una cartella della libreria (tipo e istanze, cioè anche da
         /// Gestisci collegamenti), prima di eliminarla dal disco. Restituisce quante nuvole sono state tolte.
         /// </summary>
+        /// <summary>
+        /// Riconversione (voce 154): sostituisce i dati della nuvola in oldDir con quelli appena convertiti in newDir, senza
+        /// toglierla dai progetti. Restano il file .pdcl (a cui puntano i tipi di Revit) e le varianti; si sostituiscono punti,
+        /// indice, informazioni e anteprima, e si cancellano le distanze salvate (valgono per l'ordine dei punti vecchio).
+        /// Le nuvole del plugin che usano la cartella si ricaricano. Sul thread di Revit. Restituisce null o l'errore.
+        /// </summary>
+        public static string ReplaceCloud(UIApplication app, string oldDir, string newDir)
+        {
+            string dir = Path.GetFullPath(oldDir).TrimEnd('\\');
+            Func<string, bool> same = f => { try { return string.Equals(Path.GetFullPath(f).TrimEnd('\\'), dir, StringComparison.OrdinalIgnoreCase); } catch { return false; } };
+            // 1. si lasciano i file: nuvole del plugin che li usano, distanze aperte, calcolo delle distanze
+            foreach (DocumentData d in DeviationController.AllData)
+                for (int i = d.Layers.Count - 1; i >= 0; i--)
+                    if (same(d.Layers[i].Folder)) { d.Layers[i].Dispose(); d.Layers.RemoveAt(i); }
+            DistPrefetch.Stop();
+            DistCache.CloseUnder(oldDir);
+
+            // 2. scambio dei file (i lettori in background possono tenere un file aperto per un attimo: si riprova)
+            string backup = Path.Combine(oldDir, "_vecchia_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+            string error = null;
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                try { SwapFiles(oldDir, newDir, backup); error = null; break; }
+                catch (Exception ex) { error = ex.Message; System.Threading.Thread.Sleep(300); }
+            }
+            if (error == null)
+            {
+                try { if (Directory.Exists(backup)) Directory.Delete(backup, true); } catch { }
+                try { if (Directory.Exists(newDir)) Directory.Delete(newDir, true); } catch { }
+            }
+            else Log.Write("Libreria", "riconversione: sostituzione non riuscita (" + error + "); la nuova versione resta in " + newDir);
+
+            // 3. si ricaricano le nuvole nei progetti aperti
+            foreach (Document doc in app.Application.Documents)
+            {
+                if (doc.IsFamilyDocument || doc.IsLinked) continue;
+                DocumentData d = DeviationController.GetData(doc);
+                if (d == null) continue;
+                try { d.SyncLayers(doc); d.RebuildStyle(d.Settings); }
+                catch (Exception ex) { Log.Error("Riconversione: ricarico in «" + doc.Title + "»", ex); }
+            }
+            Redraw.Request();
+            try { if (app.ActiveUIDocument != null) app.ActiveUIDocument.RefreshActiveView(); } catch { }
+            Log.Write("Libreria", error == null ? "riconversione: «" + Path.GetFileName(oldDir) + "» sostituita" : "riconversione non applicata");
+            return error;
+        }
+
+        /// <summary>Sposta i dati vecchi in backup, porta i nuovi al loro posto; se qualcosa va storto rimette i vecchi.</summary>
+        private static void SwapFiles(string oldDir, string newDir, string backup)
+        {
+            Directory.CreateDirectory(backup);
+            var moved = new List<string>();
+            try
+            {
+                foreach (string f in Directory.GetFiles(oldDir))
+                {
+                    if (string.Equals(Path.GetExtension(f), CloudView.Extension, StringComparison.OrdinalIgnoreCase)) continue;
+                    File.Move(f, Path.Combine(backup, Path.GetFileName(f)));
+                    moved.Add(Path.GetFileName(f));
+                }
+                string analysis = Path.Combine(oldDir, "analysis");
+                if (Directory.Exists(analysis)) Directory.Move(analysis, Path.Combine(backup, "analysis"));
+                foreach (string f in Directory.GetFiles(newDir))
+                {
+                    if (string.Equals(Path.GetExtension(f), CloudView.Extension, StringComparison.OrdinalIgnoreCase)) continue;
+                    File.Move(f, Path.Combine(oldDir, Path.GetFileName(f)));
+                }
+            }
+            catch
+            {
+                // ripristino: i file nuovi già spostati tornano indietro, i vecchi al loro posto
+                foreach (string f in Directory.GetFiles(oldDir))
+                {
+                    if (string.Equals(Path.GetExtension(f), CloudView.Extension, StringComparison.OrdinalIgnoreCase)) continue;
+                    try { File.Move(f, Path.Combine(newDir, Path.GetFileName(f))); } catch { }
+                }
+                foreach (string n in moved) try { File.Move(Path.Combine(backup, n), Path.Combine(oldDir, n)); } catch { }
+                try { if (Directory.Exists(Path.Combine(backup, "analysis"))) Directory.Move(Path.Combine(backup, "analysis"), Path.Combine(oldDir, "analysis")); } catch { }
+                throw;
+            }
+        }
+
         public static int RemoveFolderFromProjects(UIApplication app, string folder)
         {
             int removed = 0;

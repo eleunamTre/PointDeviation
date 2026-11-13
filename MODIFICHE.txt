@@ -704,3 +704,12 @@ Ottava tornata (28/10/2026): octree
      × √(punti della griglia / 20.000)), usata dal motore per la scelta dei livelli e il raggio dei punti. Le nuvole
      convertite prima continuano a funzionare come sono; per i blocchi piccoli vanno riconvertite (le distanze
      dell'analisi si ricalcolano).
+154. Libreria: «Riconverti dal file originale…» nel menu della scheda (tasto destro). Si converte di nuovo dalla sorgente
+     salvata nella nuvola (se il file non c'e' piu' si sceglie), con le opzioni di sempre (passo per gli RCP, unita' per
+     i LAS), in background come le altre conversioni, continuando a usare la versione attuale. A fine conversione, sul
+     thread di Revit, i dati nuovi prendono il posto dei vecchi nella stessa cartella (punti, indice, informazioni,
+     anteprima; restano il file .pdcl a cui puntano i tipi di Revit e le varianti; le distanze salvate si cancellano e
+     si ricalcolano): la nuvola resta inserita nei progetti con la stessa posizione e si ricarica da sola. I file vecchi
+     passano prima in una cartella di riserva e tornano al loro posto se lo scambio non riesce (si riprova fino a 10
+     volte: i lettori in background possono tenere un file aperto per un attimo). Serve per passare le nuvole
+     all'octree con tetto di punti (153).

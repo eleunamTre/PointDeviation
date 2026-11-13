@@ -363,6 +363,7 @@ namespace PointDeviation
 
             var ctx = new ContextMenuStrip();
             ctx.Items.Add(L.T("Apri cartella"), null, (s, e) => Process.Start("explorer.exe", "\"" + folder + "\""));
+            ctx.Items.Add(L.T("Riconverti dal file originale…"), null, (s, e) => ReconvertCloud(folder, info));
             ctx.Items.Add(L.T("Elimina dalla libreria…"), null, (s, e) => DeleteCloud(folder, info));
             card.ContextMenuStrip = ctx;
             pic.ContextMenuStrip = ctx;
@@ -392,6 +393,46 @@ namespace PointDeviation
             SetStatus(L.T("Inserimento in corso..."));
             DeviationController.InsertFromLibrary(folder, mode);
             RefreshCards();
+        }
+
+        /// <summary>
+        /// Riconversione (voce 154): si converte di nuovo dal file originale con la versione attuale del convertitore e, a
+        /// fine lavoro, i dati nuovi sostituiscono quelli vecchi nella stessa cartella. La nuvola resta inserita nei progetti
+        /// con la stessa posizione; intanto si continua a usare la versione attuale.
+        /// </summary>
+        private void ReconvertCloud(string folder, CloudInfo info)
+        {
+            if (_busy) return;
+            string path = info.SourcePath;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                using (var dlg = new OpenFileDialog
+                {
+                    Title = string.Format(L.T("File originale di «{0}»"), info.Name),
+                    Filter = L.T("Nuvole supportate (*.las;*.e57;*.rcp;*.rcs)|*.las;*.e57;*.rcp;*.rcs|LAS (*.las)|*.las|E57 (*.e57)|*.e57|ReCap (*.rcp;*.rcs)|*.rcp;*.rcs")
+                })
+                {
+                    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                    path = dlg.FileName;
+                }
+            }
+            if (MessageBox.Show(this, string.Format(L.T("Riconvertire «{0}» da\n{1}?\n\nLa nuvola resta inserita nei progetti con la stessa posizione; intanto si continua a usare la versione attuale, che alla fine viene sostituita. Le distanze dell'analisi si ricalcolano."), info.Name, path),
+                L.T("Libreria nuvole"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            bool recap = ext == ".rcp" || ext == ".rcs";
+            bool e57 = ext == ".e57";
+            string lib = Path.GetDirectoryName(folder.TrimEnd('\\'));
+            int libIndex = _libs.Folders.FindIndex(x => string.Equals(x.TrimEnd('\\'), lib, StringComparison.OrdinalIgnoreCase));
+            if (e57) { StartConversion(() => new E57Source(path), info.Name, lib, null, folder); return; }
+            LasUnits.Result units = recap ? null : LasUnits.Detect(path);
+            // RCP: passo di estrazione; LAS: unità (nome e cartella restano quelli della nuvola)
+            using (var opt = new ConvertOptionsForm(info.Name, _libs.Folders, Math.Max(0, libIndex), units, recap))
+            {
+                if (opt.ShowDialog(this) != DialogResult.OK) return;
+                if (recap) StartExtraction(path, false, opt, folder, info.Name, lib);
+                else StartConversion(() => new LasSource(path, opt.UnitToMeters), info.Name, lib, null, folder);
+            }
         }
 
         private void DeleteCloud(string folder, CloudInfo info)
@@ -475,11 +516,12 @@ namespace PointDeviation
         }
 
         /// <summary>RCP/RCS: prima Revit estrae i punti in un file temporaneo (thread API), poi parte la conversione.</summary>
-        private void StartExtraction(string path, bool fromProject, ConvertOptionsForm opt)
+        private void StartExtraction(string path, bool fromProject, ConvertOptionsForm opt, string replaceFolder = null,
+            string fixedName = null, string fixedDest = null)
         {
-            string raw = Path.Combine(opt.Folder, "_estrazione_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
-            string chosenName = opt.CloudName;
-            string dest = opt.Folder;
+            string dest = fixedDest ?? opt.Folder;
+            string raw = Path.Combine(dest, "_estrazione_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
+            string chosenName = fixedName ?? opt.CloudName;
             SetBusy(true, L.T("Lettura della nuvola da Revit..."));
 
             bool queued = DeviationController.RequestExtract(new ExtractRequest
@@ -498,18 +540,18 @@ namespace PointDeviation
                     }
                     string name = string.IsNullOrWhiteSpace(chosenName) ? suggestedName : chosenName;
                     _busy = false;
-                    StartConversion(() => new RawSource(rawPath), name, dest, rawPath);
+                    StartConversion(() => new RawSource(rawPath), name, dest, rawPath, replaceFolder);
                 }
             });
             if (!queued) SetBusy(false, L.T("Un'altra lettura è già in corso."));
         }
 
-        private void StartConversion(Func<IPointSource> makeSource, string name, string folder, string rawToDelete)
+        private void StartConversion(Func<IPointSource> makeSource, string name, string folder, string rawToDelete, string replaceFolder = null)
         {
             if (string.IsNullOrWhiteSpace(name)) name = "nuvola";
             SetBusy(false, "");
             // in background: la scheda compare subito (bloccata, con l'avanzamento) e la finestra si può chiudere
-            ConversionQueue.Enqueue(makeSource, name, folder, rawToDelete);
+            ConversionQueue.Enqueue(makeSource, name, folder, rawToDelete, replaceFolder);
             int i = _libs.Folders.FindIndex(x => string.Equals(x, folder, StringComparison.OrdinalIgnoreCase));
             if (i >= 0 && i != _folders.SelectedIndex) _folders.SelectedIndex = i; else RefreshCards();
         }
