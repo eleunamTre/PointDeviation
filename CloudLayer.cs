@@ -1340,7 +1340,11 @@ namespace PointDeviation
             bool radiusOnly = g != null && g.Chunks.Count > 0 && g.StyleVersion == st.Version && g.GeoVersion == GeoVersion
                 && g.ColorKey == key && g.Highlight == hl && g.Built >= need && !RadiusOk(i, g.Radius, radius)
                 && (!withPts || _gpu[i] != null);
-            if (radiusOnly && budget.Moving) return;
+            // Prima i buffer rifatti solo per il raggio aspettavano la camera ferma: zoomando i punti restavano troppo grandi
+            // o troppo piccoli finche' non ci si fermava (16/11: «l'ingrandimento e il rimpicciolimento dei punti e' lento»).
+            // Ora si rifanno anche in movimento, ma con poca coda (al massimo 24 lavori in attesa) e sempre dopo il resto
+            // (priorita' 2), per non riavere le raffiche di preparazioni del 12/11.
+            if (radiusOnly && budget.Moving && CloudBaker.Queued >= 24) return;
             int prio = prefetch ? 1 : radiusOnly ? 2 : 0;
             if (CloudBaker.Queued < 48 || (prio == 0 && CloudBaker.QueuedUrgent < 48))
                 CloudBaker.Enqueue(new BakeJob

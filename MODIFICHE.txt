@@ -746,3 +746,6 @@ Ottava tornata (28/10/2026): octree
      non cambia e gli angoli (aggiornati solo a riposo) restano quelli di prima: la nuvola veniva giudicata lontana
      dall'inquadratura. Ora si confrontano anche le componenti nel piano della vista (destra e alto): oltre il 10%
      dell'inquadratura si usa la camera del fotogramma. «[Camera]» riporta lo scarto nel piano della vista.
+162. Dimensione dei punti che si adegua lentamente allo zoom (16/11): i buffer da rifare solo per il raggio dei punti
+     aspettavano la camera ferma, quindi zoomando i punti restavano troppo grandi o troppo piccoli fino a fine
+     movimento. Ora si rifanno anche in movimento (priorita' bassa, al massimo 24 lavori di preparazione in coda).
