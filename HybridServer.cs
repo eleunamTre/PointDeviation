@@ -141,6 +141,8 @@ namespace PointDeviation
             try
             {
                 if (view is ViewSheet || view is ViewSchedule) return false;
+                // anteprime (editor tipo, famiglie): vista del progetto non aperta in nessuna finestra
+                if (!ZoomCache.IsOpen(view)) return false;
                 DocumentData d = Data(view);
                 if (d == null || d.Style == null || !d.Style.Visible || d.Layers.Count == 0) return false;
                 long now = Environment.TickCount;

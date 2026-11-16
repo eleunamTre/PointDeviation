@@ -2359,12 +2359,26 @@ namespace PointDeviation
             return v != null && _map.TryGetValue(v.Id.Value, out e) ? e : null;
         }
 
+        // Viste aperte in finestra nel documento attivo (null = non ancora letto). Revit chiede il disegno anche per le
+        // anteprime (editor tipo delle ringhiere, famiglie, ecc.) che mostrano una vista del progetto: lì la nuvola non
+        // serve e costa lettura e preparazione per un riquadro piccolissimo.
+        private static HashSet<long> _open;
+
+        /// <summary>La vista e' aperta in una finestra? (vero finche' l'elenco non e' stato letto)</summary>
+        public static bool IsOpen(View v)
+        {
+            HashSet<long> s = _open;
+            return s == null || v == null || s.Contains(v.Id.Value);
+        }
+
         /// <summary>Aggiorna le viste aperte; true se qualcosa è cambiato (zoom o spostamento).</summary>
         public static bool Update(Autodesk.Revit.UI.UIDocument uidoc)
         {
             bool changed = false;
+            var open = new HashSet<long>();
             foreach (Autodesk.Revit.UI.UIView uiv in uidoc.GetOpenUIViews())
             {
+                open.Add(uiv.ViewId.Value);
                 IList<XYZ> c = uiv.GetZoomCorners();
                 Autodesk.Revit.DB.Rectangle r = uiv.GetWindowRectangle();
                 var e = new Entry { C0 = c[0], C1 = c[1], WidthPx = Math.Max(1, r.Right - r.Left) };
@@ -2376,6 +2390,9 @@ namespace PointDeviation
                     changed = true;
                 }
             }
+            HashSet<long> prev = _open;
+            if (prev == null || !prev.SetEquals(open)) changed = true;
+            _open = open;
             return changed;
         }
     }
