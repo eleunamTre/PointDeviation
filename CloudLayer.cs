@@ -2557,10 +2557,17 @@ namespace PointDeviation
                         {
                             XYZ mid = (z.C0 + z.C1) / 2.0;
                             double w = Math.Abs((z.C1 - z.C0).DotProduct(v.Right));
-                            // angoli di zoom coerenti con l'ampiezza attuale (nessuno zoom in corso): si usano quelli
-                            if (Math.Abs(w - hx) < hx * 0.05) v.Pos = mid;
+                            // angoli di zoom coerenti con la camera (nessuno zoom in corso): si usano quelli. Non basta l'ampiezza:
+                            // ruotando una vista 3D parallela l'ampiezza resta uguale ma gli angoli di zoom, aggiornati solo a
+                            // riposo, restano al posto di prima (registro 16/11: centro a 292 ft dalla camera con ampiezza
+                            // identica, «fuori dall'inquadratura» 8 volte in 5 s = nuvola che sparisce e riappare). Si
+                            // confrontano anche le componenti nel piano della vista (destra e alto): se il centro si e' spostato
+                            // piu' del 10% dell'inquadratura si usa la camera, che e' sempre quella del fotogramma.
+                            XYZ dm = mid - camCenter;
+                            double du = dm.DotProduct(v.Right), dv = dm.DotProduct(v.Up);
+                            if (Math.Abs(w - hx) < hx * 0.05 && Math.Abs(du) < hx * 0.1 && Math.Abs(dv) < vx * 0.1) v.Pos = mid;
                             else v.Pos = camCenter;
-                            LogCamera(view, mid, camCenter, w, hx);
+                            LogCamera(view, mid, camCenter, w, hx, du, dv);
                         }
                         else v.Pos = camCenter;
                     }
@@ -2575,14 +2582,14 @@ namespace PointDeviation
         private static long _lastCamLog;
 
         /// <summary>Diagnostica: confronto tra il centro dagli angoli di zoom e quello dalla camera (al massimo ogni 10 s).</summary>
-        private static void LogCamera(View view, XYZ zoomMid, XYZ camCenter, double zoomW, double camW)
+        private static void LogCamera(View view, XYZ zoomMid, XYZ camCenter, double zoomW, double camW, double du, double dv)
         {
             long now = Environment.TickCount;
             if (now - _lastCamLog < 10000) return;
             _lastCamLog = now;
-            Log.Debug("Camera", string.Format("«{0}»: centro da zoom {1:F1},{2:F1},{3:F1}  da camera {4:F1},{5:F1},{6:F1}  (distanza {7:F2} ft); ampiezza zoom {8:F1} camera {9:F1} ft",
+            Log.Debug("Camera", string.Format("«{0}»: centro da zoom {1:F1},{2:F1},{3:F1}  da camera {4:F1},{5:F1},{6:F1}  (distanza {7:F2} ft); ampiezza zoom {8:F1} camera {9:F1} ft; scarto nel piano della vista {10:F1} a destra, {11:F1} in alto",
                 view.Name, zoomMid.X, zoomMid.Y, zoomMid.Z, camCenter.X, camCenter.Y, camCenter.Z,
-                (zoomMid - camCenter).GetLength(), zoomW, camW));
+                (zoomMid - camCenter).GetLength(), zoomW, camW, du, dv));
         }
 
         /// <summary>Riserva: direzioni dalla vista e zona inquadrata dagli angoli di zoom della finestra.</summary>

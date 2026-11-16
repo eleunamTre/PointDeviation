@@ -740,3 +740,9 @@ Ottava tornata (28/10/2026): octree
      Revit ridisegna anche tutte le annotazioni. Ora nelle viste non 3D niente ridisegno a fine zoom (Revit ha appena
      ridisegnato; se manca dettaglio lo chiede il disegno stesso) e ridisegni per i blocchi in arrivo al massimo ogni
      700 ms. Nelle viste 3D resta tutto come prima.
+161. Viste 3D parallele: la nuvola sparisce e riappare ruotando (registro 16/11, «3D_Ascensore»: «fuori dall'inquadratura»
+     8 volte in 5 s, centro dagli angoli di zoom a 292 ft dalla camera con la stessa ampiezza). Il centro
+     della zona inquadrata si prendeva dagli angoli di zoom se l'ampiezza coincideva entro il 5%, ma ruotando l'ampiezza
+     non cambia e gli angoli (aggiornati solo a riposo) restano quelli di prima: la nuvola veniva giudicata lontana
+     dall'inquadratura. Ora si confrontano anche le componenti nel piano della vista (destra e alto): oltre il 10%
+     dell'inquadratura si usa la camera del fotogramma. «[Camera]» riporta lo scarto nel piano della vista.
