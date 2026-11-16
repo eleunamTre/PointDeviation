@@ -1127,8 +1127,8 @@ namespace PointDeviation
                     int level = Level(i, w);
                     TileCpu cpu = Volatile.Read(ref Cpu[i]);
                     bool ready = cpu != null && ReadyFor(cpu, st);
-                    if ((cpu == null || cpu.Count < level || !ready) && CloudLoader.Queued < 6)
-                        CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
+                    if ((cpu == null || cpu.Count < level || !ready) && CloudLoader.QueuedPrefetch < 6)
+                        CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st, true);
                     if (!ready || CloudBaker.Queued >= 16) continue;
                     double radius = RadiusKey(i, 0);
                     // in movimento si preparano in background ma non si copiano: il tempo del fotogramma va alla vista
@@ -2765,14 +2765,16 @@ namespace PointDeviation
             public Style St;
         }
 
+        // due code: i blocchi che servono alla vista passano sempre davanti a quelli del precaricamento
         private static readonly ConcurrentQueue<Job> _queue = new ConcurrentQueue<Job>();
+        private static readonly ConcurrentQueue<Job> _queuePf = new ConcurrentQueue<Job>();
         private static readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
         private static Thread[] _threads;
 
-        public static void Enqueue(CloudLayer layer, int tile, int target, Style st)
+        public static void Enqueue(CloudLayer layer, int tile, int target, Style st, bool prefetch = false)
         {
             if (Interlocked.CompareExchange(ref layer.Pending[tile], 1, 0) != 0) return;
-            _queue.Enqueue(new Job
+            (prefetch ? _queuePf : _queue).Enqueue(new Job
             {
                 Layer = layer, Tile = tile, Target = target,
                 Analysis = st.NeedsDistances ? st.Analysis : null,
@@ -2804,9 +2806,11 @@ namespace PointDeviation
 
         /// <summary>Blocchi in coda (non ancora in lettura).</summary>
         public static int Queued { get { return _queue.Count; } }
+        /// <summary>Blocchi del precaricamento in coda (non ancora in lettura).</summary>
+        public static int QueuedPrefetch { get { return _queuePf.Count; } }
 
         /// <summary>Ci sono blocchi in coda o in lettura?</summary>
-        public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty; } }
+        public static bool Busy { get { return Volatile.Read(ref _busy) > 0 || !_queue.IsEmpty || !_queuePf.IsEmpty; } }
 
         public static long ReadTicks, ReadBlocks, ReadPoints;   // diagnostica: blocchi letti, punti nuovi e tempo (somma dei thread)
 
@@ -2815,7 +2819,7 @@ namespace PointDeviation
             while (true)
             {
                 Job j;
-                if (!_queue.TryDequeue(out j)) { _signal.Wait(500); continue; }
+                if (!_queue.TryDequeue(out j) && !_queuePf.TryDequeue(out j)) { _signal.Wait(500); continue; }
                 Interlocked.Increment(ref _busy);
                 bool ok = false, changed = false;
                 try

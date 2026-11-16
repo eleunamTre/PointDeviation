@@ -749,3 +749,7 @@ Ottava tornata (28/10/2026): octree
 162. Dimensione dei punti che si adegua lentamente allo zoom (16/11): i buffer da rifare solo per il raggio dei punti
      aspettavano la camera ferma, quindi zoomando i punti restavano troppo grandi o troppo piccoli fino a fine
      movimento. Ora si rifanno anche in movimento (priorita' bassa, al massimo 24 lavori di preparazione in coda).
+163. Priorita' della lettura dei blocchi: la coda di lettura era unica (prima arrivato, prima servito), quindi un blocco
+     che serve alla vista (o al riquadro di sezione) poteva aspettare dietro a fino a 6 blocchi del precaricamento. Ora
+     le code sono due e i lettori prendono sempre prima quella della vista; il precaricamento (che con un riquadro di
+     sezione attivo e' gia' limitato al riquadro dalla voce 149) passa solo quando la prima e' vuota.
