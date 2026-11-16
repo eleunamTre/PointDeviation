@@ -202,6 +202,8 @@ namespace PointDeviation
                 // pixel e i punti grandi restano solo dove la nuvola è rada
                 long limit = st.Quality == Quality.Fine ? 12000000 : st.Quality == Quality.Media ? 3000000 : 6000000;
                 limit = limit * AdvancedSettings.Current.Effective.BudgetPercent / 100;
+                // il limite si adatta alla velocità reale di disegno (vedi DrawGovernor)
+                limit = (long)(limit * DrawGovernor.Scale);
                 var wants = new List<int[]>();
                 var pxs = new List<double[]>();
                 var visible = new List<CloudLayer>();
@@ -234,6 +236,9 @@ namespace PointDeviation
                 long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
                 for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]);
                 long f3 = System.Diagnostics.Stopwatch.GetTimestamp();
+                bool hit = false;
+                foreach (CloudLayer vl in visible) hit |= vl.StatBudgetHit;
+                DrawGovernor.Sample(budget.Moving, (f3 - f2) * 1000.0 / System.Diagnostics.Stopwatch.Frequency, FrameStats.BigPts, FrameStats.SmallPts, hit);
                 FrameStats.End(f1 - f0, f2 - f1, f3 - f2);
                 if (budget.MoreWork) Redraw.Request();
             }
@@ -252,6 +257,47 @@ namespace PointDeviation
     /// piccoli dell'ultimo fotogramma, raccolte della memoria di .NET. Serve a capire dove va il tempo quando la
     /// navigazione è lenta: nel nostro codice, nella scheda video (troppi triangoli) o nell'arrivo dei dati.
     /// </summary>
+    /// <summary>
+    /// Limite di punti che segue la velocità reale del disegno. Il disegno di un milione di triangoli è costato da circa 1 a
+    /// circa 15 ms secondo la sessione di Revit (altri programmi aperti, batteria, scheda scelta da Windows): con un limite
+    /// fisso nei giorni lenti la navigazione scendeva a 5-7 fotogrammi al secondo. Si misura il tempo di disegno dei
+    /// fotogrammi in movimento e si sposta il limite a piccoli scatti (5%) per stare vicino all'obiettivo; sale solo se il
+    /// limite era davvero raggiunto. Disattivabile in Avanzate («Limite di punti fisso»).
+    /// </summary>
+    internal static class DrawGovernor
+    {
+        public const double TargetMs = 12.0;     // tempo di disegno obiettivo per fotogramma in movimento
+        private const double Min = 0.35, Max = 1.25;
+        private static double _scale = 1.0, _ema = -1, _msPerM;
+        private static long _lastAdjust, _lastHit;
+
+        public static double Scale { get { return AdvancedSettings.Current.FixedBudget ? 1.0 : _scale; } }
+
+        public static void Sample(bool moving, double drawMs, long big, long small, bool limitHit)
+        {
+            long now = Environment.TickCount;
+            if (limitHit) _lastHit = now;
+            if (!moving || AdvancedSettings.Current.FixedBudget) return;
+            double tri = big * 4.0 + small * 0.25;      // peso dei punti: i grandi hanno 4 triangoli, quelli piccoli un vertice
+            if (tri < 200000) return;                   // pochi punti: il tempo misurato non dice nulla sulla scheda video
+            _ema = _ema < 0 ? drawMs : _ema * 0.8 + drawMs * 0.2;
+            _msPerM = _msPerM <= 0 ? drawMs * 1e6 / tri : _msPerM * 0.8 + (drawMs * 1e6 / tri) * 0.2;
+            if (now - _lastAdjust < 400) return;
+            _lastAdjust = now;
+            double s = _scale;
+            if (_ema > TargetMs * 1.25) s *= 0.9;
+            else if (_ema < TargetMs * 0.6 && now - _lastHit < 2000) s *= 1.06;
+            s = Math.Max(Min, Math.Min(Max, s));
+            _scale = Math.Round(s * 20.0) / 20.0;
+        }
+
+        public static string Describe()
+        {
+            if (AdvancedSettings.Current.FixedBudget) return "; limite di punti fisso";
+            return _ema < 0 ? "" : string.Format("; limite di punti adattivo {0:F0}% (disegno in movimento {1:F1} ms, {2:F1} ms per milione di punti pesati)", _scale * 100, _ema, _msPerM);
+        }
+    }
+
     internal static class FrameStats
     {
         private static readonly double TickMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
@@ -310,7 +356,7 @@ namespace PointDeviation
                 _intervals > 0 ? string.Format(", in movimento un fotogramma ogni {0:F0} ms (≈ {1:F1} al secondo), il più lento {2:F0} ms", _intSum / _intervals, 1000.0 / Math.Max(1, _intSum / _intervals), _intMax) : "",
                 _ourSum / Math.Max(1, _frames), _lodSum / Math.Max(1, _frames), _prepSum / Math.Max(1, _frames), _drawSum / Math.Max(1, _frames), _ourMax,
                 _views, _views > 0 ? _waitSum / _views : 0, _waitMax, _forced, big, small, g0, g1, g2,
-                OutOfFrame > 0 ? string.Format("; «fuori dall'inquadratura» {0} volte", OutOfFrame) : ""));
+                OutOfFrame > 0 ? string.Format("; «fuori dall'inquadratura» {0} volte", OutOfFrame) : "") + DrawGovernor.Describe());
             _winStart = now; _gc0 = GC.CollectionCount(0); _gc1 = GC.CollectionCount(1); _gc2 = GC.CollectionCount(2);
             _frames = _moving = _intervals = 0; _intSum = _intMax = _ourSum = _ourMax = _lodSum = _prepSum = _drawSum = 0;
             _views = _forced = 0; _waitSum = _waitMax = 0; OutOfFrame = 0;

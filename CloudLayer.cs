@@ -1898,6 +1898,10 @@ namespace PointDeviation
             } : null;
             var pbuf = both ? _tsPts : null;
             var pnv = new int[8]; var pnp = new int[8]; var pstart = new int[8];
+            // colore in una sola scrittura da 4 byte (R, G, B, A nelle posizioni verificate all'avvio): prima ogni vertice
+            // azzerava i byte di riempimento uno a uno e poi scriveva i canali, 4-6 vertici per punto
+            bool packed = stride == 16 && oR >= 12 && oR < 16 && oG >= 12 && oG < 16 && oB >= 12 && oB < 16 && oA < 16;
+            int sR = (oR - 12) * 8, sG = (oG - 12) * 8, sB = (oB - 12) * 8, sA = oA >= 12 ? (oA - 12) * 8 : 0;
             double cx = _ocx[node], cy = _ocy[node], cz = _ocz[node];
             double rb = NodeRadius(node);   // raggio di base; j.Radius è il massimo in questa vista (vedi RadiusKey)
             for (int k = 0; k < upTo; k++)
@@ -1915,23 +1919,24 @@ namespace PointDeviation
                 if (buf[oc] == null) buf[oc] = new byte[per * vpp * stride];
                 byte a = op ? (byte)(255 - t) : t;
                 float fx = (float)x, fy = (float)y, fz = (float)z;
+                uint col = packed ? ((uint)r << sR) | ((uint)g << sG) | ((uint)b << sB) | (oA >= 12 ? (uint)a << sA : 0u) : 0u;
                 if (both)
                 {
                     if (pbuf[oc] == null) pbuf[oc] = new byte[PointChunk * stride];
-                    fixed (byte* q0 = pbuf[oc]) Vert(q0, ref pnv[oc], stride, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
+                    fixed (byte* q0 = pbuf[oc]) VertX(q0, ref pnv[oc], stride, packed, col, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
                     if (++pnp[oc] >= PointChunk) BakeFlush(bp, pbuf, pnv, pnp, pstart, oc, k + 1, stride);
                 }
                 fixed (byte* p0 = buf[oc])
                 {
-                    if (vpp == 1) Vert(p0, ref nv[oc], stride, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
+                    if (vpp == 1) VertX(p0, ref nv[oc], stride, packed, col, fx, fy, fz, oR, oG, oB, oA, r, g, b, a);
                     else
                     {
                         float r0 = (float)Math.Min(rb * Math.Min(ProgressiveCap, Math.Sqrt((double)full / (k + 1))), j.Radius);
                         float q = r0 * TetraK;
-                        Vert(p0, ref nv[oc], stride, fx + q, fy + q, fz + q, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx + q, fy - q, fz - q, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx - q, fy + q, fz - q, oR, oG, oB, oA, r, g, b, a);
-                        Vert(p0, ref nv[oc], stride, fx - q, fy - q, fz + q, oR, oG, oB, oA, r, g, b, a);
+                        VertX(p0, ref nv[oc], stride, packed, col, fx + q, fy + q, fz + q, oR, oG, oB, oA, r, g, b, a);
+                        VertX(p0, ref nv[oc], stride, packed, col, fx + q, fy - q, fz - q, oR, oG, oB, oA, r, g, b, a);
+                        VertX(p0, ref nv[oc], stride, packed, col, fx - q, fy + q, fz - q, oR, oG, oB, oA, r, g, b, a);
+                        VertX(p0, ref nv[oc], stride, packed, col, fx - q, fy - q, fz + q, oR, oG, oB, oA, r, g, b, a);
                     }
                 }
                 if (++np[oc] >= per) { BakeFlush(bk, buf, nv, np, start, oc, k + 1, stride); }
@@ -1948,6 +1953,19 @@ namespace PointDeviation
         }
 
         [ThreadStatic] private static byte[][] _tsOcta, _tsPts;
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static unsafe void VertX(byte* p0, ref int nv, int stride, bool packed, uint col, float x, float y, float z, int oR, int oG, int oB, int oA,
+            byte r, byte g, byte b, byte a)
+        {
+            if (packed)
+            {
+                byte* p = p0 + nv * stride;
+                *(float*)p = x; *(float*)(p + 4) = y; *(float*)(p + 8) = z; *(uint*)(p + 12) = col;
+                nv++;
+            }
+            else Vert(p0, ref nv, stride, x, y, z, oR, oG, oB, oA, r, g, b, a);
+        }
 
         private static unsafe void Vert(byte* p0, ref int nv, int stride, float x, float y, float z, int oR, int oG, int oB, int oA,
             byte r, byte g, byte b, byte a)

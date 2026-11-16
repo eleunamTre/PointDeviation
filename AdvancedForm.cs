@@ -27,6 +27,7 @@ namespace PointDeviation
         private readonly Label _profileInfo = new Label { AutoSize = true, MaximumSize = new Size(520, 0), ForeColor = UiTheme.Muted, Margin = new Padding(0, 6, 0, 4) };
         private readonly System.Windows.Forms.CheckBox _fullWait = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _holdView = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _fixedBudget = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -166,6 +167,9 @@ namespace PointDeviation
             p.Controls.Add(_profileInfo);
             p.Controls.Add(Row(L.T("Limite di punti disegnati (% della qualità scelta)"), _budget));
             p.Controls.Add(Note(L.T("Più punti danno più dettaglio ma chiedono più memoria video e rendono la navigazione meno fluida.")));
+            _fixedBudget.Text = L.T("Limite di punti fisso");
+            p.Controls.Add(_fixedBudget);
+            p.Controls.Add(Note(L.T("Spento (consigliato): il limite si adatta alla velocità di disegno misurata, scendendo quando la scheda video è lenta (altri programmi aperti, batteria) e risalendo quando c'è margine. Acceso: vale sempre il limite del profilo.")));
             p.Controls.Add(Row(L.T("Libera la memoria video dopo (secondi fuori vista)"), _gpuKeep));
             p.Controls.Add(Row(L.T("Libera la memoria del computer dopo (secondi fuori vista)"), _memKeep));
             p.Controls.Add(Note(L.T("Tempi lunghi: tornando su una zona appena vista è già pronta. Tempi brevi: meno memoria occupata.")));
@@ -221,6 +225,7 @@ namespace PointDeviation
             _fullWait.Checked = a.AnalysisFullWait;
             _holdView.Checked = a.HoldViewUntilReady;
             _uniform.Checked = a.UniformDetail;
+            _fixedBudget.Checked = a.FixedBudget;
         }
 
         private void Apply()
@@ -237,6 +242,7 @@ namespace PointDeviation
             a.AnalysisFullWait = _fullWait.Checked;
             a.HoldViewUntilReady = _holdView.Checked;
             a.UniformDetail = _uniform.Checked;
+            a.FixedBudget = _fixedBudget.Checked;
             a.Save();
             bool levelsChanged = CloudDebug.Levels != _levels.Checked;
             CloudDebug.Levels = _levels.Checked;

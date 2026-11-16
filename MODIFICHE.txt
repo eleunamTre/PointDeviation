@@ -757,3 +757,15 @@ Ottava tornata (28/10/2026): octree
      progetto (qui «3D View 1») e Revit chiede il disegno anche per loro, quindi la nuvola veniva disegnata in un
      riquadro piccolissimo, con lettura e preparazione dei blocchi. Ora si disegna solo nelle viste aperte in una finestra
      (elenco aggiornato in Idling; un cambio di viste aperte chiede un ridisegno).
+165. Limite di punti che segue la velocita' reale del disegno (`DrawGovernor` in HybridServer.cs). Il disegno di un milione
+     di triangoli e' costato da circa 1 a circa 15 ms secondo la sessione di Revit; con un limite fisso nei giorni lenti
+     la navigazione scendeva a 5-7 fotogrammi al secondo. Si misura il tempo di disegno dei fotogrammi in movimento
+     (con almeno 200 mila triangoli pesati) e il limite si sposta a scatti del 5% (da 35% a 125% di quello del profilo)
+     per stare vicino a 12 ms: scende se la media supera i 15 ms, sale solo se il limite era davvero raggiunto negli
+     ultimi 2 s e la media e' sotto i 7 ms. «[Fotogrammi]» riporta limite adattivo, tempo di disegno e ms per milione.
+     Opzione «Limite di punti fisso» in Avanzate (spenta = adattivo).
+166. Preparazione dei buffer piu' veloce (`CloudLayer.Bake`): il colore si scrive in un'unica scrittura da 4 byte per
+     vertice (con le posizioni di R, G, B, A verificate all'avvio, buffer da 16 byte per vertice) invece di azzerare i
+     byte di riempimento uno a uno e scrivere poi i canali: 4-6 vertici per punto. Stesso risultato; se la disposizione
+     dei byte non e' quella attesa si usa il percorso di prima. Da verificare: punti preparati per secondo di ogni
+     thread in «[Lavoro]» (prima circa 1,2 milioni al secondo).

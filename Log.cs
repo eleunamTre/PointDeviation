@@ -199,6 +199,9 @@ namespace PointDeviation
         /// <summary>Navigazione: stesso dettaglio su tutta la vista. Spento (predefinito): dettaglio pieno al centro della
         /// finestra e sempre più rado verso i bordi (caricamento a fuoco, voce 148).</summary>
         [DataMember] public bool UniformDetail;
+        /// <summary>Limite di punti fisso: spento (predefinito) il limite si adatta alla velocità di disegno misurata
+        /// (voce 165); acceso vale sempre quello del profilo.</summary>
+        [DataMember] public bool FixedBudget;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 

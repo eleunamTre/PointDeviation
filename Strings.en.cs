@@ -9,6 +9,8 @@ namespace PointDeviation
         {
             d["Livelli principali pronti: puoi navigare. Il dettaglio fine ({0:F0}% dei punti) si completa in background, circa {1:F0} s."] = "Main levels ready: you can navigate. The fine detail ({0:F0}% of points) is completed in the background, about {1:F0} s.";
             d["Analisi: aspetta il calcolo completo delle distanze"] = "Analysis: wait for all distances to be computed";
+            d["Limite di punti fisso"] = "Fixed point limit";
+            d["Spento (consigliato): il limite si adatta alla velocità di disegno misurata, scendendo quando la scheda video è lenta (altri programmi aperti, batteria) e risalendo quando c'è margine. Acceso: vale sempre il limite del profilo."] = "Off (recommended): the limit adapts to the measured drawing speed, going down when the graphics card is slow (other programs open, battery) and up again when there is headroom. On: the profile limit always applies.";
             d["Navigazione: stesso dettaglio su tutta la vista"] = "Navigation: same detail across the whole view";
             d["Riconverti dal file originale…"] = "Convert again from the original file…";
             d["File originale di «{0}»"] = "Original file of “{0}”";
