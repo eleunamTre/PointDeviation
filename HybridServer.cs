@@ -267,9 +267,10 @@ namespace PointDeviation
     internal static class DrawGovernor
     {
         public const double TargetMs = 12.0;     // tempo di disegno obiettivo per fotogramma in movimento
-        private const double Min = 0.35, Max = 1.25;
+        private const double Min = 0.5, Max = 1.25;
         private static double _scale = 1.0, _ema = -1, _msPerM;
         private static long _lastAdjust, _lastHit;
+        private static int _over, _under;
 
         public static double Scale { get { return AdvancedSettings.Current.FixedBudget ? 1.0 : _scale; } }
 
@@ -280,13 +281,28 @@ namespace PointDeviation
             if (!moving || AdvancedSettings.Current.FixedBudget) return;
             double tri = big * 4.0 + small * 0.25;      // peso dei punti: i grandi hanno 4 triangoli, quelli piccoli un vertice
             if (tri < 200000) return;                   // pochi punti: il tempo misurato non dice nulla sulla scheda video
-            _ema = _ema < 0 ? drawMs : _ema * 0.8 + drawMs * 0.2;
+            // un fotogramma isolato molto lento (cambio di vista, copie in corso) non deve spostare la media: registro del
+            // 17/11, tre fotogrammi da 13-23 ms in dieci secondi portarono il limite al 35% per tutta la giornata
+            double cl = Math.Min(drawMs, 2.5 * Math.Max(_ema, TargetMs));
+            _ema = _ema < 0 ? cl : _ema * 0.8 + cl * 0.2;
             _msPerM = _msPerM <= 0 ? drawMs * 1e6 / tri : _msPerM * 0.8 + (drawMs * 1e6 / tri) * 0.2;
             if (now - _lastAdjust < 400) return;
             _lastAdjust = now;
             double s = _scale;
-            if (_ema > TargetMs * 1.25) s *= 0.9;
-            else if (_ema < TargetMs * 0.6 && now - _lastHit < 2000) s *= 1.06;
+            // scende solo se il tempo resta alto per almeno 2 s, a piccoli passi; risale appena c'e' margine (subito se il
+            // limite era raggiunto, altrimenti dopo 5 s) cosi' non resta mai bloccato in basso
+            if (_ema > TargetMs * 1.25) { _under = 0; if (++_over >= 5) { s *= 0.95; _over = 0; } }
+            else
+            {
+                _over = 0;
+                if (_ema < TargetMs * 0.8)
+                {
+                    _under++;
+                    if (now - _lastHit < 5000) s *= 1.05;
+                    else if (_under >= 12) { s *= 1.05; _under = 0; }
+                }
+                else _under = 0;
+            }
             s = Math.Max(Min, Math.Min(Max, s));
             _scale = Math.Round(s * 20.0) / 20.0;
         }

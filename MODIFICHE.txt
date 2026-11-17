@@ -769,3 +769,9 @@ Ottava tornata (28/10/2026): octree
      byte di riempimento uno a uno e scrivere poi i canali: 4-6 vertici per punto. Stesso risultato; se la disposizione
      dei byte non e' quella attesa si usa il percorso di prima. Da verificare: punti preparati per secondo di ogni
      thread in «[Lavoro]» (prima circa 1,2 milioni al secondo).
+167. Limite di punti adattivo (165) corretto dopo la giornata del 17/11: tre fotogrammi isolati da 13-23 ms in dieci secondi
+     (09:54, cambio di vista) lo portarono dal 100% al 35% e ci restò fino a sera (il regolatore scendeva a ogni
+     finestra di 400 ms e risaliva solo con «limite raggiunto» e disegno sotto 7 ms, quasi mai insieme). Ora: i fotogrammi
+     isolati molto lenti non spostano la media (tetto 2,5 volte l'obiettivo), si scende solo se il tempo resta alto per
+     almeno 2 s e a passi del 5%, si risale a passi del 5% subito se il limite e' raggiunto e il disegno e' sotto 9,6 ms,
+     altrimenti dopo 5 s di margine, minimo 50%.
