@@ -6,7 +6,7 @@
 // Compilazione: aprire «x64 Native Tools Command Prompt for VS» e lanciare build.bat in questa cartella.
 
 #include <windows.h>
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <dxgi1_2.h>
 #include <atomic>
 #include <cstdio>
