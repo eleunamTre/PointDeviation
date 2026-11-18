@@ -7,11 +7,13 @@
 
 #include <windows.h>
 #include <d3d11.h>
+#include <dxgi1_2.h>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "user32.lib")
 
 typedef void (STDMETHODCALLTYPE* DrawIndexed_t)(ID3D11DeviceContext*, UINT, UINT, INT);
 typedef void (STDMETHODCALLTYPE* Draw_t)(ID3D11DeviceContext*, UINT, UINT);
@@ -72,6 +74,88 @@ static void* Patch(void** vt, int index, void* hook)
     return orig;
 }
 
+// ---- voce 182: Revit non passa dalla tabella del contesto immediato (registro 18/11 20:48: 0 disegni in tutto).
+// Si guarda dove passa davvero: contesti differiti (registrano i comandi e li eseguono dopo con ExecuteCommandList),
+// disegni indiretti, presentazione a schermo (Present) e quali librerie grafiche sono caricate nel processo.
+static DrawIndexed_t g_defDI = nullptr;
+static Draw_t g_defD = nullptr;
+static DrawIndexedInst_t g_defDII = nullptr;
+static DrawInst_t g_defDInst = nullptr;
+typedef void (STDMETHODCALLTYPE* ExecCmd_t)(ID3D11DeviceContext*, ID3D11CommandList*, BOOL);
+typedef void (STDMETHODCALLTYPE* Indirect_t)(ID3D11DeviceContext*, ID3D11Buffer*, UINT);
+typedef HRESULT(STDMETHODCALLTYPE* Present_t)(IDXGISwapChain*, UINT, UINT);
+typedef HRESULT(STDMETHODCALLTYPE* Present1_t)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
+static ExecCmd_t g_origExec = nullptr;
+static Indirect_t g_origIndI = nullptr, g_origInd = nullptr, g_defIndI = nullptr, g_defInd = nullptr;
+static Present_t g_origPresent = nullptr;
+static Present1_t g_origPresent1 = nullptr;
+static std::atomic<long> g_defDraws{ 0 }, g_exec{ 0 }, g_indirect{ 0 }, g_presents{ 0 };
+static bool g_defSame = false;
+static char g_mods[300] = "";
+
+static void STDMETHODCALLTYPE HookDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_defDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookDefD(ID3D11DeviceContext* c, UINT a, UINT b) { g_defDraws++; Marker(c, a); g_defD(c, a, b); }
+static void STDMETHODCALLTYPE HookDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_defDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookDefDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { g_defDraws++; Marker(c, a); g_defDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookExec(ID3D11DeviceContext* c, ID3D11CommandList* l, BOOL r) { g_exec++; g_origExec(c, l, r); }
+static void STDMETHODCALLTYPE HookIndI(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_indirect++; g_origIndI(c, b, o); }
+static void STDMETHODCALLTYPE HookInd(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_indirect++; g_origInd(c, b, o); }
+static void STDMETHODCALLTYPE HookDefIndI(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_indirect++; g_defIndI(c, b, o); }
+static void STDMETHODCALLTYPE HookDefInd(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_indirect++; g_defInd(c, b, o); }
+static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; return g_origPresent(s, a, f); }
+static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; return g_origPresent1(s, a, f, p); }
+
+static void* Patch(void** vt, int index, void* hook);
+
+static void ListModules()
+{
+    const char* names[] = { "d3d11.dll", "d3d12.dll", "dxgi.dll", "d3d10_1.dll", "d3d9.dll", "opengl32.dll", "d3d11on12.dll", "nvwgf2umx.dll", "atidxx64.dll", "igd10iumd64.dll" };
+    int n = 0;
+    for (const char* m : names)
+        if (GetModuleHandleA(m)) n += _snprintf_s(g_mods + n, sizeof(g_mods) - n, _TRUNCATE, "%s%s", n ? " " : "", m);
+}
+
+static void HookMore(ID3D11Device* dev, ID3D11DeviceContext* imm)
+{
+    void** vi = *(void***)imm;
+    g_origExec = (ExecCmd_t)Patch(vi, 58, (void*)&HookExec);
+    g_origIndI = (Indirect_t)Patch(vi, 39, (void*)&HookIndI);
+    g_origInd = (Indirect_t)Patch(vi, 40, (void*)&HookInd);
+    ID3D11DeviceContext* def = nullptr;
+    if (SUCCEEDED(dev->CreateDeferredContext(0, &def)) && def)
+    {
+        void** vd = *(void***)def;
+        if (vd == vi) g_defSame = true;   // stessa tabella: già agganciata
+        else
+        {
+            g_defDI = (DrawIndexed_t)Patch(vd, 12, (void*)&HookDefDI);
+            g_defD = (Draw_t)Patch(vd, 13, (void*)&HookDefD);
+            g_defDII = (DrawIndexedInst_t)Patch(vd, 20, (void*)&HookDefDII);
+            g_defDInst = (DrawInst_t)Patch(vd, 21, (void*)&HookDefDInst);
+            g_defIndI = (Indirect_t)Patch(vd, 39, (void*)&HookDefIndI);
+            g_defInd = (Indirect_t)Patch(vd, 40, (void*)&HookDefInd);
+        }
+    }
+    // swap chain di prova su una finestra nascosta, per agganciare Present (la tabella è quella di dxgi.dll)
+    HWND w = CreateWindowExA(0, "STATIC", "PdRenderProbe", WS_OVERLAPPED, 0, 0, 64, 64, nullptr, nullptr, GetModuleHandleA(nullptr), nullptr);
+    if (!w) return;
+    IDXGIDevice* xd = nullptr; IDXGIAdapter* ad = nullptr; IDXGIFactory2* f2 = nullptr;
+    if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), (void**)&xd)) && SUCCEEDED(xd->GetAdapter(&ad))
+        && SUCCEEDED(ad->GetParent(__uuidof(IDXGIFactory2), (void**)&f2)))
+    {
+        DXGI_SWAP_CHAIN_DESC1 d = {};
+        d.Width = 64; d.Height = 64; d.Format = DXGI_FORMAT_B8G8R8A8_UNORM; d.SampleDesc.Count = 1;
+        d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; d.BufferCount = 2; d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        IDXGISwapChain1* sc = nullptr;
+        if (SUCCEEDED(f2->CreateSwapChainForHwnd(dev, w, &d, nullptr, nullptr, &sc)) && sc)
+        {
+            void** vs = *(void***)sc;
+            g_origPresent = (Present_t)Patch(vs, 8, (void*)&HookPresent);
+            g_origPresent1 = (Present1_t)Patch(vs, 22, (void*)&HookPresent1);
+        }
+    }
+}
+
 // Indici nella tabella dei metodi di ID3D11DeviceContext (IUnknown 0-2, ID3D11DeviceChild 3-6):
 // 12 DrawIndexed, 13 Draw, 20 DrawIndexedInstanced, 21 DrawInstanced.
 extern "C" __declspec(dllexport) int PdInit(char* msg, int cap)
@@ -89,7 +173,11 @@ extern "C" __declspec(dllexport) int PdInit(char* msg, int cap)
     g_origDInst = (DrawInst_t)Patch(vt, 21, (void*)&HookDInst);
     // il dispositivo di prova resta aperto: la tabella dei metodi è quella di d3d11.dll, comune a tutti i contesti
     g_hooked = g_origDI && g_origD && g_origDII && g_origDInst;
-    _snprintf_s(msg, cap, _TRUNCATE, "aggancio %s, livello DirectX 0x%X", g_hooked ? "attivo" : "NON riuscito", (unsigned)fl);
+    if (g_hooked) HookMore(dev, ctx);
+    ListModules();
+    _snprintf_s(msg, cap, _TRUNCATE, "aggancio %s, livello DirectX 0x%X; contesto differito %s; Present %s; librerie grafiche caricate: %s",
+        g_hooked ? "attivo" : "NON riuscito", (unsigned)fl, g_defSame ? "stessa tabella" : (g_defDI ? "agganciato" : "no"),
+        g_origPresent ? "agganciato" : "no", g_mods);
     return g_hooked ? 1 : 0;
 }
 
@@ -154,8 +242,13 @@ static void DescribeState(ID3D11DeviceContext* c, char* buf, int cap)
 extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
 {
     long m = g_markers.exchange(0), d = g_draws.exchange(0);
-    if (m == 0) { _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato alla scheda video (%ld disegni DirectX in tutto)", d); return 0; }
-    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte su %ld disegni DirectX, thread %s; %s", m, d,
+    long dd = g_defDraws.exchange(0), ex = g_exec.exchange(0), ind = g_indirect.exchange(0), pr = g_presents.exchange(0);
+    if (m == 0)
+    {
+        _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld)", d - dd, dd, ind, ex, pr);
+        return 0;
+    }
+    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld), thread %s; %s", m, d - dd, dd, ind, ex, pr,
         g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo);
     return 1;
 }

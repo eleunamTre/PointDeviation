@@ -857,3 +857,9 @@ Ottava tornata (28/10/2026): octree
      degeneri) e la libreria lo riconosce dal numero di indici quando Revit lo manda davvero alla scheda video: in quel
      momento descrive contesto, destinazione, buffer di profondita' e finestra. Riga «[DirectX]» ogni 5 s con quante
      volte il segnale e' arrivato e su quale thread. Serve ricompilare Native\build.bat.
+182. Esperimento DirectX, terzo passo. Registro del 18/11 20:48: con l'aggancio attivo nessun disegno di Revit passa dalla
+     tabella dei metodi del contesto immediato di DirectX 11 (0 disegni in tutto, segnale mai arrivato). La libreria
+     ora guarda anche: contesti differiti (Revit potrebbe registrare i comandi su un altro contesto e poi eseguirli con
+     ExecuteCommandList), disegni indiretti, Present della swap chain (conferma che Revit presenta con DirectX 11/DXGI) e
+     quali librerie grafiche sono caricate nel processo (d3d11, d3d12, opengl, driver). Righe «[DirectX]» con i conteggi.
+     Serve ricompilare Native\build.bat.
