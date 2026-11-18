@@ -843,3 +843,11 @@ Ottava tornata (28/10/2026): octree
      prima finche' nel fotogramma precedente c'erano ancora altri nodi in attesa della grandezza nuova; quando sono
      pronti tutti si copiano nello stesso fotogramma (anche oltre il tempo del fotogramma). Attesa massima 1 s, poi si
      mostra quel che c'e'. La grandezza resta dinamica come nella 177.
+180. Esperimento shader propri, primo passo (cartella Native, libreria C++ PdRender.dll, opzione «Prova DirectX» in
+     Avanzate › Diagnostica, spenta di base). DirectContext3D non accetta shader; l'idea e' disegnare i punti
+     direttamente con DirectX 11 nel contesto che Revit sta usando durante il nostro disegno (con il suo buffer di
+     profondita', cosi' il modello copre la nuvola). Questa prima versione aggancia le chiamate di disegno di
+     d3d11.dll e, ogni 5 s, scrive nel registro («[DirectX]») se durante il nostro disegno passa un contesto, se e'
+     immediato o differito, destinazione, buffer di profondita' e finestra. Non disegna nulla. Si compila con
+     Native\build.bat dal prompt «x64 Native Tools Command Prompt for VS»; la compilazione del plugin la copia accanto
+     alla DLL se esiste. Opzione «Prova: punti disegnati da Revit» (178) da considerare scartata.

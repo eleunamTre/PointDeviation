@@ -43,6 +43,8 @@
     </PropertyGroup>
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(AddinsDir)PointDeviation\" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\PointDeviation.addin" DestinationFolder="$(AddinsDir)" />
+    <!-- libreria nativa sperimentale (voce 180), solo se compilata con Native\build.bat -->
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Native\PdRender.dll" DestinationFolder="$(AddinsDir)PointDeviation\" Condition="Exists('$(MSBuildProjectDirectory)\Native\PdRender.dll')" />
   </Target>
 
 </Project>

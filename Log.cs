@@ -204,6 +204,8 @@ namespace PointDeviation
         [DataMember] public bool FixedBudget;
         /// <summary>Prova (voce 178): i punti li disegna Revit (motore di nuvole) invece del plugin.</summary>
         [DataMember] public bool NativeDisplay;
+        /// <summary>Prova della libreria nativa DirectX (voce 180): solo diagnostica, non disegna.</summary>
+        [DataMember] public bool NativeProbe;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 
@@ -271,7 +273,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 179;
+        public const int Change = 180;
 
         public static string Describe()
         {

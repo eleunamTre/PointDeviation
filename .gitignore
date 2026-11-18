@@ -3,3 +3,7 @@ obj/
 .vs/
 *.user
 *.suo
+Native/*.obj
+Native/*.dll
+Native/*.lib
+Native/*.exp

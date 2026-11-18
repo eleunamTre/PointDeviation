@@ -28,6 +28,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _fullWait = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _holdView = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _fixedBudget = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _probe = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _native = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
@@ -155,6 +156,9 @@ namespace PointDeviation
             p.Controls.Add(_levels);
             p.Controls.Add(Note(L.T("Ogni livello ha un colore (rosso il più grossolano, poi arancio, giallo, verde, azzurro, blu, viola…). Punti grandi a colori pieni, punti di un pixel più chiari. Serve a vedere quali blocchi si disegnano e dove.")));
             p.Controls.Add(Note(L.T("La riga di stato con punti, blocchi da caricare e da costruire è in Visibilità › Gestisci.")));
+            _probe.Text = L.T("Prova DirectX (sperimentale)");
+            p.Controls.Add(_probe);
+            p.Controls.Add(Note(L.T("Carica la libreria PdRender.dll e scrive nel registro, ogni 5 secondi, se il disegno di Revit passa da un contesto DirectX 11 che possiamo usare. Non cambia la visualizzazione. Serve Revit riavviato dopo l'attivazione.")));
             return p;
         }
 
@@ -232,6 +236,7 @@ namespace PointDeviation
             _uniform.Checked = a.UniformDetail;
             _fixedBudget.Checked = a.FixedBudget;
             _native.Checked = a.NativeDisplay;
+            _probe.Checked = a.NativeProbe;
         }
 
         private void Apply()
@@ -250,6 +255,7 @@ namespace PointDeviation
             a.UniformDetail = _uniform.Checked;
             a.FixedBudget = _fixedBudget.Checked;
             a.NativeDisplay = _native.Checked;
+            a.NativeProbe = _probe.Checked;
             a.Save();
             bool levelsChanged = CloudDebug.Levels != _levels.Checked;
             CloudDebug.Levels = _levels.Checked;
