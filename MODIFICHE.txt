@@ -808,3 +808,9 @@ Ottava tornata (28/10/2026): octree
      insieme: ora usa un fattore fisso di 2; (2) alla fermata il fattore ripartiva da 1 e la scelta dei blocchi cambiava
      di colpo rispetto al movimento: ora resta quello del movimento e scende a passi del 10% a fotogramma quando il
      limite di punti non e' piu' raggiunto.
+175. Ritorno al comportamento di prima delle voci 168-172 e 174 nel motore dei blocchi (`CloudLayer.cs` come alla voce 167):
+     fattore del bordo fisso a 3 (anche per la grandezza dei punti), limite di punti raggiunto = distanza tra i punti
+     allargata in modo uniforme, tolleranza sul raggio a 2 volte. Motivo: l'utente (18/11, con video) trova la versione
+     della mattina piu' stabile; le prove del pomeriggio non hanno tolto il lampeggio alla fermata e peggiorano la
+     navigazione. Resta la diagnostica «[Lavoro] raggio rifatto» (173), senza i fattori del bordo, e il minimo del limite
+     adattivo al 70% (168).
