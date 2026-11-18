@@ -785,3 +785,8 @@ Ottava tornata (28/10/2026): octree
      la causa non e' il limite di punti). Nei nodi con figli il raggio del buffer poteva restare fino a 2 volte piu'
      grande del voluto prima di rifare il blocco. Ora il tetto verso l'alto e' 1,5 volte (verso il basso resta 2): lo zoom
      in rifa' i blocchi un po' prima. Costo: piu' blocchi rifatti per «raggio» in «[Lavoro]».
+170. Dettaglio e dimensione dei punti uniformi nella vista (18/11, immagini a due zoom: al centro punti piccoli e fitti, intorno
+     punti piu' grandi e radi). Il caricamento a fuoco dava ai bordi punti 3 volte piu' distanti e con il massimo di
+     grandezza 3 volte piu' alto, anche con il limite di punti lontano dall'essere raggiunto. Ora il fattore del bordo
+     parte da 1 (nessuna differenza tra centro e bordi) e sale solo quando il limite di punti e' raggiunto (voce 168),
+     fino a 10. Con il limite non raggiunto la vista e' uniforme; si leggono piu' blocchi ai bordi di prima.

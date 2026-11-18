@@ -779,18 +779,18 @@ namespace PointDeviation
                 total = SelectOctree(cam, target, budget * 3, outWant, outPx);
                 StatBudgetHit = total > budget;
                 // in movimento il fattore del bordo cambia piano (si usa nel fotogramma dopo): sale se il limite e' superato
-                if (StatBudgetHit) _edge = Math.Min(FocusEdgeMax, _edge * 1.25);
-                else _edge = Math.Max(FocusEdge, _edge * 0.97);
+                if (StatBudgetHit) _edge = Math.Min(FocusEdgeMax, _edge * 1.25 + 0.2);
+                else _edge = Math.Max(FocusEdgeMin, _edge * 0.97);
             }
             else
             {
-                _edge = FocusEdge;
+                _edge = FocusEdgeMin;
                 total = SelectOctree(cam, target, budget * 3, outWant, outPx);
                 for (int iter = 0; iter < 12 && total > budget; iter++)
                 {
                     StatBudgetHit = true;
                     // prima si toglie dettaglio ai bordi, poi (solo se non basta) a tutta la vista
-                    if (_focus && _edge < FocusEdgeMax) _edge = Math.Min(FocusEdgeMax, _edge * 1.4);
+                    if (_focus && _edge < FocusEdgeMax) _edge = Math.Min(FocusEdgeMax, _edge * 1.4 + 0.3);
                     else target *= Math.Sqrt((double)total / budget) * 1.05;
                     total = SelectOctree(cam, target, budget * 3, outWant, outPx);
                 }
@@ -867,7 +867,9 @@ namespace PointDeviation
         // prima di rarefare tutta la vista (voce 168). Prima si allargava la distanza tra i punti in modo uniforme e il
         // centro diventava rado e a punti grandi come lo sfondo (immagine dell'utente, 18/11).
         private const double FocusEdgeMax = 10.0;
-        private double _edge = FocusEdge;
+        // Dalla voce 170 si parte da una vista uniforme (fattore 1 ovunque): il fuoco entra solo se serve a stare nel limite
+        private const double FocusEdgeMin = 1.0;
+        private double _edge = FocusEdgeMin;
 
         private long SelectOctree(ViewCam cam, double target, long cap, int[] outWant, double[] outPx)
         {
