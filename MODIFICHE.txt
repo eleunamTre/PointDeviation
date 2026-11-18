@@ -851,3 +851,9 @@ Ottava tornata (28/10/2026): octree
      immediato o differito, destinazione, buffer di profondita' e finestra. Non disegna nulla. Si compila con
      Native\build.bat dal prompt «x64 Native Tools Command Prompt for VS»; la compilazione del plugin la copia accanto
      alla DLL se esiste. Opzione «Prova: punti disegnati da Revit» (178) da considerare scartata.
+181. Esperimento DirectX, secondo passo. Dal registro del 18/11 20:36: durante il nostro disegno Revit non fa nessuna
+     chiamata DirectX (le raccoglie e le esegue dopo; le righe successive non comparivano perche' il registro scarta le
+     righe identiche per 60 s). Ora il plugin disegna a ogni fotogramma un segnale invisibile (1237 triangoli
+     degeneri) e la libreria lo riconosce dal numero di indici quando Revit lo manda davvero alla scheda video: in quel
+     momento descrive contesto, destinazione, buffer di profondita' e finestra. Riga «[DirectX]» ogni 5 s con quante
+     volte il segnale e' arrivato e su quale thread. Serve ricompilare Native\build.bat.

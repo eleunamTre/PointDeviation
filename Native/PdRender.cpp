@@ -38,10 +38,29 @@ static void Capture(ID3D11DeviceContext* c)
     g_calls++;
 }
 
-static void STDMETHODCALLTYPE HookDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Capture(c); g_origDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { Capture(c); g_origD(c, a, b); }
-static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Capture(c); g_origDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Capture(c); g_origDInst(c, a, b, d, e); }
+// ---- segnale (voce 181): il plugin disegna a ogni fotogramma un oggetto invisibile di MarkerIndices indici; quando
+// Revit lo manda davvero alla scheda video, qui si legge lo stato di quel momento (destinazione, profondità, finestra,
+// matrici non disponibili): è il punto in cui poi disegneremo i punti con shader nostri.
+static const UINT MarkerIndices = 3711;   // 1237 triangoli
+static std::atomic<long> g_markers{ 0 };
+static std::atomic<long> g_draws{ 0 };
+static char g_markerInfo[600] = "";
+static DWORD g_markerThread = 0;
+static void DescribeState(ID3D11DeviceContext* c, char* buf, int cap);
+
+static void Marker(ID3D11DeviceContext* c, UINT count)
+{
+    g_draws++;
+    if (count != MarkerIndices) return;
+    long n = ++g_markers;
+    g_markerThread = GetCurrentThreadId();
+    if (n % 30 == 1) DescribeState(c, g_markerInfo, sizeof(g_markerInfo));
+}
+
+static void STDMETHODCALLTYPE HookDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); Capture(c); g_origDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { Marker(c, a); Capture(c); g_origD(c, a, b); }
+static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Marker(c, a); Capture(c); g_origDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Marker(c, a); Capture(c); g_origDInst(c, a, b, d, e); }
 
 static void* Patch(void** vt, int index, void* hook)
 {
@@ -92,9 +111,16 @@ extern "C" __declspec(dllexport) int PdCaptureEnd(char* msg, int cap)
         _snprintf_s(msg, cap, _TRUNCATE, "nessuna chiamata di disegno DirectX durante il nostro disegno (altri thread: %ld)", g_otherThread.load());
         return 0;
     }
-    char buf[600];
-    int n = _snprintf_s(buf, sizeof(buf), _TRUNCATE, "chiamate %ld, contesto %s, altri thread %ld",
-        g_calls.load(), c->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE ? "immediato" : "differito", g_otherThread.load());
+    char buf[700];
+    int n = _snprintf_s(buf, sizeof(buf), _TRUNCATE, "chiamate %ld, altri thread %ld; ", g_calls.load(), g_otherThread.load());
+    DescribeState(c, buf + n, (int)sizeof(buf) - n);
+    strncpy_s(msg, cap, buf, _TRUNCATE);
+    return 1;
+}
+
+static void DescribeState(ID3D11DeviceContext* c, char* buf, int cap)
+{
+    int n = _snprintf_s(buf, cap, _TRUNCATE, "contesto %s", c->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE ? "immediato" : "differito");
     ID3D11RenderTargetView* rtv = nullptr;
     ID3D11DepthStencilView* dsv = nullptr;
     c->OMGetRenderTargets(1, &rtv, &dsv);
@@ -105,23 +131,31 @@ extern "C" __declspec(dllexport) int PdCaptureEnd(char* msg, int cap)
         if (r && SUCCEEDED(r->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&t)) && t)
         {
             D3D11_TEXTURE2D_DESC d; t->GetDesc(&d);
-            n += _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE, "; destinazione %ux%u formato %u campioni %u", d.Width, d.Height, (unsigned)d.Format, d.SampleDesc.Count);
+            n += _snprintf_s(buf + n, cap - n, _TRUNCATE, "; destinazione %ux%u formato %u campioni %u", d.Width, d.Height, (unsigned)d.Format, d.SampleDesc.Count);
             t->Release();
         }
         if (r) r->Release();
         rtv->Release();
     }
-    else n += _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE, "; nessuna destinazione");
+    else n += _snprintf_s(buf + n, cap - n, _TRUNCATE, "; nessuna destinazione");
     if (dsv)
     {
         D3D11_DEPTH_STENCIL_VIEW_DESC dd; dsv->GetDesc(&dd);
-        n += _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE, "; profondita' formato %u", (unsigned)dd.Format);
+        n += _snprintf_s(buf + n, cap - n, _TRUNCATE, "; profondita' formato %u", (unsigned)dd.Format);
         dsv->Release();
     }
-    else n += _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE, "; nessun buffer di profondita'");
+    else n += _snprintf_s(buf + n, cap - n, _TRUNCATE, "; nessun buffer di profondita'");
     D3D11_VIEWPORT vp; UINT nv = 1;
     c->RSGetViewports(&nv, &vp);
-    if (nv > 0) _snprintf_s(buf + n, sizeof(buf) - n, _TRUNCATE, "; finestra %.0fx%.0f in %.0f,%.0f", vp.Width, vp.Height, vp.TopLeftX, vp.TopLeftY);
-    strncpy_s(msg, cap, buf, _TRUNCATE);
+    if (nv > 0) _snprintf_s(buf + n, cap - n, _TRUNCATE, "; finestra %.0fx%.0f in %.0f,%.0f", vp.Width, vp.Height, vp.TopLeftX, vp.TopLeftY);
+}
+
+// Resoconto del segnale dall'ultima chiamata: quante volte è arrivato alla scheda video, su quale thread, e lo stato.
+extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
+{
+    long m = g_markers.exchange(0), d = g_draws.exchange(0);
+    if (m == 0) { _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato alla scheda video (%ld disegni DirectX in tutto)", d); return 0; }
+    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte su %ld disegni DirectX, thread %s; %s", m, d,
+        g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo);
     return 1;
 }

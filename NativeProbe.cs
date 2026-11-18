@@ -2,6 +2,9 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Collections.Generic;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.DirectContext3D;
 
 namespace PointDeviation
 {
@@ -21,6 +24,8 @@ namespace PointDeviation
         private static extern void PdCaptureBegin();
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern int PdCaptureEnd(StringBuilder msg, int cap);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern int PdReport(StringBuilder msg, int cap);
 
         private static int _state;          // 0 = da provare, 1 = attiva, -1 = non disponibile
         private static bool _capturing;
@@ -45,14 +50,56 @@ namespace PointDeviation
             return _state > 0;
         }
 
-        /// <summary>Prima del nostro disegno: si registra il contesto che Revit usa per le nostre chiamate (ogni 5 s).</summary>
+        // Segnale (voce 181): un oggetto invisibile (1237 triangoli tutti con i tre vertici nello stesso punto) disegnato a
+        // ogni fotogramma. La libreria lo riconosce dal numero di indici quando Revit lo manda alla scheda video: è il
+        // momento in cui Revit disegna il nostro contenuto, con la sua destinazione e il suo buffer di profondità.
+        private const int MarkerTris = 1237;
+        private static VertexBuffer _mVb;
+        private static IndexBuffer _mIb;
+        private static VertexFormat _mFormat;
+        private static EffectInstance _mEffect;
+        private static int _frames;
+
+        /// <summary>Durante il nostro disegno: segnale e (ogni 5 s) cattura delle chiamate fatte dentro il nostro disegno.</summary>
         public static void Begin()
         {
             _capturing = false;
             if (!AdvancedSettings.Current.NativeProbe) return;
-            if (Environment.TickCount - _lastLog < 5000) return;
             if (!Ready()) return;
-            try { PdCaptureBegin(); _capturing = true; } catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }
+            try
+            {
+                DrawMarker();
+                _frames++;
+                if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
+            }
+            catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }
+        }
+
+        private static void DrawMarker()
+        {
+            if (_mVb == null)
+            {
+                _mFormat = new VertexFormat(VertexFormatBits.PositionColored);
+                _mEffect = new EffectInstance(VertexFormatBits.PositionColored);
+                int fl = 3 * VertexPositionColored.GetSizeInFloats();
+                var vb = new VertexBuffer(fl);
+                vb.Map(fl);
+                var c = new ColorWithTransparency(0, 0, 0, 255);
+                vb.GetVertexStreamPositionColored().AddVertices(new List<VertexPositionColored>
+                {
+                    new VertexPositionColored(XYZ.Zero, c), new VertexPositionColored(XYZ.Zero, c), new VertexPositionColored(XYZ.Zero, c)
+                });
+                vb.Unmap();
+                int sh = MarkerTris * IndexTriangle.GetSizeInShortInts();
+                var ib = new IndexBuffer(sh);
+                ib.Map(sh);
+                IndexStreamTriangle st = ib.GetIndexStreamTriangle();
+                for (int i = 0; i < MarkerTris; i++) st.AddTriangle(new IndexTriangle(0, 1, 2));
+                ib.Unmap();
+                _mVb = vb; _mIb = ib;
+            }
+            DrawContext.FlushBuffer(_mVb, 3, _mIb, MarkerTris * IndexTriangle.GetSizeInShortInts(), _mFormat, _mEffect,
+                PrimitiveType.TriangleList, 0, MarkerTris);
         }
 
         public static void End()
@@ -64,7 +111,10 @@ namespace PointDeviation
             {
                 var sb = new StringBuilder(1024);
                 PdCaptureEnd(sb, sb.Capacity);
-                Log.Write("DirectX", sb.ToString());
+                var rb = new StringBuilder(1024);
+                PdReport(rb, rb.Capacity);
+                Log.Write("DirectX", string.Format("{0} fotogrammi nostri; segnale: {1}; dentro il nostro disegno: {2}", _frames, rb, sb));
+                _frames = 0;
             }
             catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }
         }
