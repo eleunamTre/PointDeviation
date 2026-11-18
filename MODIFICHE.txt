@@ -822,3 +822,8 @@ Ottava tornata (28/10/2026): octree
      punti delle foglie, 75° percentile, per «Dimensione punti»). Zoomando i punti scalano da soli senza rifare buffer;
      i blocchi grossolani non diventano rombi enormi da vicino; da lontano non cambia nulla (punti di 1 px). Il registro
      scrive una volta per nuvola la distanza delle foglie e il raggio massimo («[LOD]»).
+177. Torna il tetto in pixel della grandezza dei punti (dinamica con lo zoom, come prima della 176): con il solo tetto in
+     unita' del modello il lampeggio spariva («raggio» 0 nel registro del 18/11 15:37) ma da vicino la staccionata a doghe
+     diventava una pasta. Della 176 resta il tetto misurato sulla nuvola come limite superiore anche per i blocchi
+     grossolani. Il lampeggio alla fermata va risolto in un altro modo (cambio di grandezza applicato a tutta la vista in
+     una volta, non blocco per blocco).

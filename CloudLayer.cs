@@ -1163,9 +1163,15 @@ namespace PointDeviation
             // (in attesa dei figli o senza figli in qualche ottante) non diventano rombi enormi da vicino, perché il tetto
             // è quello delle foglie; (3) vale allo stesso modo per ogni nuvola, fitta o decimata, perché il tetto si
             // misura sui suoi dati. Da lontano non conta: i blocchi scelti sono fitti a schermo e si disegnano a 1 px.
-            double full = NodeRadius(i) * ProgressiveCap;
-            double cap = SizeCapWorld();
-            return Math.Min(full, cap);
+            double full = Math.Min(NodeRadius(i) * ProgressiveCap, SizeCapWorld());
+            // Voce 177: il tetto in pixel di prima torna (la grandezza deve seguire lo zoom: con il solo tetto in unità del
+            // modello la staccionata a doghe diventava una pasta, immagine dell'utente del 18/11). Il tetto della nuvola
+            // resta come limite superiore: i blocchi grossolani non superano mai la grandezza delle foglie.
+            if (px <= 0 && (_lastCam == null || !NodeVisible(_lastCam, i, out px))) return full;
+            if (px <= 0) return full;
+            double cap = 0.85 * Math.Max(_capTarget, 1.0) * px * (_lastCam != null ? FocusFactor(_lastCam, i) : 1.0);
+            cap = Math.Pow(2.0, Math.Round(Math.Log(cap / 1e-3, 2.0))) * 1e-3;
+            return NodeRadius(i) <= cap ? full : Math.Min(full, cap);
         }
 
         private double _sizeCap = -1, _sizeCapScale = -1;
