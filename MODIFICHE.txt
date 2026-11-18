@@ -781,3 +781,7 @@ Ottava tornata (28/10/2026): octree
      fattore del bordo (da 3 fino a 10 volte: il dettaglio si toglie dai bordi verso il centro) e solo se non basta si
      rarefa tutta la vista; in movimento il fattore sale del 25% a fotogramma con il limite superato e scende piano.
      Limite adattivo (167): minimo alzato dal 50% al 70%.
+169. Punti che si rimpiccioliscono meno (registro del 18/11 11:46-11:49: nessun «limite raggiunto», distanza 0,7 px, quindi
+     la causa non e' il limite di punti). Nei nodi con figli il raggio del buffer poteva restare fino a 2 volte piu'
+     grande del voluto prima di rifare il blocco. Ora il tetto verso l'alto e' 1,5 volte (verso il basso resta 2): lo zoom
+     in rifa' i blocchi un po' prima. Costo: piu' blocchi rifatti per «raggio» in «[Lavoro]».
