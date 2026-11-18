@@ -1031,6 +1031,11 @@ namespace PointDeviation
             CurrentStyleVersion = st.Version;
             long now = Environment.TickCount;
             int argb = LayerArgb(st);
+            // cambio di grandezza dei punti tutto insieme (voce 179): conteggio del fotogramma precedente
+            _radWaitPrev = _radWaitNow;
+            _radWaitNow = 0;
+            if (_radWaitPrev == 0) _radHoldSince = 0;
+            else if (_radHoldSince == 0) _radHoldSince = now;
             // modalità discrepanze: le distanze di tutta la nuvola si calcolano (e si salvano) in background
             if (IsOctree && st.Mode == DisplayMode.Discrepanze && st.Analysis != null) DistPrefetch.Ensure(this, st.Analysis);
 
@@ -1395,6 +1400,10 @@ namespace PointDeviation
                 });
         }
 
+        private int _radWaitNow, _radWaitPrev;   // nodi che aspettano la grandezza nuova (fotogramma in corso / precedente)
+        private long _radHoldSince;
+        private const int RadiusHoldMs = 1000;
+
         /// <summary>0 = buffer già valido, 1 = pronto ma si copia al prossimo fotogramma, 2 = da preparare.</summary>
         private int UseBaked(TileGpu[] arr, Baked[] barr, int i, bool octa, double radius, int need, int key, bool hl,
             Style st, RenderBudget budget, long now, bool noUpload = false)
@@ -1404,11 +1413,30 @@ namespace PointDeviation
                 || gpu.ColorKey != key || gpu.Highlight != hl
                 || (octa && !RadiusOk(i, gpu.Radius, radius));
             if (!stale && gpu.Built >= need) return 0;
+            // solo la grandezza dei punti è cambiata: il nodo si disegna già, con il raggio di prima
+            bool radiusSwap = octa && gpu != null && gpu.Chunks.Count > 0 && gpu.StyleVersion == st.Version && gpu.GeoVersion == GeoVersion
+                && gpu.ColorKey == key && gpu.Highlight == hl && gpu.Built >= need;
             Baked bk = Volatile.Read(ref barr[i]);
             if (bk == null || bk.StyleVersion != st.Version || bk.GeoVersion != GeoVersion || bk.ColorKey != key || bk.Highlight != hl
                 || bk.Points == octa || (octa && !RadiusOk(i, bk.Radius, radius)) || bk.Built < need)
+            {
+                if (radiusSwap) _radWaitNow++;
                 return 2;
-            if (noUpload || !budget.CoarseTime) { budget.MoreWork = true; return 1; }
+            }
+            if (radiusSwap && !noUpload)
+            {
+                // Voce 179: i nodi con la grandezza nuova non si mostrano uno alla volta (il «lampeggio» alla fermata, con
+                // punti vecchi e nuovi mescolati per qualche istante), ma tutti insieme nel fotogramma in cui l'ultimo è
+                // pronto; intanto resta la grandezza di prima. Al massimo si aspetta RadiusHoldMs, poi si mostra quel che c'è.
+                long nowH = Environment.TickCount;
+                if (_radWaitPrev > 0 && _radHoldSince != 0 && nowH - _radHoldSince < RadiusHoldMs)
+                {
+                    budget.MoreWork = true;
+                    return 1;
+                }
+                // il cambio va fatto in un solo fotogramma: si copia anche oltre il tempo del fotogramma
+            }
+            else if (noUpload || !budget.CoarseTime) { budget.MoreWork = true; return 1; }
             var usw = System.Diagnostics.Stopwatch.StartNew();
             TileGpu up = Upload(bk);
             CloudBaker.UploadTicks += usw.ElapsedTicks;

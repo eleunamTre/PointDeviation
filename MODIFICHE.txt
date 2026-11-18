@@ -837,3 +837,9 @@ Ottava tornata (28/10/2026): octree
      Gestisci collegamenti. Blocchi letti tenuti in memoria fino a 20 M punti.
      Informazioni sulla versione (numero, ultima voce di questo file, data di compilazione) in Avanzate › Diagnostica e
      nel registro («[Versione]») all'avvio.
+179. Cambio di grandezza dei punti tutto insieme (lampeggio alla fermata, registri e video del 18/11). Quando lo zoom cambia
+     il raggio dei punti grandi, i nodi rifatti si mostravano uno alla volta man mano che erano pronti: per qualche
+     istante punti vecchi e nuovi mescolati. Ora (`UseBaked`) un nodo rifatto solo per il raggio resta con il buffer di
+     prima finche' nel fotogramma precedente c'erano ancora altri nodi in attesa della grandezza nuova; quando sono
+     pronti tutti si copiano nello stesso fotogramma (anche oltre il tempo del fotogramma). Attesa massima 1 s, poi si
+     mostra quel che c'e'. La grandezza resta dinamica come nella 177.
