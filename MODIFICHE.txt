@@ -790,3 +790,8 @@ Ottava tornata (28/10/2026): octree
      grandezza 3 volte piu' alto, anche con il limite di punti lontano dall'essere raggiunto. Ora il fattore del bordo
      parte da 1 (nessuna differenza tra centro e bordi) e sale solo quando il limite di punti e' raggiunto (voce 168),
      fino a 10. Con il limite non raggiunto la vista e' uniforme; si leggono piu' blocchi ai bordi di prima.
+171. Ridisegni strani dopo la 170 (registro del 18/11 15:03, nuvola da 21 M punti): il fattore del bordo cambia a ogni
+     fotogramma con il limite di punti e la grandezza massima dei punti dei blocchi lo seguiva, quindi il raggio voluto
+     cambiava di continuo e i blocchi si rifacevano (6-15 M punti per «raggio» in 5 s). Ora la grandezza dei punti usa
+     un fattore a scalini (1; 1,5; 2,2; 3,2; 4,5; 6,5; 10) aggiornato solo a vista ferma; in movimento resta quello
+     dell'ultima vista ferma. La scelta dei blocchi continua a usare il fattore del fotogramma.

@@ -808,6 +808,7 @@ namespace PointDeviation
             }
             _stableTarget = target;
             StatTarget = target;
+            if (!Moving) _edgeSize = EdgeStep(_edge);
 
             // memoria per l'isteresi: quali blocchi sono stati suddivisi in questo fotogramma
             for (int i = 0; i < n; i++)
@@ -848,7 +849,8 @@ namespace PointDeviation
         /// Senza, tutta la vista aveva lo stesso dettaglio e si leggevano e preparavano anche i bordi (registro del 13/11:
         /// la nuvola «c'è sempre tutta»).
         /// </summary>
-        private double FocusFactor(ViewCam cam, int i)
+        private double FocusFactor(ViewCam cam, int i) { return FocusFactor(cam, i, _edge); }
+        private double FocusFactor(ViewCam cam, int i, double edge)
         {
             if (!_focus) return 1.0;
             double cx, cy, cz;
@@ -856,7 +858,7 @@ namespace PointDeviation
             double d = cam.CenterDistanceSphere(cx, cy, cz, _rad[i]);
             if (d <= FocusBand) return 1.0;
             double t = (d - FocusBand) / (1.0 - FocusBand);
-            return 1.0 + (_edge - 1.0) * t * t;
+            return 1.0 + (edge - 1.0) * t * t;
         }
         private bool _focus;
         // fascia centrale a pieno dettaglio: metà della mezza finestra attorno al centro; sul bordo punti 3 volte più distanti
@@ -870,6 +872,17 @@ namespace PointDeviation
         // Dalla voce 170 si parte da una vista uniforme (fattore 1 ovunque): il fuoco entra solo se serve a stare nel limite
         private const double FocusEdgeMin = 1.0;
         private double _edge = FocusEdgeMin;
+        // Fattore del bordo usato per la grandezza massima dei punti (voce 171): a scalini e aggiornato solo a vista ferma.
+        // Con _edge, che cambia a ogni fotogramma con il limite di punti, il raggio voluto cambiava di continuo e i blocchi
+        // si rifacevano (registro del 18/11 15:03: 7-15 M punti preparati per «raggio» in 5 s, ridisegni strani).
+        private double _edgeSize = FocusEdgeMin;
+        private static double EdgeStep(double e)
+        {
+            double[] st = { 1.0, 1.5, 2.2, 3.2, 4.5, 6.5, 10.0 };
+            double best = st[0];
+            foreach (double v in st) if (v <= e * 1.0001) best = v;
+            return best;
+        }
 
         private long SelectOctree(ViewCam cam, double target, long cap, int[] outWant, double[] outPx)
         {
@@ -1174,7 +1187,7 @@ namespace PointDeviation
             // del 12/11, fino a 45 M punti preparati e 27 M copiati in 5 s per 2-10 M mostrati.
             // con il caricamento a fuoco verso i bordi i punti sono più radi: lì possono essere anche più grandi, così le
             // superfici restano leggibili come macchie di colore invece di puntini sparsi (immagine del concorrente, 13/11)
-            double cap = 0.85 * Math.Max(_capTarget, 1.0) * px * (_lastCam != null ? FocusFactor(_lastCam, i) : 1.0);
+            double cap = 0.85 * Math.Max(_capTarget, 1.0) * px * (_lastCam != null ? FocusFactor(_lastCam, i, _edgeSize) : 1.0);
             cap = Math.Pow(2.0, Math.Round(Math.Log(cap / 1e-3, 2.0))) * 1e-3;
             // Il massimo serve solo dove il nodo è più rado di quanto si vede (foglie da vicino, zone senza figli): lì i
             // punti si allargavano a 20 px. Un nodo abbastanza fitto per questa vista tiene il suo raggio di sempre, che non
