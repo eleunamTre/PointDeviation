@@ -802,3 +802,9 @@ Ottava tornata (28/10/2026): octree
      rifatti divisi in ingrandimenti e rimpicciolimenti, su foglie e su nodi con figli, quanti con la camera in movimento,
      quanti con uno scarto sotto 1,5 volte, e il fattore del bordo di quel momento. Serve a capire se i rifacimenti
      vengono dallo zoom (scarti grandi) o dal fuoco/dalla posizione (scarti piccoli).
+174. Lampeggio alla fermata della vista (registro del 18/11 15:14-15:17: «raggio rifatto» sempre con scarti sopra 1,5 volte,
+     8-10 M punti in 5 s, fattore del bordo da 1 a 10 e viceversa tra un fermo e l'altro). Due cause: (1) la grandezza
+     massima dei punti usava il fattore del bordo, che cambiava da 1 a 10 alla fermata e faceva rifare i blocchi tutti
+     insieme: ora usa un fattore fisso di 2; (2) alla fermata il fattore ripartiva da 1 e la scelta dei blocchi cambiava
+     di colpo rispetto al movimento: ora resta quello del movimento e scende a passi del 10% a fotogramma quando il
+     limite di punti non e' piu' raggiunto.
