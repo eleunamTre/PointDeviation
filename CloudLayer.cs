@@ -734,6 +734,7 @@ namespace PointDeviation
             // piene di buchi bianchi (immagini del concorrente e prova a 1 px dell'utente, 13/11).
             double target = 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
             _lastCam = cam;
+            _pointScale = st.PointScale;
             _capTarget = st.PointScale > 0
                 ? Math.Max(1.0, (st.Quality == Quality.Fine ? 2.0 : st.Quality == Quality.Media ? 3.6 : 2.8) * st.PointScale / 100.0)
                 : target;
@@ -1153,22 +1154,42 @@ namespace PointDeviation
         /// </summary>
         private double RadiusKey(int i, double px)
         {
+            // Voce 176: grandezza dei punti in unità del modello, mai legata allo zoom. Il raggio è quello del nodo
+            // (0,85 × distanza tra i suoi punti, con il gonfiamento progressivo), con un tetto che dipende dalla nuvola
+            // stessa e non dallo schermo: SizeCapWorld (circa 2 volte la distanza tra i punti delle foglie più fitte).
+            // Così: (1) zoomando non si rifà nessun blocco: i punti si ingrandiscono e rimpiccioliscono da soli come
+            // oggetti veri, e sparisce il lampeggio alla fermata (registri del 18/11: 3-10 M punti rifatti ogni 5 s per
+            // «raggio», tutti con il tetto in pixel che cambiava a ogni raddoppio dello zoom); (2) i blocchi grossolani
+            // (in attesa dei figli o senza figli in qualche ottante) non diventano rombi enormi da vicino, perché il tetto
+            // è quello delle foglie; (3) vale allo stesso modo per ogni nuvola, fitta o decimata, perché il tetto si
+            // misura sui suoi dati. Da lontano non conta: i blocchi scelti sono fitti a schermo e si disegnano a 1 px.
             double full = NodeRadius(i) * ProgressiveCap;
-            if (px <= 0 && (_lastCam == null || !NodeVisible(_lastCam, i, out px))) return full;
-            if (px <= 0) return full;
-            // Il massimo va a scatti di 2 (diametro tra 0,7 e 1,4 volte quello nominale): con scatti del 35% e la distanza
-            // reale (che sale quando si tocca il limite di punti) quasi ogni zoom rifaceva tutti i blocchi vicini: registro
-            // del 12/11, fino a 45 M punti preparati e 27 M copiati in 5 s per 2-10 M mostrati.
-            // con il caricamento a fuoco verso i bordi i punti sono più radi: lì possono essere anche più grandi, così le
-            // superfici restano leggibili come macchie di colore invece di puntini sparsi (immagine del concorrente, 13/11)
-            double cap = 0.85 * Math.Max(_capTarget, 1.0) * px * (_lastCam != null ? FocusFactor(_lastCam, i) : 1.0);
-            cap = Math.Pow(2.0, Math.Round(Math.Log(cap / 1e-3, 2.0))) * 1e-3;
-            // Il massimo serve solo dove il nodo è più rado di quanto si vede (foglie da vicino, zone senza figli): lì i
-            // punti si allargavano a 20 px. Un nodo abbastanza fitto per questa vista tiene il suo raggio di sempre, che non
-            // dipende dallo zoom: prima ogni raddoppio dello zoom rifaceva tutti i blocchi in vista (registro 12/11 10:59:
-            // 10-24 M punti preparati in 5 s per 0,5-4 M mostrati, attese delle viste nuove fino a 1,3 s).
-            return NodeRadius(i) <= cap ? full : cap;
+            double cap = SizeCapWorld();
+            return Math.Min(full, cap);
         }
+
+        private double _sizeCap = -1, _sizeCapScale = -1;
+        // tetto del raggio rispetto alla distanza tra i punti delle foglie (75° percentile): 2 = punti fino a circa 2 volte
+        // la distanza dei dati, che chiudono i vuoti sulle superfici senza impastare gli spigoli
+        private const double SizeCapLeafFactor = 2.0;
+        private double SizeCapWorld()
+        {
+            double scale = _pointScale > 0 ? _pointScale / 100.0 : 1.0;
+            if (_sizeCap > 0 && _sizeCapScale == scale) return _sizeCap;
+            var sp = new List<double>();
+            for (int k = 0; k < Tiles.Length; k++)
+                if (_childCount[k] == 0 && Tiles[k].Count >= 64 && _area[k] > 0)
+                    sp.Add(Math.Sqrt(_area[k] / Tiles[k].Count));
+            double leaf;
+            if (sp.Count == 0) leaf = _nodeSpacing.Length > 0 ? _nodeSpacing[_nodeSpacing.Length - 1] : 0.1;
+            else { sp.Sort(); leaf = sp[(int)(sp.Count * 0.75)]; }
+            _sizeCap = 0.85 * leaf * SizeCapLeafFactor * scale;
+            _sizeCapScale = scale;
+            Log.Debug("LOD", string.Format("«{0}»: distanza tra i punti delle foglie {1:F1} mm (75° percentile), raggio massimo dei punti {2:F1} mm",
+                Name, leaf * 304.8, _sizeCap * 304.8));
+            return _sizeCap;
+        }
+        private double _pointScale = 100;
 
         /// <summary>
         /// Il buffer di un nodo con raggio «have» va ancora bene per il raggio voluto «want»? Foglie: entro il 35% (sono il

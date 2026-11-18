@@ -814,3 +814,11 @@ Ottava tornata (28/10/2026): octree
      della mattina piu' stabile; le prove del pomeriggio non hanno tolto il lampeggio alla fermata e peggiorano la
      navigazione. Resta la diagnostica «[Lavoro] raggio rifatto» (173), senza i fattori del bordo, e il minimo del limite
      adattivo al 70% (168).
+176. Grandezza dei punti indipendente dallo zoom, uguale per ogni nuvola (`CloudLayer.RadiusKey`). Dai registri del 18/11
+     (tre nuvole diverse) il lampeggio alla fermata veniva dai blocchi rifatti per «raggio» (3-10 M punti ogni 5 s): il
+     raggio aveva un tetto in pixel, quindi cambiava a ogni raddoppio dello zoom, e quanti blocchi lo toccavano dipendeva
+     dalla densita' della nuvola (per questo ogni regolazione andava bene su una nuvola e male su un'altra). Ora il raggio
+     e' in unita' del modello: quello del nodo, con un tetto misurato sulla nuvola stessa (2 volte la distanza tra i
+     punti delle foglie, 75° percentile, per «Dimensione punti»). Zoomando i punti scalano da soli senza rifare buffer;
+     i blocchi grossolani non diventano rombi enormi da vicino; da lontano non cambia nulla (punti di 1 px). Il registro
+     scrive una volta per nuvola la distanza delle foglie e il raggio massimo («[LOD]»).
