@@ -863,3 +863,9 @@ Ottava tornata (28/10/2026): octree
      ExecuteCommandList), disegni indiretti, Present della swap chain (conferma che Revit presenta con DirectX 11/DXGI) e
      quali librerie grafiche sono caricate nel processo (d3d11, d3d12, opengl, driver). Righe «[DirectX]» con i conteggi.
      Serve ricompilare Native\build.bat.
+183. Esperimento DirectX, quarto passo. Registro del 18/11 20:53: Present di Revit passa dall'aggancio (55-115 ogni 5 s,
+     quindi Revit presenta con DirectX 11/DXGI), ma nessun disegno passa dalle tabelle del nostro dispositivo di prova; nel
+     processo sono caricati sia il driver NVIDIA sia quello Intel. Il dispositivo di Revit ha quindi una tabella dei metodi
+     diversa. Ora alla prima Present di Revit la libreria prende il dispositivo vero dalla sua swap chain (scheda video,
+     livello, opzioni di creazione), aggancia la tabella del suo contesto immediato e dei suoi contesti differiti e lo
+     scrive nelle righe «[DirectX]». Serve ricompilare Native\build.bat.

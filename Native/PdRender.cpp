@@ -102,8 +102,80 @@ static void STDMETHODCALLTYPE HookIndI(ID3D11DeviceContext* c, ID3D11Buffer* b, 
 static void STDMETHODCALLTYPE HookInd(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_indirect++; g_origInd(c, b, o); }
 static void STDMETHODCALLTYPE HookDefIndI(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_indirect++; g_defIndI(c, b, o); }
 static void STDMETHODCALLTYPE HookDefInd(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_indirect++; g_defInd(c, b, o); }
-static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; return g_origPresent(s, a, f); }
-static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; return g_origPresent1(s, a, f, p); }
+// ---- voce 183: il contesto vero di Revit. Dal registro del 18/11 20:53 Present di Revit passa (55-115 ogni 5 s) ma
+// nessun disegno passa dalla tabella del nostro dispositivo di prova: il dispositivo di Revit ha una tabella diversa
+// (altra scheda video: nel processo ci sono sia il driver NVIDIA sia quello Intel, o altre opzioni di creazione).
+// Alla prima Present di Revit si prende il suo dispositivo dalla swap chain, il suo contesto immediato, e si aggancia
+// la tabella di quello.
+static DrawIndexed_t g_realDI = nullptr;
+static Draw_t g_realD = nullptr;
+static DrawIndexedInst_t g_realDII = nullptr;
+static DrawInst_t g_realDInst = nullptr;
+static DrawIndexed_t g_rdefDI = nullptr;
+static DrawIndexedInst_t g_rdefDII = nullptr;
+static std::atomic<int> g_realDone{ 0 };
+static char g_realInfo[400] = "";
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
+
+static void OnRealSwapChain(IDXGISwapChain* s)
+{
+    if (g_realDone.exchange(1)) return;
+    int n = 0;
+    ID3D11Device* dev = nullptr;
+    if (FAILED(s->GetDevice(__uuidof(ID3D11Device), (void**)&dev)) || !dev)
+    {
+        _snprintf_s(g_realInfo, sizeof(g_realInfo), _TRUNCATE, "la swap chain di Revit non appartiene a un dispositivo DirectX 11");
+        return;
+    }
+    n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "dispositivo di Revit: livello 0x%X, opzioni 0x%X", (unsigned)dev->GetFeatureLevel(), dev->GetCreationFlags());
+    IDXGIDevice* xd = nullptr; IDXGIAdapter* ad = nullptr;
+    if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), (void**)&xd)) && SUCCEEDED(xd->GetAdapter(&ad)))
+    {
+        DXGI_ADAPTER_DESC d; ad->GetDesc(&d);
+        char name[128]; WideCharToMultiByte(CP_UTF8, 0, d.Description, -1, name, sizeof(name), nullptr, nullptr);
+        n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, ", scheda %s", name);
+        ad->Release();
+    }
+    if (xd) xd->Release();
+    ID3D11DeviceContext* imm = nullptr;
+    dev->GetImmediateContext(&imm);
+    if (imm)
+    {
+        void** vt = *(void***)imm;
+        if (vt[12] == (void*)&HookDI || vt[12] == (void*)&HookRealDI)
+            n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "; contesto con la stessa tabella del dispositivo di prova");
+        else
+        {
+            g_realDI = (DrawIndexed_t)Patch(vt, 12, (void*)&HookRealDI);
+            g_realD = (Draw_t)Patch(vt, 13, (void*)&HookRealD);
+            g_realDII = (DrawIndexedInst_t)Patch(vt, 20, (void*)&HookRealDII);
+            g_realDInst = (DrawInst_t)Patch(vt, 21, (void*)&HookRealDInst);
+            n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "; contesto con tabella propria, agganciato %s", g_realDI ? "si'" : "NO");
+        }
+        imm->Release();
+    }
+    ID3D11DeviceContext* def = nullptr;
+    if (SUCCEEDED(dev->CreateDeferredContext(0, &def)) && def)
+    {
+        void** vd = *(void***)def;
+        if (vd[12] != (void*)&HookDefDI && vd[12] != (void*)&HookRDefDI && vd[12] != (void*)&HookRealDI && vd[12] != (void*)&HookDI)
+        {
+            g_rdefDI = (DrawIndexed_t)Patch(vd, 12, (void*)&HookRDefDI);
+            g_rdefDII = (DrawIndexedInst_t)Patch(vd, 20, (void*)&HookRDefDII);
+            n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "; contesti differiti agganciati");
+        }
+        def->Release();
+    }
+    dev->Release();
+}
+
+static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); return g_origPresent(s, a, f); }
+static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); return g_origPresent1(s, a, f, p); }
 
 static void* Patch(void** vt, int index, void* hook);
 
@@ -245,10 +317,10 @@ extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
     long dd = g_defDraws.exchange(0), ex = g_exec.exchange(0), ind = g_indirect.exchange(0), pr = g_presents.exchange(0);
     if (m == 0)
     {
-        _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld)", d - dd, dd, ind, ex, pr);
+        _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld); %s", d - dd, dd, ind, ex, pr, g_realInfo);
         return 0;
     }
-    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld), thread %s; %s", m, d - dd, dd, ind, ex, pr,
-        g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo);
+    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld), thread %s; %s; %s", m, d - dd, dd, ind, ex, pr,
+        g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo, g_realInfo);
     return 1;
 }
