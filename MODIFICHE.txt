@@ -795,3 +795,6 @@ Ottava tornata (28/10/2026): octree
      cambiava di continuo e i blocchi si rifacevano (6-15 M punti per «raggio» in 5 s). Ora la grandezza dei punti usa
      un fattore a scalini (1; 1,5; 2,2; 3,2; 4,5; 6,5; 10) aggiornato solo a vista ferma; in movimento resta quello
      dell'ultima vista ferma. La scelta dei blocchi continua a usare il fattore del fotogramma.
+172. Annullata la tolleranza stretta della voce 169 (tetto 1,5 volte sul raggio dei nodi con figli): nel registro del 18/11
+     15:08-15:09 i punti rifatti per «raggio» restano 5-10 M ogni 5 s e la navigazione sembra peggiore. Si torna a 2 volte
+     (come prima della 169), che rifa' meno blocchi a ogni zoom.

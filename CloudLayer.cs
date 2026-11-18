@@ -1206,8 +1206,7 @@ namespace PointDeviation
         private bool RadiusOk(int i, double have, double want)
         {
             if (Tiles[i].ChildMask == 0) return Math.Abs(have - want) <= want * 0.35 + 1e-12;
-            // punti troppo grandi si tollerano meno di quelli troppo piccoli (169): da vicino impastavano la superficie
-            return have <= want * 1.5 && have >= want / 2.01;
+            return have <= want * 2.01 && have >= want / 2.01;
         }
 
         /// <summary>
