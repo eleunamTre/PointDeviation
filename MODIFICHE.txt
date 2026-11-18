@@ -775,3 +775,9 @@ Ottava tornata (28/10/2026): octree
      isolati molto lenti non spostano la media (tetto 2,5 volte l'obiettivo), si scende solo se il tempo resta alto per
      almeno 2 s e a passi del 5%, si risale a passi del 5% subito se il limite e' raggiunto e il disegno e' sotto 9,6 ms,
      altrimenti dopo 5 s di margine, minimo 50%.
+168. Fuoco della vista con il limite di punti raggiunto (registro del 18/11: nel 32% dei fotogrammi il limite era raggiunto
+     e il centro risultava rado e a punti grandi come lo sfondo). Prima, superato il limite, si allargava in modo uniforme
+     la distanza tra i punti di tutta la vista, quindi il centro perdeva dettaglio quanto i bordi. Ora si alza prima il
+     fattore del bordo (da 3 fino a 10 volte: il dettaglio si toglie dai bordi verso il centro) e solo se non basta si
+     rarefa tutta la vista; in movimento il fattore sale del 25% a fotogramma con il limite superato e scende piano.
+     Limite adattivo (167): minimo alzato dal 50% al 70%.

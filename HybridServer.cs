@@ -267,7 +267,7 @@ namespace PointDeviation
     internal static class DrawGovernor
     {
         public const double TargetMs = 12.0;     // tempo di disegno obiettivo per fotogramma in movimento
-        private const double Min = 0.5, Max = 1.25;
+        private const double Min = 0.7, Max = 1.25;
         private static double _scale = 1.0, _ema = -1, _msPerM;
         private static long _lastAdjust, _lastHit;
         private static int _over, _under;

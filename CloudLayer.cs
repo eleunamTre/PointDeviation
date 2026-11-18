@@ -778,14 +778,20 @@ namespace PointDeviation
                 target = Math.Max(baseTarget, _stableTarget);
                 total = SelectOctree(cam, target, budget * 3, outWant, outPx);
                 StatBudgetHit = total > budget;
+                // in movimento il fattore del bordo cambia piano (si usa nel fotogramma dopo): sale se il limite e' superato
+                if (StatBudgetHit) _edge = Math.Min(FocusEdgeMax, _edge * 1.25);
+                else _edge = Math.Max(FocusEdge, _edge * 0.97);
             }
             else
             {
+                _edge = FocusEdge;
                 total = SelectOctree(cam, target, budget * 3, outWant, outPx);
-                for (int iter = 0; iter < 8 && total > budget; iter++)
+                for (int iter = 0; iter < 12 && total > budget; iter++)
                 {
                     StatBudgetHit = true;
-                    target *= Math.Sqrt((double)total / budget) * 1.05;
+                    // prima si toglie dettaglio ai bordi, poi (solo se non basta) a tutta la vista
+                    if (_focus && _edge < FocusEdgeMax) _edge = Math.Min(FocusEdgeMax, _edge * 1.4);
+                    else target *= Math.Sqrt((double)total / budget) * 1.05;
                     total = SelectOctree(cam, target, budget * 3, outWant, outPx);
                 }
                 if (_stableTarget > 0)
@@ -850,13 +856,18 @@ namespace PointDeviation
             double d = cam.CenterDistanceSphere(cx, cy, cz, _rad[i]);
             if (d <= FocusBand) return 1.0;
             double t = (d - FocusBand) / (1.0 - FocusBand);
-            return 1.0 + (FocusEdge - 1.0) * t * t;
+            return 1.0 + (_edge - 1.0) * t * t;
         }
         private bool _focus;
         // fascia centrale a pieno dettaglio: metà della mezza finestra attorno al centro; sul bordo punti 3 volte più distanti
         // (9 volte meno punti). Era 35% e 4 volte: da lontano la vista risultava troppo rada (utente, 13/11).
         private const double FocusBand = 0.5;
         private const double FocusEdge = 3.0;
+        // Con il limite di punti raggiunto il dettaglio si toglie prima ai bordi: il fattore del bordo sale fino a FocusEdgeMax
+        // prima di rarefare tutta la vista (voce 168). Prima si allargava la distanza tra i punti in modo uniforme e il
+        // centro diventava rado e a punti grandi come lo sfondo (immagine dell'utente, 18/11).
+        private const double FocusEdgeMax = 10.0;
+        private double _edge = FocusEdge;
 
         private long SelectOctree(ViewCam cam, double target, long cap, int[] outWant, double[] outPx)
         {
