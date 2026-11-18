@@ -809,6 +809,7 @@ namespace PointDeviation
             _stableTarget = target;
             StatTarget = target;
             if (!Moving) _edgeSize = EdgeStep(_edge);
+            DiagEdge = _edge; DiagEdgeSize = _edgeSize;
 
             // memoria per l'isteresi: quali blocchi sono stati suddivisi in questo fotogramma
             for (int i = 0; i < n; i++)
@@ -876,6 +877,7 @@ namespace PointDeviation
         // Con _edge, che cambia a ogni fotogramma con il limite di punti, il raggio voluto cambiava di continuo e i blocchi
         // si rifacevano (registro del 18/11 15:03: 7-15 M punti preparati per «raggio» in 5 s, ridisegni strani).
         private double _edgeSize = FocusEdgeMin;
+        internal static double DiagEdge = 1, DiagEdgeSize = 1;   // solo per il registro
         private static double EdgeStep(double e)
         {
             double[] st = { 1.0, 1.5, 2.2, 3.2, 4.5, 6.5, 10.0 };
@@ -1222,6 +1224,19 @@ namespace PointDeviation
             if (j.Octa && !RadiusOk(j.Node, g.Radius, j.Radius)) return 2;
             if (g.Built < j.UpTo) return 3;
             return 4;
+        }
+
+        /// <summary>Diagnostica: di che tipo è il cambio di raggio che fa rifare un blocco (vedi CloudBaker.RadiusPoints).</summary>
+        internal void NoteRadius(BakeJob j)
+        {
+            TileGpu g = j.Octa ? _gpuO[j.Node] : _gpu[j.Node];
+            if (g == null || g.Radius <= 0 || j.Radius <= 0) return;
+            bool leaf = Tiles[j.Node].ChildMask == 0, grow = j.Radius > g.Radius;
+            long n = j.UpTo;
+            Interlocked.Add(ref CloudBaker.RadiusPoints[(grow ? 0 : 2) + (leaf ? 0 : 1)], n);
+            if (Moving) Interlocked.Add(ref CloudBaker.RadiusPoints[4], n);
+            double r = grow ? j.Radius / g.Radius : g.Radius / j.Radius;
+            if (r < 1.5) Interlocked.Add(ref CloudBaker.RadiusPoints[5], n);
         }
 
         /// <summary>
@@ -1703,6 +1718,12 @@ namespace PointDeviation
             long[] why = CloudBaker.ReasonPoints;
             long w0 = Interlocked.Exchange(ref why[0], 0), w1 = Interlocked.Exchange(ref why[1], 0), w2 = Interlocked.Exchange(ref why[2], 0),
                 w3 = Interlocked.Exchange(ref why[3], 0), w4 = Interlocked.Exchange(ref why[4], 0), w5 = Interlocked.Exchange(ref why[5], 0);
+            long[] rr = CloudBaker.RadiusPoints;
+            long r0 = Interlocked.Exchange(ref rr[0], 0), r1 = Interlocked.Exchange(ref rr[1], 0), r2 = Interlocked.Exchange(ref rr[2], 0),
+                r3 = Interlocked.Exchange(ref rr[3], 0), r4 = Interlocked.Exchange(ref rr[4], 0), r5 = Interlocked.Exchange(ref rr[5], 0);
+            if (w2 > 0)
+                Log.Debug("Lavoro", string.Format("raggio rifatto: punti più grandi su foglie {0:N0}, su nodi {1:N0}; più piccoli su foglie {2:N0}, su nodi {3:N0}; di cui con la camera in movimento {4:N0}, con scarto sotto 1,5 volte {5:N0}; fattore bordo {6:F1} (per la grandezza {7:F1})",
+                    r0, r1, r2, r3, r4, r5, CloudLayer.DiagEdge, CloudLayer.DiagEdgeSize));
             Log.Debug("Lavoro", string.Format("tutte le nuvole: letti {4:N0} blocchi ({5:N0} punti) in {6:F0} ms (somma dei thread), preparati {0:N0} punti in {1:F0} ms (somma dei thread), copiati {2:N0} punti in {3:F0} ms; in coda: lettura {7}, preparazione {8}; preparati perché: senza buffer {9:N0}, stile {10:N0}, raggio {11:N0}, più punti {12:N0}, altro {13:N0}, precaricamento {14:N0}",
                 bp, bms, up, ums, rb, rp, rms, CloudLoader.Queued, CloudBaker.Queued, w0, w1, w2, w3, w4, w5));
         }
@@ -2286,6 +2307,9 @@ namespace PointDeviation
         public static long BakeTicks, BakePoints;         // diagnostica: tempo e punti preparati
         public static long UploadTicks, UploadPoints;     // diagnostica: tempo e punti copiati nella scheda video
         public static readonly long[] ReasonPoints = new long[6]; // diagnostica: punti preparati per motivo (vedi BakeReason)
+        // diagnostica del raggio (voce 173): punti rifatti per «raggio» divisi in 0 = ingrandimento foglie, 1 = ingrandimento nodi,
+        // 2 = rimpicciolimento foglie, 3 = rimpicciolimento nodi, 4 = in movimento, 5 = di cui scarto vero-voluto sotto 1,5 volte
+        public static readonly long[] RadiusPoints = new long[6];
 
         public static void Enqueue(BakeJob j)
         {
@@ -2324,6 +2348,7 @@ namespace PointDeviation
                     if (j.Style.Version == j.Layer.CurrentStyleVersion && j.Layer.IdleMs(j.Node) < 2000)
                     {
                         int why = j.Prio == 1 ? 5 : j.Layer.BakeReason(j);   // 5 = precaricamento
+                        if (why == 2) j.Layer.NoteRadius(j);
                         var sw = System.Diagnostics.Stopwatch.StartNew();
                         Baked bk = j.Layer.Bake(j);
                         if (bk != null)

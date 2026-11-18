@@ -798,3 +798,7 @@ Ottava tornata (28/10/2026): octree
 172. Annullata la tolleranza stretta della voce 169 (tetto 1,5 volte sul raggio dei nodi con figli): nel registro del 18/11
      15:08-15:09 i punti rifatti per «raggio» restano 5-10 M ogni 5 s e la navigazione sembra peggiore. Si torna a 2 volte
      (come prima della 169), che rifa' meno blocchi a ogni zoom.
+173. Diagnostica dei punti rifatti per «raggio»: nuova riga «[Lavoro] raggio rifatto» (solo se ce ne sono) con i punti
+     rifatti divisi in ingrandimenti e rimpicciolimenti, su foglie e su nodi con figli, quanti con la camera in movimento,
+     quanti con uno scarto sotto 1,5 volte, e il fattore del bordo di quel momento. Serve a capire se i rifacimenti
+     vengono dallo zoom (scarti grandi) o dal fuoco/dalla posizione (scarti piccoli).
