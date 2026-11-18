@@ -8,6 +8,7 @@ using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.PointClouds;
@@ -244,6 +245,8 @@ namespace PointDeviation
         {
             private readonly string _name, _folder;
             private readonly Outline _extent;
+            private readonly TileEntry[] _tiles;
+            private readonly CloudInfo _info;
             private readonly CloudPoint[] _outline;
             private bool _freed;
 
@@ -253,6 +256,8 @@ namespace PointDeviation
                 _folder = CloudView.CloudFolderOf(identifier);
                 CloudInfo info = CloudInfo.Load(_folder);
                 TileEntry[] tiles = TileEntry.Read(Path.Combine(_folder, CloudInfo.IndexName));
+                _tiles = tiles;
+                _info = info;
                 _name = v.Label ?? info.Name;
 
                 float mnx = float.MaxValue, mny = float.MaxValue, mnz = float.MaxValue, mxx = float.MinValue, mxy = float.MinValue, mxz = float.MinValue;
@@ -288,20 +293,163 @@ namespace PointDeviation
 
             public IPointSetIterator CreatePointSetIterator(PointCloudFilter rFilter, ElementId viewId)
             {
+                if (AdvancedSettings.Current.NativeDisplay) return new TileIterator(_folder, _info, _tiles, rFilter, 0);
                 return new OutlineIterator(_outline, rFilter);
             }
 
             public IPointSetIterator CreatePointSetIterator(PointCloudFilter rFilter, double density, ElementId viewId)
             {
+                if (AdvancedSettings.Current.NativeDisplay) return new TileIterator(_folder, _info, _tiles, rFilter, density);
                 return new OutlineIterator(_outline, rFilter);
             }
 
             public int ReadPoints(PointCloudFilter rFilter, ElementId viewId, IntPtr buffer, int nBufferSize)
             {
-                try { return new OutlineIterator(_outline, rFilter).ReadPoints(buffer, nBufferSize); }
+                try
+                {
+                    if (AdvancedSettings.Current.NativeDisplay)
+                    {
+                        var it = new TileIterator(_folder, _info, _tiles, rFilter, 0);
+                        try { return it.ReadPoints(buffer, nBufferSize); } finally { it.Free(); }
+                    }
+                    return new OutlineIterator(_outline, rFilter).ReadPoints(buffer, nBufferSize);
+                }
                 catch { return 0; }
             }
         }
+
+        // ------------------------------------------------------------------ disegno di Revit (prova, voce 178)
+
+        /// <summary>
+        /// Prova del disegno fatto da Revit (Avanzate › «Disegno dei punti fatto da Revit»): invece di nessun punto il motore
+        /// consegna i punti veri, blocco per blocco dall'octree in ordine di livello (prima i livelli grossolani di tutta la
+        /// nuvola, poi i più fini). Revit chiede punti finché ne ha abbastanza per la vista e li disegna da sé, con la sua
+        /// grandezza dei punti e senza buffer da rifare. I blocchi fuori dal filtro di Revit (vista, riquadro di sezione)
+        /// si saltano con tutto il loro sotto-albero.
+        /// </summary>
+        private sealed class TileIterator : IPointSetIterator
+        {
+            private readonly string _folder;
+            private readonly CloudInfo _info;
+            private readonly TileEntry[] _tiles;
+            private readonly PointCloudFilter _filter;
+            private readonly Queue<int> _queue = new Queue<int>();
+            private int _seq;                 // formato 1 (senza octree): blocchi in ordine
+            private CloudPoint[] _cur;        // punti del blocco in corso
+            private int _curPos;
+            private bool _curAll;             // blocco tutto dentro il filtro: niente prova punto per punto
+            private FileStream _fs;
+            private long _given;
+            private static long _lastLog;
+
+            public TileIterator(string folder, CloudInfo info, TileEntry[] tiles, PointCloudFilter filter, double density)
+            {
+                _folder = folder; _info = info; _tiles = tiles; _filter = filter;
+                if (_info.IsOctree && tiles.Length > 0) _queue.Enqueue(0);
+                long now = Environment.TickCount;
+                if (now - _lastLog > 5000)
+                {
+                    _lastLog = now;
+                    Log.Debug("Motore", string.Format("disegno di Revit: nuova richiesta di punti (densità chiesta {0:G4}, filtro {1})", density, filter != null ? "sì" : "no"));
+                }
+            }
+
+            /// <summary>Prossimo blocco da consegnare; false a fine nuvola.</summary>
+            private bool NextTile()
+            {
+                while (true)
+                {
+                    int i;
+                    if (_info.IsOctree)
+                    {
+                        if (_queue.Count == 0) return false;
+                        i = _queue.Dequeue();
+                    }
+                    else
+                    {
+                        if (_seq >= _tiles.Length) return false;
+                        i = _seq++;
+                    }
+                    TileEntry t = _tiles[i];
+                    int test = 1;
+                    if (_filter != null)
+                    {
+                        double f = FtPerM;
+                        try { test = _filter.TestCell(new XYZ(t.MinX * f, t.MinY * f, t.MinZ * f), new XYZ(t.MaxX * f, t.MaxY * f, t.MaxZ * f)); }
+                        catch { test = 0; }
+                    }
+                    if (test < 0) continue;   // fuori dal filtro: si salta con tutto il sotto-albero
+                    if (_info.IsOctree)
+                        for (int k = 0; k < t.ChildCount; k++) _queue.Enqueue(t.FirstChild + k);
+                    if (t.Count <= 0) continue;
+                    _cur = TilePoints(i);
+                    _curPos = 0;
+                    _curAll = test > 0;
+                    return true;
+                }
+            }
+
+            private CloudPoint[] TilePoints(int i)
+            {
+                string key = _folder + "|" + i;
+                CloudPoint[] pts;
+                if (_cache.TryGetValue(key, out pts)) return pts;
+                TileEntry t = _tiles[i];
+                int R = _info.RecordSize;
+                var buf = new byte[t.Count * R];
+                if (_fs == null) _fs = new FileStream(Path.Combine(_folder, CloudInfo.PointsName), FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+                _fs.Position = t.FirstRecord * R;
+                int got = 0;
+                while (got < buf.Length) { int r = _fs.Read(buf, got, buf.Length - got); if (r <= 0) break; got += r; }
+                int n = got / R;
+                pts = new CloudPoint[n];
+                double k = _info.Scale * FtPerM;
+                bool rgb = _info.HasRgb;
+                for (int j = 0; j < n; j++)
+                {
+                    int o = j * R;
+                    float x = (float)(BitConverter.ToInt32(buf, o) * k);
+                    float y = (float)(BitConverter.ToInt32(buf, o + 4) * k);
+                    float z = (float)(BitConverter.ToInt32(buf, o + 8) * k);
+                    int col = rgb ? (buf[o + 12] << 16) | (buf[o + 13] << 8) | buf[o + 14] : 0x808080;
+                    pts[j] = new CloudPoint(x, y, z, col);
+                }
+                if (Interlocked.Add(ref _cachePoints, n) > CacheMaxPoints) { _cache.Clear(); Interlocked.Exchange(ref _cachePoints, n); }
+                _cache[key] = pts;
+                return pts;
+            }
+
+            public unsafe int ReadPoints(IntPtr buffer, int bufferSize)
+            {
+                int written = 0;
+                try
+                {
+                    if (buffer == IntPtr.Zero || bufferSize <= 0) return 0;
+                    CloudPoint* dst = (CloudPoint*)buffer.ToPointer();
+                    while (written < bufferSize)
+                    {
+                        if (_cur == null || _curPos >= _cur.Length) { if (!NextTile()) break; }
+                        CloudPoint p = _cur[_curPos++];
+                        if (!_curAll && _filter != null && !_filter.TestPoint(p)) continue;
+                        dst[written++] = p;
+                    }
+                }
+                catch (Exception ex) { Log.Error("Motore: lettura dei punti", ex); }
+                _given += written;
+                return written;
+            }
+
+            public void Free()
+            {
+                try { if (_fs != null) _fs.Dispose(); } catch { }
+                _fs = null;
+            }
+        }
+
+        // blocchi già letti, comuni a tutte le richieste di Revit (si svuota oltre il tetto)
+        private static readonly ConcurrentDictionary<string, CloudPoint[]> _cache = new ConcurrentDictionary<string, CloudPoint[]>();
+        private static long _cachePoints;
+        private const long CacheMaxPoints = 20000000;
 
         /// <summary>Restituisce i punti del contorno che passano il filtro di Revit (vista, section box).</summary>
         private sealed class OutlineIterator : IPointSetIterator

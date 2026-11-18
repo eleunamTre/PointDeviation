@@ -9,6 +9,9 @@ namespace PointDeviation
         {
             d["Livelli principali pronti: puoi navigare. Il dettaglio fine ({0:F0}% dei punti) si completa in background, circa {1:F0} s."] = "Main levels ready: you can navigate. The fine detail ({0:F0}% of points) is completed in the background, about {1:F0} s.";
             d["Analisi: aspetta il calcolo completo delle distanze"] = "Analysis: wait for all distances to be computed";
+            d["Prova: punti disegnati da Revit"] = "Test: points drawn by Revit";
+            d["Spento (consigliato): i punti li disegna il plugin. Acceso: li disegna Revit come le sue nuvole (punti tondi, grandezza che segue lo zoom senza ricostruzioni), senza colori per deviazione, fuoco e «Dimensione punti». Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica."] = "Off (recommended): the plug-in draws the points. On: Revit draws them like its own clouds (round points, size that follows the zoom without rebuilding), without deviation colors, focus and «Point size». After changing it, reload the cloud in Manage › Manage Links › Point Clouds › Reload.";
+            d["PointDeviation {0}, modifica {1}, compilato il {2}."] = "PointDeviation {0}, change {1}, built on {2}.";
             d["Limite di punti fisso"] = "Fixed point limit";
             d["Spento (consigliato): il limite si adatta alla velocità di disegno misurata, scendendo quando la scheda video è lenta (altri programmi aperti, batteria) e risalendo quando c'è margine. Acceso: vale sempre il limite del profilo."] = "Off (recommended): the limit adapts to the measured drawing speed, going down when the graphics card is slow (other programs open, battery) and up again when there is headroom. On: the profile limit always applies.";
             d["Navigazione: stesso dettaglio su tutta la vista"] = "Navigation: same detail across the whole view";

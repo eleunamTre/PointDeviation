@@ -827,3 +827,13 @@ Ottava tornata (28/10/2026): octree
      diventava una pasta. Della 176 resta il tetto misurato sulla nuvola come limite superiore anche per i blocchi
      grossolani. Il lampeggio alla fermata va risolto in un altro modo (cambio di grandezza applicato a tutta la vista in
      una volta, non blocco per blocco).
+178. Prova del disegno fatto da Revit (Avanzate › Prestazioni › «Prova: punti disegnati da Revit», spenta di base).
+     DirectContext3D non permette programmi propri per la scheda video, quindi la grandezza dei punti grandi va scritta
+     nei triangoli e rifatta allo zoom (lampeggio). Il motore di nuvole del plugin («pdcl», gia' registrato per far
+     comparire la nuvola come elemento di Revit) finora consegnava zero punti; con l'opzione accesa consegna i punti
+     veri dell'octree, in ordine di livello (prima i grossolani di tutta la nuvola), saltando i blocchi fuori dal filtro
+     di Revit, e il plugin non disegna. Revit disegna i punti da se' (tondi, grandezza dinamica, nessun buffer da
+     rifare). Mancano colori per deviazione, fuoco e «Dimensione punti». Dopo il cambio va ricaricata la nuvola da
+     Gestisci collegamenti. Blocchi letti tenuti in memoria fino a 20 M punti.
+     Informazioni sulla versione (numero, ultima voce di questo file, data di compilazione) in Avanzate › Diagnostica e
+     nel registro («[Versione]») all'avvio.

@@ -141,6 +141,8 @@ namespace PointDeviation
             try
             {
                 if (view is ViewSheet || view is ViewSchedule) return false;
+                // prova del disegno fatto da Revit (voce 178): il plugin non disegna
+                if (AdvancedSettings.Current.NativeDisplay) return false;
                 // anteprime (editor tipo, famiglie): vista del progetto non aperta in nessuna finestra
                 if (!ZoomCache.IsOpen(view)) return false;
                 DocumentData d = Data(view);
@@ -336,6 +338,7 @@ namespace PointDeviation
             {
                 _hwLogged = true;
                 PerfValues v = AdvancedSettings.Current.Effective;
+                Log.Write("Versione", BuildInfo.Describe());
                 Log.Write("Hardware", string.Format("{0}; profilo {1}: {2} thread di preparazione, {3} di lettura, limite punti {4}%, precaricamento {5}; {6}",
                     Hardware.Describe(), AdvancedSettings.Current.ResolvedProfile, v.BakerThreads, v.LoaderThreads, v.BudgetPercent,
                     v.PrefetchMargin > 0 ? v.PrefetchMargin.ToString("0.0") : "spento", Hardware.GraphicsDiag()));

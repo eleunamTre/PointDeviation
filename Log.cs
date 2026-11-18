@@ -202,6 +202,8 @@ namespace PointDeviation
         /// <summary>Limite di punti fisso: spento (predefinito) il limite si adatta alla velocità di disegno misurata
         /// (voce 165); acceso vale sempre quello del profilo.</summary>
         [DataMember] public bool FixedBudget;
+        /// <summary>Prova (voce 178): i punti li disegna Revit (motore di nuvole) invece del plugin.</summary>
+        [DataMember] public bool NativeDisplay;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 
@@ -262,6 +264,26 @@ namespace PointDeviation
                     new DataContractJsonSerializer(typeof(AdvancedSettings)).WriteObject(fs, this);
             }
             catch (Exception ex) { Log.Error("Impostazioni avanzate", ex); }
+        }
+    }
+
+    /// <summary>Informazioni sulla versione mostrate in Avanzate › Diagnostica e scritte nel registro all'avvio.</summary>
+    internal static class BuildInfo
+    {
+        /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
+        public const int Change = 178;
+
+        public static string Describe()
+        {
+            string ver = "?", built = "?";
+            try
+            {
+                var asm = typeof(BuildInfo).Assembly;
+                ver = asm.GetName().Version.ToString();
+                built = System.IO.File.GetLastWriteTime(asm.Location).ToString("dd/MM/yyyy HH:mm");
+            }
+            catch { }
+            return string.Format(L.T("PointDeviation {0}, modifica {1}, compilato il {2}."), ver, Change, built);
         }
     }
 }

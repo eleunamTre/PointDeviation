@@ -28,6 +28,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _fullWait = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _holdView = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _fixedBudget = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _native = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -149,6 +150,7 @@ namespace PointDeviation
         {
             var p = Stack();
             p.Controls.Add(Title(L.T("Diagnostica")));
+            p.Controls.Add(Note(BuildInfo.Describe()));
             _levels.Text = L.T("Colori per livello dell'octree");
             p.Controls.Add(_levels);
             p.Controls.Add(Note(L.T("Ogni livello ha un colore (rosso il più grossolano, poi arancio, giallo, verde, azzurro, blu, viola…). Punti grandi a colori pieni, punti di un pixel più chiari. Serve a vedere quali blocchi si disegnano e dove.")));
@@ -179,6 +181,9 @@ namespace PointDeviation
             _uniform.Text = L.T("Navigazione: stesso dettaglio su tutta la vista");
             p.Controls.Add(_uniform);
             p.Controls.Add(Note(L.T("Spento (consigliato): dettaglio pieno al centro della finestra, sempre più rado verso i bordi; si leggono e si preparano molti meno punti. Acceso: tutta la vista con lo stesso dettaglio.")));
+            _native.Text = L.T("Prova: punti disegnati da Revit");
+            p.Controls.Add(_native);
+            p.Controls.Add(Note(L.T("Spento (consigliato): i punti li disegna il plugin. Acceso: li disegna Revit come le sue nuvole (punti tondi, grandezza che segue lo zoom senza ricostruzioni), senza colori per deviazione, fuoco e «Dimensione punti». Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica.")));
             _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
@@ -226,6 +231,7 @@ namespace PointDeviation
             _holdView.Checked = a.HoldViewUntilReady;
             _uniform.Checked = a.UniformDetail;
             _fixedBudget.Checked = a.FixedBudget;
+            _native.Checked = a.NativeDisplay;
         }
 
         private void Apply()
@@ -243,6 +249,7 @@ namespace PointDeviation
             a.HoldViewUntilReady = _holdView.Checked;
             a.UniformDetail = _uniform.Checked;
             a.FixedBudget = _fixedBudget.Checked;
+            a.NativeDisplay = _native.Checked;
             a.Save();
             bool levelsChanged = CloudDebug.Levels != _levels.Checked;
             CloudDebug.Levels = _levels.Checked;
