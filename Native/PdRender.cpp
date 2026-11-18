@@ -114,13 +114,74 @@ static DrawInst_t g_realDInst = nullptr;
 static DrawIndexed_t g_rdefDI = nullptr;
 static DrawIndexedInst_t g_rdefDII = nullptr;
 static std::atomic<int> g_realDone{ 0 };
-static char g_realInfo[400] = "";
+static char g_realInfo[700] = "";
 static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { Marker(c, a); Capture(c); g_realD(c, a, b); }
 static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
 static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
+
+// ---- voce 184: con il contesto vero agganciato i disegni restano 0 (registro 18/11 21:43). Si contano anche le altre
+// operazioni che Revit fa a ogni fotogramma sul contesto vero (pulizie, copie, scritture di memoria, liste eseguite,
+// disegni indiretti) e si agganciano le altre interfacce del contesto (ID3D11DeviceContext1..4), se hanno tabelle diverse.
+typedef void (STDMETHODCALLTYPE* Clear_t)(ID3D11DeviceContext*, ID3D11RenderTargetView*, const FLOAT[4]);
+typedef void (STDMETHODCALLTYPE* Copy_t)(ID3D11DeviceContext*, ID3D11Resource*, ID3D11Resource*);
+typedef void (STDMETHODCALLTYPE* CopyRegion_t)(ID3D11DeviceContext*, ID3D11Resource*, UINT, UINT, UINT, UINT, ID3D11Resource*, UINT, const D3D11_BOX*);
+typedef void (STDMETHODCALLTYPE* Update_t)(ID3D11DeviceContext*, ID3D11Resource*, UINT, const D3D11_BOX*, const void*, UINT, UINT);
+typedef HRESULT(STDMETHODCALLTYPE* Map_t)(ID3D11DeviceContext*, ID3D11Resource*, UINT, D3D11_MAP, UINT, D3D11_MAPPED_SUBRESOURCE*);
+static Clear_t g_rClear = nullptr; static Copy_t g_rCopy = nullptr; static CopyRegion_t g_rCopyReg = nullptr;
+static Update_t g_rUpdate = nullptr; static Map_t g_rMap = nullptr; static ExecCmd_t g_rExec = nullptr;
+static Indirect_t g_rIndI = nullptr;
+static std::atomic<long> g_cClear{ 0 }, g_cCopy{ 0 }, g_cUpdate{ 0 }, g_cMap{ 0 }, g_cExec{ 0 }, g_cIndI{ 0 };
+static void STDMETHODCALLTYPE HookRClear(ID3D11DeviceContext* c, ID3D11RenderTargetView* v, const FLOAT col[4]) { g_cClear++; g_rClear(c, v, col); }
+static void STDMETHODCALLTYPE HookRCopy(ID3D11DeviceContext* c, ID3D11Resource* d, ID3D11Resource* s) { g_cCopy++; g_rCopy(c, d, s); }
+static void STDMETHODCALLTYPE HookRCopyReg(ID3D11DeviceContext* c, ID3D11Resource* d, UINT a, UINT x, UINT y, UINT z, ID3D11Resource* s, UINT b, const D3D11_BOX* bx) { g_cCopy++; g_rCopyReg(c, d, a, x, y, z, s, b, bx); }
+static void STDMETHODCALLTYPE HookRUpdate(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, const D3D11_BOX* b, const void* d, UINT p, UINT q) { g_cUpdate++; g_rUpdate(c, r, a, b, d, p, q); }
+static HRESULT STDMETHODCALLTYPE HookRMap(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, D3D11_MAP t, UINT f, D3D11_MAPPED_SUBRESOURCE* m) { g_cMap++; return g_rMap(c, r, a, t, f, m); }
+static void STDMETHODCALLTYPE HookRExec(ID3D11DeviceContext* c, ID3D11CommandList* l, BOOL r) { g_cExec++; g_rExec(c, l, r); }
+static void STDMETHODCALLTYPE HookRIndI(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_cIndI++; g_rIndI(c, b, o); }
+
+// altre interfacce del contesto: se una ha una tabella diversa, lì si aggancia di nuovo il disegno (solo DrawIndexed)
+static DrawIndexed_t g_ifDI[4] = {};
+static void STDMETHODCALLTYPE HookIf0(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); g_ifDI[0](c, a, b, d); }
+static void STDMETHODCALLTYPE HookIf1(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); g_ifDI[1](c, a, b, d); }
+static void STDMETHODCALLTYPE HookIf2(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); g_ifDI[2](c, a, b, d); }
+static void STDMETHODCALLTYPE HookIf3(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); g_ifDI[3](c, a, b, d); }
+
+static int HookExtra(ID3D11DeviceContext* imm, char* buf, int cap)
+{
+    void** vt = *(void***)imm;
+    g_rClear = (Clear_t)Patch(vt, 50, (void*)&HookRClear);
+    g_rCopy = (Copy_t)Patch(vt, 47, (void*)&HookRCopy);
+    g_rCopyReg = (CopyRegion_t)Patch(vt, 46, (void*)&HookRCopyReg);
+    g_rUpdate = (Update_t)Patch(vt, 48, (void*)&HookRUpdate);
+    g_rMap = (Map_t)Patch(vt, 14, (void*)&HookRMap);
+    g_rExec = (ExecCmd_t)Patch(vt, 58, (void*)&HookRExec);
+    g_rIndI = (Indirect_t)Patch(vt, 39, (void*)&HookRIndI);
+    int n = 0;
+    const IID* ids[4] = { &__uuidof(ID3D11DeviceContext1), &__uuidof(ID3D11DeviceContext2), &__uuidof(ID3D11DeviceContext3), &__uuidof(ID3D11DeviceContext4) };
+    void* hooks[4] = { (void*)&HookIf0, (void*)&HookIf1, (void*)&HookIf2, (void*)&HookIf3 };
+    void** seen[5] = { vt };
+    int ns = 1;
+    for (int k = 0; k < 4; k++)
+    {
+        IUnknown* p = nullptr;
+        if (FAILED(imm->QueryInterface(*ids[k], (void**)&p)) || !p) { n += _snprintf_s(buf + n, cap - n, _TRUNCATE, " if%d:no", k + 1); continue; }
+        void** v = *(void***)p;
+        bool dup = false;
+        for (int j = 0; j < ns; j++) if (seen[j] == v) dup = true;
+        if (dup) n += _snprintf_s(buf + n, cap - n, _TRUNCATE, " if%d:%s", k + 1, (void*)p == (void*)imm ? "stessa" : "stessa tabella");
+        else
+        {
+            seen[ns++] = v;
+            g_ifDI[k] = (DrawIndexed_t)Patch(v, 12, hooks[k]);
+            n += _snprintf_s(buf + n, cap - n, _TRUNCATE, " if%d:tabella diversa, agganciata", k + 1);
+        }
+        p->Release();
+    }
+    return n;
+}
 
 static void OnRealSwapChain(IDXGISwapChain* s)
 {
@@ -157,6 +218,8 @@ static void OnRealSwapChain(IDXGISwapChain* s)
             g_realDInst = (DrawInst_t)Patch(vt, 21, (void*)&HookRealDInst);
             n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "; contesto con tabella propria, agganciato %s", g_realDI ? "si'" : "NO");
         }
+        n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "; interfacce:");
+        n += HookExtra(imm, g_realInfo + n, (int)sizeof(g_realInfo) - n);
         imm->Release();
     }
     ID3D11DeviceContext* def = nullptr;
@@ -314,13 +377,16 @@ static void DescribeState(ID3D11DeviceContext* c, char* buf, int cap)
 extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
 {
     long m = g_markers.exchange(0), d = g_draws.exchange(0);
-    long dd = g_defDraws.exchange(0), ex = g_exec.exchange(0), ind = g_indirect.exchange(0), pr = g_presents.exchange(0);
+    long dd = g_defDraws.exchange(0), ex = g_exec.exchange(0) + g_cExec.exchange(0), ind = g_indirect.exchange(0) + g_cIndI.exchange(0), pr = g_presents.exchange(0);
+    char ops[200];
+    _snprintf_s(ops, sizeof(ops), _TRUNCATE, "operazioni sul contesto di Revit: pulizie %ld, copie %ld, aggiornamenti %ld, scritture (Map) %ld",
+        g_cClear.exchange(0), g_cCopy.exchange(0), g_cUpdate.exchange(0), g_cMap.exchange(0));
     if (m == 0)
     {
-        _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld); %s", d - dd, dd, ind, ex, pr, g_realInfo);
+        _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld); %s; %s", d - dd, dd, ind, ex, pr, ops, g_realInfo);
         return 0;
     }
-    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld), thread %s; %s; %s", m, d - dd, dd, ind, ex, pr,
+    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", m, d - dd, dd, ind, ex, pr, ops,
         g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo, g_realInfo);
     return 1;
 }

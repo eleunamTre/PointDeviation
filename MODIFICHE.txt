@@ -869,3 +869,9 @@ Ottava tornata (28/10/2026): octree
      diversa. Ora alla prima Present di Revit la libreria prende il dispositivo vero dalla sua swap chain (scheda video,
      livello, opzioni di creazione), aggancia la tabella del suo contesto immediato e dei suoi contesti differiti e lo
      scrive nelle righe «[DirectX]». Serve ricompilare Native\build.bat.
+184. Esperimento DirectX, quinto passo. Registro del 18/11 21:43: dispositivo di Revit su NVIDIA RTX 3070 Laptop, DirectX
+     11.0, opzioni 0x1 (singolo thread); il suo contesto e' agganciato ma i disegni restano 0 mentre le Present continuano.
+     Ora si contano anche pulizie, copie, aggiornamenti e scritture di memoria (Map) sul contesto di Revit, liste
+     eseguite e disegni indiretti, e si agganciano le altre interfacce del contesto (ID3D11DeviceContext1..4) se hanno
+     tabelle diverse. Se Revit fa solo copie e scritture, l'immagine 3D e' prodotta altrove (ad esempio senza
+     accelerazione hardware) e DirectX serve solo a presentarla.
