@@ -106,7 +106,7 @@ static bool TestInit(ID3D11Device* dev)
     D3D11_INPUT_ELEMENT_DESC el = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
     dev->CreateInputLayout(&el, 1, vb->GetBufferPointer(), vb->GetBufferSize(), &g_il);
     vb->Release(); pb->Release();
-    float h = 1.0f; // cubo di 2 piedi di lato, centrato in g_cubePos (le coordinate si aggiungono nello shader tramite VP? no: qui)
+    float h = 3.0f; // voce 192: cubo di 6 piedi di lato, centrato in g_cubePos (le coordinate si aggiungono nello shader tramite VP? no: qui)
     float v[24] = { -h,-h,-h,  h,-h,-h,  h,h,-h,  -h,h,-h,  -h,-h,h,  h,-h,h,  h,h,h,  -h,h,h };
     for (int i = 0; i < 8; i++) { v[i * 3] += g_cubePos[0]; v[i * 3 + 1] += g_cubePos[1]; v[i * 3 + 2] += g_cubePos[2]; }
     unsigned short idx[36] = { 0,1,2, 0,2,3, 4,6,5, 4,7,6, 0,4,5, 0,5,1, 1,5,6, 1,6,2, 2,6,7, 2,7,3, 3,7,4, 3,4,0 };
@@ -315,7 +315,9 @@ static void TestDraw(ID3D11DeviceContext* c)
     ID3D11Buffer* ours[2] = { g_cb, rcb };
     c->VSSetConstantBuffers(0, 2, ours);
     c->PSSetConstantBuffers(0, 1, &g_cb);
-    c->OMSetDepthStencilState(g_dss, 0);   // voce 190: profondita' ancora spenta, prima si verifica la posizione
+    // voce 192: con la matrice di Revit la profondita' si confronta con il buffer di Revit (verso normale: dal buffer del
+    // 19/11 12:03 la riga di profondita' cresce lungo la direzione di vista)
+    c->OMSetDepthStencilState(rcb && g_dssLess ? g_dssLess : g_dss, 0);
     c->RSSetState(g_rs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(g_bs, zero, 0xffffffff);

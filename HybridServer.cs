@@ -236,7 +236,13 @@ namespace PointDeviation
                 for (int k = 0; k < visible.Count; k++) visible[k].Prepare(st, budget, wants[k], pxs[k]);
                 for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
                 long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
-                NativeProbe.Begin(cam);
+                XYZ cubeAt = null;
+                if (AdvancedSettings.Current.NativeProbe && visible.Count > 0)
+                {
+                    XYZ bmin, bmax; visible[0].ModelBounds(out bmin, out bmax);
+                    cubeAt = (bmin + bmax) / 2.0;
+                }
+                NativeProbe.Begin(cam, cubeAt);
                 try { for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]); }
                 finally { NativeProbe.End(); }
                 long f3 = System.Diagnostics.Stopwatch.GetTimestamp();

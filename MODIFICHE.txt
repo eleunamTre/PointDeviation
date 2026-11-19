@@ -920,3 +920,10 @@ Ottava tornata (28/10/2026): octree
      righe 15-18, per colonne) ma il cubo non si vede piu' (la profondita' e' spenta, quindi non e' coperto dal modello:
      la matrice scelta probabilmente non e' quella giusta). Una riga «[DirectX] buffer di Revit» scrive una volta il
      contenuto di quel buffer e la camera del plugin, per individuare la matrice a mano.
+192. Esperimento DirectX: la matrice di Revit e' quella giusta. Dal buffer del 19/11 12:03 (vista «VistaIniziale»):
+     righe 0-5 i sei piani del riquadro di sezione, righe 11-14 matrice identita', righe 15-18 la trasformazione
+     dal modello allo schermo (parallela: prima riga = destra/mezza larghezza, coincide con la camera del plugin;
+     profondita' crescente lungo la direzione di vista). Nella vista bloccata il cubo resta fermo zoomando; nella
+     {3D} non si vedeva perche' era stato messo nella posizione della camera della vista parallela, fuori dal modello.
+     Ora il cubo (6 piedi di lato) sta nel centro dell'ingombro della nuvola e con la matrice di Revit la profondita'
+     e' accesa (minore o uguale, senza scrittura): il modello lo copre dove gli sta davanti.

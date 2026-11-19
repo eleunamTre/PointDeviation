@@ -42,7 +42,7 @@ namespace PointDeviation
         /// motore). Convenzione: vettore riga per matrice, riga per riga (row_major nello shader). Prospettiva: ampiezza
         /// HalfW/HalfH alla distanza Target; parallela: ampiezza HalfW/HalfH attorno a Pos.
         /// </summary>
-        private static void SendCamera(ViewCam cam)
+        private static void SendCamera(ViewCam cam, XYZ cubeAt)
         {
             if (cam == null || !cam.Valid) return;
             XYZ R = cam.Right, U = cam.Up, D = cam.Dir, E = cam.Pos;
@@ -71,8 +71,9 @@ namespace PointDeviation
             for (int i = 0; i < 16; i++) _vp[i] = (float)m[i];
             if (_cube == null)
             {
-                // cubo fisso nel modello: nel punto guardato al primo fotogramma
-                XYZ p = cam.Perspective ? E + D * cam.Target : E;
+                // voce 192: cubo fisso nel centro dell'ingombro della nuvola (prima nel punto guardato al primo fotogramma, che
+                // nelle viste parallele poteva essere la posizione della camera, fuori dal modello)
+                XYZ p = cubeAt ?? (cam.Perspective ? E + D * cam.Target : E);
                 _cube = new[] { (float)p.X, (float)p.Y, (float)p.Z };
                 Log.Write("DirectX", string.Format("cubo di prova in {0:F1}, {1:F1}, {2:F1} piedi", p.X, p.Y, p.Z));
             }
@@ -132,7 +133,7 @@ namespace PointDeviation
         }
 
         /// <summary>Durante il nostro disegno: segnale e (ogni 5 s) cattura delle chiamate fatte dentro il nostro disegno.</summary>
-        public static void Begin(ViewCam cam)
+        public static void Begin(ViewCam cam, XYZ cubeAt)
         {
             _capturing = false;
             if (!AdvancedSettings.Current.NativeProbe) return;
@@ -140,7 +141,7 @@ namespace PointDeviation
             try
             {
                 if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
-                SendCamera(cam);
+                SendCamera(cam, cubeAt);
                 DrawMarker();
                 _frames++;
             }
