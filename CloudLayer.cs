@@ -1658,6 +1658,10 @@ namespace PointDeviation
                 }
             StatPoints = pts; StatNodes = nodes; StatNotLoaded = notLoaded; StatNotBuilt = notBuilt;
             FrameStats.SmallPts += pts;
+            // voce 207: blocchi ancora in lettura o da caricare nella scheda video: si ridisegna. Con lo shader non c'e' la
+            // preparazione per DirectContext3D che chiedeva il ridisegno a fine lavoro, e a vista ferma (vista iniziale,
+            // appena aperta) la nuvola restava incompleta o assente finche' non si muoveva la camera.
+            if (notLoaded > 0 || notBuilt > 0) Redraw.Request();
         }
 
         /// <summary>Prepara e carica i punti di un blocco; restituisce i punti caricati (-1 = non riuscito).</summary>

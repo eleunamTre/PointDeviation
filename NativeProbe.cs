@@ -74,10 +74,13 @@ namespace PointDeviation
             if (moving && g > 0 && now - _capAdjust > 250)
             {
                 _capAdjust = now;
-                bool slowFrame = _intEma > 90;
-                if (g > GpuTargetMs * 1.3 || slowFrame) _cap *= 0.85;
-                else if (g < GpuTargetMs * 0.7 && _intEma < 60) _cap *= 1.08;
-                _cap = Math.Max(400000, Math.Min(8000000, _cap));
+                // voce 207: la regola della 204 (scendere quando il fotogramma intero e' lento) e' tolta. Registro del 19/11
+                // 20:19: senza riquadro i fotogrammi restavano a 120-380 ms anche con soli 0,4 M punti a 1,9 ms di scheda
+                // video, quindi la lentezza era tutta di Revit; intanto la nuvola restava bloccata a 0,4 M punti e da
+                // lontano quasi non si vedeva. Il limite segue solo il tempo dei nostri punti, con un minimo di 1 M.
+                if (g > GpuTargetMs * 1.3) _cap *= 0.85;
+                else if (g < GpuTargetMs * 0.7) _cap *= 1.08;
+                _cap = Math.Max(1000000, Math.Min(8000000, _cap));
             }
             return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 2);
         }

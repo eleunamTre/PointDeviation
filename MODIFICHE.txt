@@ -1036,3 +1036,14 @@ Ottava tornata (28/10/2026): octree
        di sempre. Se PdRender.dll manca si usa comunque il disegno di sempre.
      - Shader: un blocco le cui distanze o normali non sono ancora pronte non si carica con colori provvisori; al suo
        posto resta quello che c'era o il blocco piu' grossolano che lo contiene.
+
+207. Disegno con shader (registro 19/11 20:15-20:20, versioni 205-206):
+     - Tolta la regola della 204 che abbassava il limite di punti quando il fotogramma intero era lento: senza riquadro
+       di sezione i fotogrammi restavano a 120-380 ms anche con 0,4 M punti a 1,9 ms di scheda video (lentezza tutta
+       del modello di Revit), e la nuvola restava bloccata a 0,4 M punti, da lontano quasi invisibile. Il limite segue
+       solo il tempo dei punti, con un minimo di 1 M.
+     - Vista iniziale appena aperta: la nuvola non compariva finche' non si muoveva la camera. Con lo shader non c'e'
+       la preparazione per DirectContext3D che chiedeva il ridisegno a fine lavoro: ora lo chiede il disegno con shader
+       finche' ci sono blocchi in lettura o da caricare nella scheda video.
+     - Caricamenti nella scheda video da fermi: 3 M punti per fotogramma (erano 6 M), per non bloccare un fotogramma
+       intero dopo un cambio di vista o di riquadro.

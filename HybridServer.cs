@@ -263,7 +263,9 @@ namespace PointDeviation
                     // segnale; altrimenti (o finché non è pronta) il disegno di sempre
                     if (shader)
                     {
-                        long uploadBudget = budget.Moving ? 1500000 : 6000000;
+                        // voce 207: da fermi 3 M punti per fotogramma (erano 6 M): dopo un cambio di vista i caricamenti si
+                        // spalmano su piu' fotogrammi invece di bloccarne uno
+                        long uploadBudget = budget.Moving ? 1500000 : 3000000;
                         long drawBudget = shaderCap;
                         for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget);
                         NativeProbe.SetClip(cam.ClipPlanes());
