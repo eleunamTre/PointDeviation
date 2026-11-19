@@ -213,11 +213,13 @@ namespace PointDeviation
                 // voce 200: con il disegno con shader ogni punto e' un quadrato (4 vertici, 2 triangoli) e il tempo misurato
                 // qui non comprende il lavoro della scheda video: con il limite di sempre si arrivava a 17 M punti per
                 // fotogramma, Revit rallentava, toglieva elementi del modello e la nuvola spariva e ricompariva.
-                bool shader = NativeProbe.ShaderReady;
-                if (NativeProbe.ShaderWanted && !shader) NativeProbe.NotReadyFrames++;
+                // voce 206: con lo shader acceso si vede solo la nuvola dello shader, anche finche' la libreria non e' pronta
+                bool shaderMode = NativeProbe.ShaderMode;
+                bool shader = shaderMode && NativeProbe.ShaderReady;
+                if (shaderMode && !shader) NativeProbe.NotReadyFrames++;
                 // voce 201: limite che segue il tempo della scheda video (vedi NativeProbe.ShaderCap)
-                long shaderCap = shader ? NativeProbe.ShaderCap(budget.Moving) : 0;
-                if (shader) limit = shaderCap;
+                long shaderCap = shaderMode ? NativeProbe.ShaderCap(budget.Moving) : 0;
+                if (shaderMode) limit = shaderCap;
                 var wants = new List<int[]>();
                 var pxs = new List<double[]>();
                 var visible = new List<CloudLayer>();
@@ -245,8 +247,8 @@ namespace PointDeviation
 
                 // prima tutta la vista con lo stile giusto (versioni leggere), poi il dettaglio, poi il disegno
                 long f1 = System.Diagnostics.Stopwatch.GetTimestamp();
-                for (int k = 0; k < visible.Count; k++) visible[k].Prepare(st, budget, wants[k], pxs[k]);
-                for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
+                for (int k = 0; k < visible.Count; k++) visible[k].Prepare(st, budget, wants[k], pxs[k], shaderMode);
+                if (!shaderMode) for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
                 long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
                 XYZ cubeAt = null;
                 if ((AdvancedSettings.Current.NativeProbe || AdvancedSettings.Current.NativeShader) && visible.Count > 0)
@@ -271,7 +273,9 @@ namespace PointDeviation
                     else
                     {
                         if (NativeProbe.ShaderWanted) NativeProbe.EndFrame(st, false);
-                        for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]);
+                        // libreria non ancora pronta (matrice di Revit da trovare): si riprova, ma non all'infinito
+                        if (shaderMode) { if (NativeProbe.NotReadyFrames < 60) Redraw.Request(); }
+                        else for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]);
                     }
                 }
                 finally { NativeProbe.End(); }

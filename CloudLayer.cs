@@ -1026,8 +1026,15 @@ namespace PointDeviation
         /// Fase 1: chiede al caricatore i punti mancanti e, dove lo stile è cambiato, ricostruisce subito
         /// una versione leggera del blocco (così tutta la vista cambia colore in un attimo).
         /// </summary>
-        public void Prepare(Style st, RenderBudget budget, int[] want, double[] px)
+        public void Prepare(Style st, RenderBudget budget, int[] want, double[] px, bool shaderOnly = false)
         {
+            // voce 206: shader spento a Revit aperto: i blocchi caricati nella scheda video per lo shader si liberano
+            if (!shaderOnly && _nUp != null && _nUpTotal > 0)
+            {
+                for (int i = 0; i < _nUp.Length; i++)
+                    if (_nUp[i] != null) { NativeProbe.Free(NativeId, i); _nUp[i] = null; _nUpPts[i] = 0; _nUpKey[i] = 0; }
+                _nUpTotal = 0;
+            }
             CurrentStyleVersion = st.Version;
             long now = Environment.TickCount;
             int argb = LayerArgb(st);
@@ -1045,6 +1052,14 @@ namespace PointDeviation
             for (int i = 0; i < Tiles.Length; i++)
             {
                 TileGpu g = _gpu[i], o = _gpuO[i];
+                // voce 206: con lo shader i buffer di DirectContext3D non servono: si liberano tutti
+                if (shaderOnly)
+                {
+                    if (g != null) { g.Dispose(); _gpu[i] = null; }
+                    if (o != null) { o.Dispose(); _gpuO[i] = null; }
+                    if (want[i] <= 0 && Cpu[i] != null && now - _wantTick[i] > memKeep && Volatile.Read(ref Pending[i]) == 0) Cpu[i] = null;
+                    continue;
+                }
                 // solo i blocchi non scelti per questa vista: dopo una pausa (vista ferma, nessun fotogramma per più del
                 // tempo impostato) si liberava tutto, e al primo movimento la nuvola ripartiva dai livelli più grossolani
                 if (want[i] > 0 || (IsOctree && _shownWant.Length == Tiles.Length && _shownWant[i] > 0)) continue;
@@ -1077,6 +1092,7 @@ namespace PointDeviation
                 // coda limitata (LoaderFeed): si chiedono i blocchi in ordine di importanza, al fotogramma dopo si rivaluta
                 // con la vista aggiornata; i blocchi usciti dalla vista da più di 5 s si scartano alla lettura
                 if (needData && CloudLoader.Queued < LoaderFeed) CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st);
+                if (shaderOnly) continue;   // voce 206: solo lettura dei blocchi, niente preparazione per DirectContext3D
                 if (IsOctree && st.PointScale > 0)
                 {
                     // maschere aggiornate anche per i blocchi in attesa (distanze o normali): si disegnano con quello che
@@ -1120,7 +1136,7 @@ namespace PointDeviation
             }
 
             // precaricamento (vedi DesiredOctree): dopo i blocchi in vista, con code corte per non rubare loro tempo
-            if (IsOctree && st.PointScale > 0 && _raw == 1)
+            if (IsOctree && st.PointScale > 0 && (_raw == 1 || shaderOnly))
                 for (int oi = 0; oi < _pfN; oi++)
                 {
                     int i = _pfOrder[oi];
@@ -1135,6 +1151,7 @@ namespace PointDeviation
                     bool ready = cpu != null && ReadyFor(cpu, st);
                     if ((cpu == null || cpu.Count < level || !ready) && CloudLoader.QueuedPrefetch < 6)
                         CloudLoader.Enqueue(this, i, Math.Max(level, cpu != null ? cpu.Count : 0), st, true);
+                    if (shaderOnly) continue;
                     if (!ready || CloudBaker.Queued >= 16) continue;
                     double radius = RadiusKey(i, 0);
                     // in movimento si preparano in background ma non si copiano: il tempo del fotogramma va alla vista
@@ -1592,8 +1609,12 @@ namespace PointDeviation
                     continue;
                 }
                 _nUpTick[i] = now;
-                long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L);
-                if (_nUp[i] != cpu || _nUpCount[i] != cpu.Count || _nUpKey[i] != key)
+                // voce 206: distanze o normali non ancora pronte: si disegna quello che c'era (o l'antenato), si carica
+                // quando sono pronte (prima si caricava subito, con i colori sbagliati)
+                bool rdy = ReadyFor(cpu, st);
+                long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L) ^ (rdy ? 1L << 48 : 0L);
+                if (!rdy && _nUp[i] == null) { notBuilt++; _nMissing.Add(i); continue; }
+                if (rdy && (_nUp[i] != cpu || _nUpCount[i] != cpu.Count || _nUpKey[i] != key))
                 {
                     if (uploadBudget <= 0) { if (_nUp[i] == null) { notBuilt++; _nMissing.Add(i); continue; } }
                     else

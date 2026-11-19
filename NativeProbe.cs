@@ -173,6 +173,12 @@ namespace PointDeviation
         private static bool _capturing;
         private static long _lastLog;
 
+        /// <summary>
+        /// Voce 206: disegno con shader acceso e libreria caricata. In questo modo si vede solo la nuvola dello shader:
+        /// niente buffer di DirectContext3D (ne' preparati ne' disegnati). Se la libreria manca si torna al disegno di sempre.
+        /// </summary>
+        public static bool ShaderMode { get { return ShaderWanted && Ready(); } }
+
         private static bool Ready()
         {
             if (_state != 0) return _state > 0;

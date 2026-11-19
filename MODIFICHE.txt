@@ -1024,3 +1024,15 @@ Ottava tornata (28/10/2026): octree
        Finora la matrice e' sempre stata trovata intera, quindi non cambia nulla di visibile oggi.
      - Caricamento nella scheda video: il budget per fotogramma si scala solo se il caricamento riesce.
      - Id della vista letto con ElementId.Value (IntegerValue e' deprecato dalla 2024).
+
+206. Disegno con shader acceso = solo la nuvola dello shader; spento = il disegno di sempre (richiesta del 19/11).
+     Prima, con lo shader acceso, il plugin continuava a preparare in background anche i buffer di DirectContext3D che
+     non venivano piu' disegnati (righe «raggio rifatto» e «preparati ... punti» nel registro, a volte secondi di
+     processore ogni 5 s, tolti alla lettura dei blocchi nuovi).
+     - Shader acceso (e libreria caricata): si leggono solo i blocchi (vista e precaricamento), niente preparazione per
+       DirectContext3D, i buffer di DirectContext3D gia' fatti si liberano, e il disegno di sempre non parte nemmeno
+       mentre la libreria cerca la matrice di Revit (si ridisegna finche' e' pronta, al massimo 60 volte ogni 5 s).
+     - Shader spento a Revit aperto: i blocchi caricati per lo shader nella scheda video si liberano e torna il disegno
+       di sempre. Se PdRender.dll manca si usa comunque il disegno di sempre.
+     - Shader: un blocco le cui distanze o normali non sono ancora pronte non si carica con colori provvisori; al suo
+       posto resta quello che c'era o il blocco piu' grossolano che lo contiene.
