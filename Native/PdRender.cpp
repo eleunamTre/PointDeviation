@@ -1121,8 +1121,8 @@ extern "C" __declspec(dllexport) int PdInit(char* msg, int cap)
     g_hooked = g_origDI && g_origD && g_origDII && g_origDInst;
     if (g_hooked) HookMore(dev, ctx);
     ListModules();
-    _snprintf_s(msg, cap, _TRUNCATE, "aggancio %s, livello DirectX 0x%X; contesto differito %s; Present %s; librerie grafiche caricate: %s",
-        g_hooked ? "attivo" : "NON riuscito", (unsigned)fl, g_defSame ? "stessa tabella" : (g_defDI ? "agganciato" : "no"),
+    _snprintf_s(msg, cap, _TRUNCATE, "PdRender.dll compilata il %s alle %s; aggancio %s, livello DirectX 0x%X; contesto differito %s; Present %s; librerie grafiche caricate: %s",
+        __DATE__, __TIME__, g_hooked ? "attivo" : "NON riuscito", (unsigned)fl, g_defSame ? "stessa tabella" : (g_defDI ? "agganciato" : "no"),
         g_origPresent ? "agganciato" : "no", g_mods);
     return g_hooked ? 1 : 0;
 }

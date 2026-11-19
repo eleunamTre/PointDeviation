@@ -1047,3 +1047,7 @@ Ottava tornata (28/10/2026): octree
        finche' ci sono blocchi in lettura o da caricare nella scheda video.
      - Caricamenti nella scheda video da fermi: 3 M punti per fotogramma (erano 6 M), per non bloccare un fotogramma
        intero dopo un cambio di vista o di riquadro.
+
+208. Verifica della libreria nativa: la riga «[DirectX] avvio» del registro riporta data e ora di compilazione di
+     PdRender.dll, e la compilazione in Visual Studio scrive nella finestra Output «compilo la libreria nativa» quando
+     la ricompila (se PdRender.cpp non e' cambiato il passo si salta e la riga non compare).

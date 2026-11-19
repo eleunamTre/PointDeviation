@@ -39,6 +39,7 @@
   <!-- Voce 202: la libreria nativa si compila da sola prima del plugin, solo se PdRender.cpp e' piu' recente della
        DLL (altrimenti il passo si salta). Errori del compilatore C++ nella finestra Output di Visual Studio. -->
   <Target Name="BuildNative" BeforeTargets="Build" Inputs="$(MSBuildProjectDirectory)\Native\PdRender.cpp;$(MSBuildProjectDirectory)\Native\build.bat" Outputs="$(MSBuildProjectDirectory)\Native\PdRender.dll">
+    <Message Importance="high" Text="PointDeviation: compilo la libreria nativa (Native\PdRender.cpp)..." />
     <Exec Command="&quot;$(MSBuildProjectDirectory)\Native\build.bat&quot; nopause" />
   </Target>
 
