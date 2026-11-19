@@ -960,3 +960,8 @@ Ottava tornata (28/10/2026): octree
      l'elenco si svuota appena l'opzione si spegne. Raggio massimo dei punti come il motore di sempre (100% = circa
      5 px di diametro; con la 194 era 1,6 volte tanto: punti piu' grandi del normale) e raggio pari a 0,5 volte la
      distanza tra i punti (era 0,6).
+198. Disegno con shader e cubo: compaiono nella vista iniziale ma mai in {3D} (19/11 16:27, immagine dell'utente; il cubo
+     in {3D} compariva solo dopo aver creato un riquadro di sezione). La matrice di Revit veniva cercata una volta sola
+     (nella prima vista, con il riquadro: riga 15 del buffer) e poi usata ovunque; in una vista con un buffer disposto
+     diversamente la riga 15 non e' piu' la matrice e i punti finiscono fuori schermo. Ora la ricerca si rifa' a ogni
+     cambio di vista e ogni volta che il buffer cambia dimensione.

@@ -30,6 +30,8 @@ namespace PointDeviation
         private static extern void PdSetTest(int on, float[] viewProj, float[] cubePos);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetView(long viewId);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern int PdDump(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -174,7 +176,7 @@ namespace PointDeviation
         }
 
         /// <summary>Durante il nostro disegno: segnale e (ogni 5 s) cattura delle chiamate fatte dentro il nostro disegno.</summary>
-        public static void Begin(ViewCam cam, XYZ cubeAt)
+        public static void Begin(ViewCam cam, XYZ cubeAt, long viewId)
         {
             _capturing = false;
             if (!AdvancedSettings.Current.NativeProbe && !AdvancedSettings.Current.NativeShader) return;
@@ -184,6 +186,7 @@ namespace PointDeviation
                 if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
                 if (_shaderWasOn && !ShaderWanted) PdShaderEndFrame(0, 1, 0.5f, 0);   // opzione spenta a Revit aperto
                 _shaderWasOn = ShaderWanted;
+                PdSetView(viewId);
                 SendCamera(cam, cubeAt);
                 DrawMarker();
                 _frames++;

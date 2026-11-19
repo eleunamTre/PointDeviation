@@ -167,6 +167,16 @@ static void Clip4(const float* M, int t, const float* q, float* out)
 // mezza larghezza HalfW, prospettiva sì/no. Serve solo a riconoscere la matrice di Revit, non a disegnare.
 static float g_camE[3], g_camD[3], g_camR[3], g_camT = 0, g_camHW = 0;
 static int g_camPersp = 0;
+static long long g_mView = -1;
+static UINT g_mWidth = 0;
+static int g_mForce = 0;
+// voce 198: la disposizione del buffer di Revit cambia da vista a vista (la matrice era alla riga 15 nella vista con il
+// riquadro di sezione; in {3D} senza riquadro i punti e il cubo non comparivano): a ogni cambio di vista, o se cambia
+// la dimensione del buffer, la matrice si cerca di nuovo.
+extern "C" __declspec(dllexport) void PdSetView(long long viewId)
+{
+    if (viewId != g_mView) { g_mView = viewId; g_mSlot = -1; g_mForce = 1; }
+}
 extern "C" __declspec(dllexport) void PdSetCameraInfo(const float* e, const float* d, const float* r, float target, float halfW, int persp)
 {
     for (int i = 0; i < 3; i++) { g_camE[i] = e[i]; g_camD[i] = d[i]; g_camR[i] = r[i]; }
@@ -259,6 +269,8 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
     if (best >= 0)
     {
         g_mSlot = bSlot; g_mOff = bOff; g_mT = bT | (bT2 << 1); g_mOff2 = bOff2;
+        { ID3D11Buffer* fb[4] = {}; c->VSGetConstantBuffers(0, 4, fb); if (fb[bSlot]) { D3D11_BUFFER_DESC fd; fb[bSlot]->GetDesc(&fd); g_mWidth = fd.ByteWidth; }
+          for (int q = 0; q < 4; q++) if (fb[q]) fb[q]->Release(); }
         // verso della profondità con la trasformazione trovata: un punto più lontano ha z/w maggiore o minore?
         n += _snprintf_s(g_matInfo + n, sizeof(g_matInfo) - n, _TRUNCATE, "; TROVATA in b%d riga %d%s%s (%s)",
             bSlot, bOff, bOff2 >= 0 ? " per la riga " : "", bOff2 >= 0 ? "seconda matrice" : "", bT ? "per colonne" : "per righe");
@@ -275,6 +287,19 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
     dev->Release();
 }
 
+// matrice di Revit valida per questo disegno? Se il buffer ha cambiato dimensione o è cambiata la vista si cerca di nuovo.
+static bool EnsureMatrix(ID3D11DeviceContext* c)
+{
+    if (g_mSlot >= 0)
+    {
+        ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
+        UINT w = 0; if (b) { D3D11_BUFFER_DESC d; b->GetDesc(&d); w = d.ByteWidth; b->Release(); }
+        if (w != g_mWidth) { g_mSlot = -1; g_mForce = 1; }
+    }
+    if (g_mSlot < 0 && (g_mForce || (g_markers.load() % 30) == 1)) { g_mForce = 0; FindRevitMatrix(c); }
+    return g_mSlot >= 0;
+}
+
 static void TestDraw(ID3D11DeviceContext* c)
 {
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
@@ -282,7 +307,7 @@ static void TestDraw(ID3D11DeviceContext* c)
     bool ok = TestInit(dev);
     dev->Release();
     if (!ok) return;
-    if (g_mSlot < 0 && (g_markers.load() % 60) == 1) FindRevitMatrix(c);
+    EnsureMatrix(c);
     ID3D11Buffer* rcb = nullptr;
     if (g_mSlot >= 0) c->VSGetConstantBuffers(g_mSlot, 1, &rcb);   // buffer di Revit con la matrice di questo disegno
     // stato di Revit
@@ -465,7 +490,7 @@ static std::atomic<int> g_shaderWanted{ 0 };
 static void ShaderDraw(ID3D11DeviceContext* c)
 {
     // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
-    if (g_mSlot < 0) { if ((g_markers.load() % 30) == 1) FindRevitMatrix(c); if (g_mSlot < 0) return; }
+    if (!EnsureMatrix(c)) return;
     if (!g_shaderOn || g_ready.empty()) return;
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
     if (!dev) return;
