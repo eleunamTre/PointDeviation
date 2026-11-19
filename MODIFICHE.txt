@@ -898,4 +898,5 @@ Ottava tornata (28/10/2026): octree
      piu' agganciata. Il runtime di DirectX 11 riscrive da se' le voci di disegno della tabella del contesto (sceglie la
      funzione adatta allo stato corrente), cancellando l'aggancio. Ora dopo ogni impostazione di stato (shader, vertici,
      finestre, destinazioni, Map) la libreria rimette l'aggancio e salva la funzione scelta dal runtime. Riga
-     «[DirectX]» con il numero di riagganci. Serve ricompilare Native\build.bat.
+     «[DirectX]» con il numero di riagganci. Il riaggancio si fa anche a ogni Present per i contesti di tutte le swap
+     chain con la stessa tabella. Serve ricompilare Native\build.bat.

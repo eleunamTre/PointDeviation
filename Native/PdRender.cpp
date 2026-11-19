@@ -264,9 +264,26 @@ static void NoteSwapChain(IDXGISwapChain* s)
         d.BufferDesc.Width, d.BufferDesc.Height, kind);
 }
 
+// voce 188: a ogni Present, per ogni swap chain, si rimette l'aggancio sul contesto del suo dispositivo se ha la stessa
+// tabella già agganciata (Rehook è idempotente: scrive solo le voci che il runtime ha cambiato)
+static void RehookSwapChain(IDXGISwapChain* s)
+{
+    if (!g_firstVt) return;
+    ID3D11Device* dev = nullptr;
+    if (FAILED(s->GetDevice(__uuidof(ID3D11Device), (void**)&dev)) || !dev) return;
+    ID3D11DeviceContext* imm = nullptr;
+    dev->GetImmediateContext(&imm);
+    if (imm)
+    {
+        if (*(void***)imm == g_firstVt) Rehook(imm);
+        imm->Release();
+    }
+    dev->Release();
+}
+
 static void OnRealSwapChain(IDXGISwapChain* s)
 {
-    if (g_realDone.load()) { NoteSwapChain(s); return; }
+    if (g_realDone.load()) { NoteSwapChain(s); RehookSwapChain(s); return; }
     g_realDone = 1;
     int n = 0;
     struct AtEnd { IDXGISwapChain* s; ~AtEnd() { NoteSwapChain(s); } } atEnd{ s };
