@@ -880,3 +880,10 @@ Ottava tornata (28/10/2026): octree
      copia. Il primo dispositivo agganciato potrebbe essere quello di un pannello e non della vista: ora si annotano
      tutte le swap chain che presentano (dimensioni e se il loro contesto e' gia' agganciato o ha un'altra tabella).
      Se nemmeno cosi' compaiono disegni, l'esperimento si chiude.
+186. Esperimento DirectX chiuso (registro del 19/11 09:55). Revit presenta su una sola swap chain (1093x794, la vista
+     3D) il cui contesto e' agganciato: in 5 s 35-95 Present e fino a 760 mila scritture di memoria, ma nessun disegno,
+     pulizia, copia o lista eseguita passa dalle tabelle di DirectX 11. Il motore grafico di Revit disegna per una via
+     che non si puo' intercettare cosi'; inserire shader propri non e' praticabile con questa tecnica. La libreria
+     (cartella Native) e l'opzione «Prova DirectX» restano solo come diagnostica, spente; la compilazione normale non
+     ne ha bisogno. I requisiti «DirectX 11, Shader Model 5.0» citati per il concorrente coincidono con quelli di Revit
+     per l'accelerazione hardware: probabilmente anche il concorrente disegna con DirectContext3D.
