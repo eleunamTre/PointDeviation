@@ -33,6 +33,24 @@ Possibili sviluppi:
 - elenco salvato con il progetto (oggi si perde chiudendo Revit);
 - regolazione automatica di cella e punti minimi sulla densità della nuvola.
 
+## 2b. Elementi del modello non presenti nel rilievo («nuvola opposta»)
+Verso opposto delle Zone mancanti: trovare elementi modellati che nel rilievo non esistono (esempio reale: un
+montante modellato accanto a un infisso, nella posizione giusta per essere visto dallo scanner, ma senza punti;
+oggi non risulta rosso perché lì non c'è nuvola da colorare). Da fare dopo aver stabilizzato il disegno con shader.
+- Campionamento delle superfici degli elementi analizzati (le stesse triangolazioni dell'analisi deviazioni), con
+  passo regolabile (es. 5 cm): è la «nuvola opposta».
+- Per ogni campione, punto del rilievo più vicino cercato nell'octree; entro la soglia la parte è «confermata».
+- Per ogni elemento: percentuale di superficie confermata e tre esiti: confermato, non trovato, non verificabile.
+- Limitare i falsi allarmi:
+  - solo la parte di elemento dentro l'ingombro reale del rilievo (celle con punti, non il solo riquadro della nuvola);
+  - solo facce esposte, cioè che guardano verso spazio dove ci sono punti; escluse le facce a contatto con altri
+    elementi o nascoste dentro muri e solai;
+  - campioni «non verificabili» se fra campione e zona rilevata c'è altro modello che li copre (occlusione);
+  - filtro per categoria (es. muri, solai, porte, finestre, pilastri, montanti).
+- Risultato: colori in Revit (verde, giallo parziale, rosso non trovato, grigio non verificabile), elenco
+  ordinabile per percentuale con zoom, selezione, isolamento ed esportazione CSV, come per le Zone mancanti.
+- Presentato come elenco da verificare, non come verdetto (restano casi come un muro coperto da un armadio).
+
 ## 3. Interfaccia
 - (fatto) Eliminare i ricaricamenti visibili all'apertura delle finestre: contenuto costruito prima di mostrare la
   finestra (Profili colore), doppio buffer e prima comparsa disegnata fuori schermo per tutte le finestre
