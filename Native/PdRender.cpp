@@ -501,7 +501,9 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     c->RSSetState(g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(g_bs, zero, 0xffffffff);
-    int planes = (g_mOff2 < 0 && g_mOff == 15) ? 1 : 0;   // nel buffer del 19/11 i piani del riquadro sono le righe 0-5
+    // voce 196: piani del riquadro spenti (con la 195 la nuvola compariva nella vista iniziale ma non in {3D}); il
+    // riquadro di sezione resta applicato a blocchi dal motore
+    int planes = 0;
     float lastSp = -1;
     for (const PdItem& it : g_ready)
     {

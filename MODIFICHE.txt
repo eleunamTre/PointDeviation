@@ -951,3 +951,6 @@ Ottava tornata (28/10/2026): octree
      (buffer di 16 byte a punto letto come Buffer<uint4>) e si disegnano con DrawIndexed e un indice condiviso di 6
      indici per punto (fino a 262 mila punti per chiamata), la stessa chiamata del cubo. I piani del riquadro di
      sezione si usano solo se sono piani veri (normale di lunghezza 1), altrimenti non tagliano.
+196. Disegno con shader: con la 195 la nuvola compare nella vista iniziale ma non in {3D}. Prima ipotesi: i piani del
+     riquadro di sezione letti dal buffer di Revit (righe 0-5) in {3D} tagliano tutti i punti. Spenti: il riquadro
+     resta applicato a blocchi dal motore (i blocchi fuori si escludono, i punti di un blocco a cavallo si vedono tutti).
