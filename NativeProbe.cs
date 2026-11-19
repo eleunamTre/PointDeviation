@@ -32,6 +32,44 @@ namespace PointDeviation
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern int PdDump(StringBuilder msg, int cap);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int PdShaderUpload(int layer, int node, byte[] data, int count);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdShaderFree(int layer, int node);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdShaderAdd(int layer, int node, int count, float spacing);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdShaderEndFrame(int on, float maxPx, float scale);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern int PdShaderReport(StringBuilder msg, int cap);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int PdShaderReady();
+
+        // ---------------------------------------------------------------- voce 194: disegno con shader
+        /// <summary>Disegno con shader acceso nelle impostazioni (implica l'aggancio a DirectX).</summary>
+        public static bool ShaderWanted { get { return AdvancedSettings.Current.NativeShader; } }
+        /// <summary>La libreria è pronta a disegnare: dispositivo di Revit e sua matrice trovati.</summary>
+        public static bool ShaderReady
+        {
+            get { try { return ShaderWanted && _state > 0 && PdShaderReady() != 0; } catch { return false; } }
+        }
+        public static bool Upload(int layer, int node, byte[] data, int count)
+        {
+            try { return PdShaderUpload(layer, node, data, count) != 0; } catch (Exception ex) { Log.Error("DirectX", ex); return false; }
+        }
+        public static void Free(int layer, int node) { try { PdShaderFree(layer, node); } catch { } }
+        public static void Add(int layer, int node, int count, float spacing) { try { PdShaderAdd(layer, node, count, spacing); } catch { } }
+        /// <summary>Fine del fotogramma: l'elenco dei blocchi passa al disegno. Raggio massimo come «Dimensione punti» (100% ≈ 5 px).</summary>
+        public static void EndFrame(Style st, bool on)
+        {
+            try
+            {
+                float maxPx = (float)Math.Max(1.0, 2.5 * Math.Max(st.PointScale, 20) / 100.0 * 1.6);
+                PdShaderEndFrame(on ? 1 : 0, maxPx, 0.6f);
+            }
+            catch (Exception ex) { Log.Error("DirectX", ex); }
+        }
+
         private static float[] F3(XYZ p) { return new[] { (float)p.X, (float)p.Y, (float)p.Z }; }
 
         private static readonly float[] _vp = new float[16];
@@ -77,7 +115,7 @@ namespace PointDeviation
                 _cube = new[] { (float)p.X, (float)p.Y, (float)p.Z };
                 Log.Write("DirectX", string.Format("cubo di prova in {0:F1}, {1:F1}, {2:F1} piedi", p.X, p.Y, p.Z));
             }
-            PdSetTest(1, _vp, _cube);
+            PdSetTest(AdvancedSettings.Current.NativeShader ? 0 : 1, _vp, _cube);
             // voce 190: dati della camera per riconoscere la matrice di Revit nei suoi buffer
             PdSetCameraInfo(F3(E), F3(D), F3(R), (float)cam.Target, (float)cam.HalfW, cam.Perspective ? 1 : 0);
         }
@@ -136,7 +174,7 @@ namespace PointDeviation
         public static void Begin(ViewCam cam, XYZ cubeAt)
         {
             _capturing = false;
-            if (!AdvancedSettings.Current.NativeProbe) return;
+            if (!AdvancedSettings.Current.NativeProbe && !AdvancedSettings.Current.NativeShader) return;
             if (!Ready()) return;
             try
             {
@@ -198,6 +236,12 @@ namespace PointDeviation
                 var rb = new StringBuilder(4096);
                 PdReport(rb, rb.Capacity);
                 Log.Write("DirectX", string.Format("{0} fotogrammi nostri; segnale: {1}; dentro il nostro disegno: {2}", _frames, rb, sb));
+                if (AdvancedSettings.Current.NativeShader)
+                {
+                    var shb = new StringBuilder(1024);
+                    PdShaderReport(shb, shb.Capacity);
+                    Log.Write("DirectX", shb.ToString());
+                }
                 var db = new StringBuilder(8192);
                 if (PdDump(db, db.Capacity) != 0) Log.Write("DirectX", "buffer di Revit: " + db);
                 _frames = 0;

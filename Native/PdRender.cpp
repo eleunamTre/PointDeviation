@@ -13,6 +13,8 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <unordered_map>
+#include <vector>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "user32.lib")
@@ -363,6 +365,217 @@ static void TestDraw(ID3D11DeviceContext* c)
     if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
 }
 
+// =====================================================================================================================
+//  voce 194: disegno della nuvola con shader nostri
+//
+//  I punti dei blocchi stanno in buffer nostri sul dispositivo di Revit (posizione nel modello + colore, 16 byte a
+//  punto), creati dal plugin sul thread di Revit. A ogni fotogramma il plugin passa l'elenco dei blocchi da disegnare
+//  (con quanti punti e la loro distanza nel modello); al segnale la libreria li disegna con la matrice di Revit e il
+//  suo buffer di profondità. Ogni punto è un quadratino a schermo (4 vertici generati nello shader, istanze), con gli
+//  angoli scartati: punti tondi. La grandezza la calcola lo shader a ogni fotogramma dalla distanza tra i punti del
+//  blocco e dalla scala della matrice: allo zoom non si rifà nessun buffer. I piani del riquadro di sezione di Revit
+//  (prime 6 righe del suo buffer) tagliano i punti come fa Revit.
+// =====================================================================================================================
+static ID3D11Device* g_realDev = nullptr;
+struct PdNode { ID3D11Buffer* vb; int count; };
+struct PdItem { ID3D11Buffer* vb; int count; float spacing; };
+static std::unordered_map<long long, PdNode> g_nodes;
+static std::vector<PdItem> g_build, g_ready;
+static std::atomic<int> g_shaderOn{ 0 };
+static float g_shMaxPx = 3.0f, g_shScale = 0.6f;
+static long long g_shBytes = 0;
+static long g_shUploads = 0, g_shDrawn = 0, g_shPoints = 0, g_shFrames = 0;
+static char g_shErr[200] = "";
+static ID3D11VertexShader* g_svs = nullptr;
+static ID3D11PixelShader* g_sps = nullptr;
+static ID3D11InputLayout* g_sil = nullptr;
+static ID3D11Buffer* g_scb = nullptr;
+static ID3D11DepthStencilState* g_sdss = nullptr;
+static ID3D11RasterizerState* g_srs = nullptr;
+static bool g_shFailed = false;
+
+static const char* g_shHlsl =
+"cbuffer C : register(b0) { int4 Info; float4 P; };\n"   // Info: x=1/2 matrici, y=riga, z=verso, w=piani; P: x=distanza punti, y=larghezza, z=altezza, w=raggio max px
+"cbuffer R : register(b1) { float4 Rv[4096]; };\n"
+"struct VI { float3 p : POSITION; float4 c : COLOR; uint id : SV_VertexID; };\n"
+"struct VO { float4 pos : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD0; float4 cd0 : SV_ClipDistance0; float2 cd1 : SV_ClipDistance1; };\n"
+"float4 Xf(float4 q, int o, int t) { float4x4 M = float4x4(Rv[o], Rv[o + 1], Rv[o + 2], Rv[o + 3]); return t != 0 ? mul(M, q) : mul(q, M); }\n"
+"VO VS(VI v) {\n"
+"  VO o; float4 q = float4(v.p, 1);\n"
+"  float4 cl = Xf(q, Info.y, Info.z & 1);\n"
+"  float3 rx = (Info.z & 1) != 0 ? Rv[Info.y].xyz : float3(Rv[Info.y].x, Rv[Info.y + 1].x, Rv[Info.y + 2].x);\n"
+"  float sx = length(rx);\n"
+"  float rpx = P.x * sx / max(cl.w, 1e-6) * P.y * 0.5;\n"
+"  rpx = clamp(rpx, 0.75, P.w);\n"
+"  float2 cn = float2((v.id & 1) ? 1.0 : -1.0, (v.id & 2) ? 1.0 : -1.0);\n"
+"  cl.xy += cn * float2(rpx * 2.0 / P.y, rpx * 2.0 / P.z) * cl.w;\n"
+"  o.pos = cl; o.c = v.c; o.uv = cn;\n"
+"  float d[6];\n"
+"  [unroll] for (int k = 0; k < 6; k++) d[k] = Info.w != 0 ? dot(Rv[k].xyz, v.p) + Rv[k].w : 1.0;\n"
+"  o.cd0 = float4(d[0], d[1], d[2], d[3]); o.cd1 = float2(d[4], d[5]);\n"
+"  return o; }\n"
+"float4 PS(VO i) : SV_Target { if (dot(i.uv, i.uv) > 1.0) discard; return i.c; }\n";
+
+static bool ShaderInit(ID3D11Device* dev)
+{
+    if (g_svs) return true;
+    if (g_shFailed) return false;
+    ID3DBlob *vb = nullptr, *pb = nullptr, *err = nullptr;
+    if (FAILED(D3DCompile(g_shHlsl, strlen(g_shHlsl), "pdpts", nullptr, nullptr, "VS", "vs_4_0", 0, 0, &vb, &err)))
+    { _snprintf_s(g_shErr, sizeof(g_shErr), _TRUNCATE, "shader VS: %s", err ? (char*)err->GetBufferPointer() : "?"); g_shFailed = true; return false; }
+    if (FAILED(D3DCompile(g_shHlsl, strlen(g_shHlsl), "pdpts", nullptr, nullptr, "PS", "ps_4_0", 0, 0, &pb, &err)))
+    { _snprintf_s(g_shErr, sizeof(g_shErr), _TRUNCATE, "shader PS: %s", err ? (char*)err->GetBufferPointer() : "?"); g_shFailed = true; return false; }
+    dev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), nullptr, &g_svs);
+    dev->CreatePixelShader(pb->GetBufferPointer(), pb->GetBufferSize(), nullptr, &g_sps);
+    D3D11_INPUT_ELEMENT_DESC el[2] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+        { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 12, D3D11_INPUT_PER_INSTANCE_DATA, 1 } };
+    dev->CreateInputLayout(el, 2, vb->GetBufferPointer(), vb->GetBufferSize(), &g_sil);
+    vb->Release(); pb->Release();
+    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 32; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    dev->CreateBuffer(&bd, nullptr, &g_scb);
+    D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+    dev->CreateDepthStencilState(&dd, &g_sdss);
+    D3D11_RASTERIZER_DESC rd = {}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
+    dev->CreateRasterizerState(&rd, &g_srs);
+    if (!g_bs) { D3D11_BLEND_DESC bld = {}; bld.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; dev->CreateBlendState(&bld, &g_bs); }
+    if (!g_svs || !g_sps || !g_sil || !g_scb || !g_sdss || !g_srs || !g_bs)
+    { _snprintf_s(g_shErr, sizeof(g_shErr), _TRUNCATE, "creazione delle risorse dello shader dei punti non riuscita"); g_shFailed = true; return false; }
+    return true;
+}
+
+static std::atomic<int> g_shaderWanted{ 0 };
+static void ShaderDraw(ID3D11DeviceContext* c)
+{
+    // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
+    if (g_mSlot < 0) { if ((g_markers.load() % 30) == 1) FindRevitMatrix(c); if (g_mSlot < 0) return; }
+    if (!g_shaderOn || g_ready.empty()) return;
+    ID3D11Device* dev = nullptr; c->GetDevice(&dev);
+    if (!dev) return;
+    bool ok = ShaderInit(dev);
+    dev->Release();
+    if (!ok) return;
+    ID3D11Buffer* rcb = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &rcb);
+    if (!rcb) return;
+    D3D11_VIEWPORT vp; UINT nv = 1; c->RSGetViewports(&nv, &vp);
+    if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
+    // stato di Revit
+    ID3D11InputLayout* il = nullptr; c->IAGetInputLayout(&il);
+    ID3D11Buffer* vb = nullptr; UINT vs = 0, vo = 0; c->IAGetVertexBuffers(0, 1, &vb, &vs, &vo);
+    D3D11_PRIMITIVE_TOPOLOGY topo; c->IAGetPrimitiveTopology(&topo);
+    ID3D11VertexShader* ovs = nullptr; c->VSGetShader(&ovs, nullptr, nullptr);
+    ID3D11PixelShader* ops = nullptr; c->PSGetShader(&ops, nullptr, nullptr);
+    ID3D11GeometryShader* ogs = nullptr; c->GSGetShader(&ogs, nullptr, nullptr);
+    ID3D11Buffer* vcbs[2] = {}; c->VSGetConstantBuffers(0, 2, vcbs);
+    ID3D11DepthStencilState* dss = nullptr; UINT sref = 0; c->OMGetDepthStencilState(&dss, &sref);
+    ID3D11RasterizerState* rs = nullptr; c->RSGetState(&rs);
+    ID3D11BlendState* bs = nullptr; FLOAT bf[4]; UINT sm = 0; c->OMGetBlendState(&bs, bf, &sm);
+    // nostro disegno
+    c->IASetInputLayout(g_sil);
+    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    c->VSSetShader(g_svs, nullptr, 0);
+    c->PSSetShader(g_sps, nullptr, 0);
+    c->GSSetShader(nullptr, nullptr, 0);
+    ID3D11Buffer* ours[2] = { g_scb, rcb };
+    c->VSSetConstantBuffers(0, 2, ours);
+    c->OMSetDepthStencilState(g_sdss, 0);
+    c->RSSetState(g_srs);
+    FLOAT zero[4] = { 0, 0, 0, 0 };
+    c->OMSetBlendState(g_bs, zero, 0xffffffff);
+    int planes = (g_mOff2 < 0 && g_mOff == 15) ? 1 : 0;   // nel buffer del 19/11 i piani del riquadro sono le righe 0-5
+    float lastSp = -1;
+    for (const PdItem& it : g_ready)
+    {
+        if (!it.vb || it.count <= 0) continue;
+        if (it.spacing != lastSp)
+        {
+            D3D11_MAPPED_SUBRESOURCE m;
+            if (SUCCEEDED(c->Map(g_scb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
+            {
+                int* in = (int*)m.pData; float* f = (float*)m.pData;
+                in[0] = 1; in[1] = g_mOff; in[2] = g_mT & 1; in[3] = planes;
+                f[4] = it.spacing * g_shScale; f[5] = vp.Width; f[6] = vp.Height; f[7] = g_shMaxPx;
+                c->Unmap(g_scb, 0);
+            }
+            lastSp = it.spacing;
+        }
+        UINT stride = 16, off = 0;
+        c->IASetVertexBuffers(0, 1, &it.vb, &stride, &off);
+        c->DrawInstanced(4, (UINT)it.count, 0, 0);
+        g_shDrawn++; g_shPoints += it.count;
+    }
+    // stato di Revit di nuovo al suo posto
+    c->IASetInputLayout(il);
+    c->IASetVertexBuffers(0, 1, &vb, &vs, &vo);
+    c->IASetPrimitiveTopology(topo);
+    c->VSSetShader(ovs, nullptr, 0);
+    c->PSSetShader(ops, nullptr, 0);
+    c->GSSetShader(ogs, nullptr, 0);
+    c->VSSetConstantBuffers(0, 2, vcbs);
+    c->OMSetDepthStencilState(dss, sref);
+    c->RSSetState(rs);
+    c->OMSetBlendState(bs, bf, sm);
+    if (il) il->Release(); if (vb) vb->Release();
+    if (ovs) ovs->Release(); if (ops) ops->Release(); if (ogs) ogs->Release();
+    if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release();
+    if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
+    rcb->Release();
+}
+
+static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
+
+// Buffer di un blocco: data = count × (x, y, z float + colore RGBA 4 byte), coordinate del modello in piedi.
+extern "C" __declspec(dllexport) int PdShaderUpload(int layer, int node, const void* data, int count)
+{
+    if (!g_realDev || count <= 0) return 0;
+    long long k = NodeKey(layer, node);
+    auto f = g_nodes.find(k);
+    if (f != g_nodes.end()) { if (f->second.vb) { f->second.vb->Release(); g_shBytes -= (long long)f->second.count * 16; } g_nodes.erase(f); }
+    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = (UINT)count * 16; bd.Usage = D3D11_USAGE_IMMUTABLE; bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA sd = {}; sd.pSysMem = data;
+    ID3D11Buffer* b = nullptr;
+    if (FAILED(g_realDev->CreateBuffer(&bd, &sd, &b)) || !b) return 0;
+    g_nodes[k] = PdNode{ b, count };
+    g_shBytes += (long long)count * 16;
+    g_shUploads++;
+    return 1;
+}
+
+extern "C" __declspec(dllexport) void PdShaderFree(int layer, int node)
+{
+    auto f = g_nodes.find(NodeKey(layer, node));
+    if (f == g_nodes.end()) return;
+    if (f->second.vb) { f->second.vb->Release(); g_shBytes -= (long long)f->second.count * 16; }
+    g_nodes.erase(f);
+}
+
+extern "C" __declspec(dllexport) void PdShaderAdd(int layer, int node, int count, float spacing)
+{
+    auto f = g_nodes.find(NodeKey(layer, node));
+    if (f == g_nodes.end() || !f->second.vb) return;
+    if (count > f->second.count) count = f->second.count;
+    g_build.push_back(PdItem{ f->second.vb, count, spacing });
+}
+
+// Fine dell'elenco del fotogramma: diventa quello da disegnare al prossimo segnale. maxPx = raggio massimo dei punti.
+extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, float scale)
+{
+    g_ready.swap(g_build);
+    g_build.clear();
+    g_shMaxPx = maxPx; g_shScale = scale;
+    g_shaderOn = on;
+    g_shaderWanted = 1;
+    g_shFrames++;
+}
+
+extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
+{
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%ld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB)%s%s",
+        g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0, g_shErr[0] ? "; errore: " : "", g_shErr);
+    g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
+    return 1;
+}
+
 static std::atomic<int> g_inTest{ 0 };
 
 extern "C" __declspec(dllexport) void PdSetTest(int on, const float* viewProj, const float* cubePos)
@@ -379,7 +592,8 @@ static void Marker(ID3D11DeviceContext* c, UINT count)
     g_lastCount.store(count, std::memory_order_relaxed);
     if (count != MarkerIndices) return;
     long n = ++g_markers;
-    if (g_testOn && !g_inTest.exchange(1)) { TestDraw(c); g_inTest = 0; }
+    if (g_shaderWanted && !g_inTest.exchange(1)) { ShaderDraw(c); g_inTest = 0; }
+    else if (g_testOn && !g_inTest.exchange(1)) { TestDraw(c); g_inTest = 0; }
     g_markerThread = GetCurrentThreadId();
     if (n % 30 == 1) DescribeState(c, g_markerInfo, sizeof(g_markerInfo));
 }
@@ -616,6 +830,7 @@ static void OnRealSwapChain(IDXGISwapChain* s)
         _snprintf_s(g_realInfo, sizeof(g_realInfo), _TRUNCATE, "la swap chain di Revit non appartiene a un dispositivo DirectX 11");
         return;
     }
+    dev->AddRef(); g_realDev = dev;   // voce 194: dispositivo su cui creare i buffer della nuvola
     n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "dispositivo di Revit: livello 0x%X, opzioni 0x%X", (unsigned)dev->GetFeatureLevel(), dev->GetCreationFlags());
     IDXGIDevice* xd = nullptr; IDXGIAdapter* ad = nullptr;
     if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), (void**)&xd)) && SUCCEEDED(xd->GetAdapter(&ad)))
@@ -825,4 +1040,10 @@ extern "C" __declspec(dllexport) int PdDump(char* msg, int cap)
     strncpy_s(msg, cap, g_dump, _TRUNCATE);
     g_dump[0] = 0;
     return 1;
+}
+
+// pronto per disegnare con shader: dispositivo di Revit e matrice trovati
+extern "C" __declspec(dllexport) int PdShaderReady()
+{
+    return g_realDev != nullptr && g_mSlot >= 0 && !g_shFailed ? 1 : 0;
 }

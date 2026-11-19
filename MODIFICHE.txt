@@ -931,3 +931,17 @@ Ottava tornata (28/10/2026): octree
      essere coperto dal modello o dall'altra nuvola, oppure stare altrove. Ora il cubo e' di 20 piedi di lato e si
      disegna due volte: pieno rosso con la profondita' di Revit (compare solo dove e' davanti a tutto) e a fil di ferro
      verde senza profondita' (sempre visibile, mostra dove sta).
+194. Disegno della nuvola con shader propri (Avanzate › Prestazioni › «Disegno con shader (sperimentale)», spento di
+     base; richiede PdRender.dll). Il cubo di prova (voci 189-193) ha confermato momento, matrice e profondita' di Revit.
+     Ora: (1) i blocchi scelti dal motore si caricano una volta nella scheda video come posizione nel modello + colore
+     (16 byte a punto, colori calcolati con lo stile corrente: RGB, analisi/deviazioni, zone, evidenziazione, ritaglio),
+     al massimo 1,5 M punti nuovi per fotogramma in movimento e 6 M da fermi, e si ricaricano solo se cambiano punti,
+     stile o posizione della nuvola; (2) a ogni fotogramma il plugin passa alla libreria l'elenco dei blocchi da
+     disegnare con quanti punti e la distanza tra i punti; (3) al segnale la libreria li disegna con la matrice di
+     Revit, scrivendo nel suo buffer di profondita': ogni punto e' un quadratino generato nello shader con gli angoli
+     scartati (punti tondi), raggio = 0,6 x distanza tra i punti a schermo calcolato a ogni fotogramma (tra 0,75 px e il
+     massimo da «Dimensione punti»): allo zoom non si rifa' nessun buffer; (4) i sei piani del riquadro di sezione di
+     Revit (righe 0-5 del suo buffer) tagliano i punti. Finche' la libreria non e' pronta (dispositivo e matrice di
+     Revit trovati) si usa il disegno di sempre. Da fare: trasparenza, il lavoro di preparazione dei buffer
+     DirectContext3D che continua anche quando non serve, liberazione dei buffer alla chiusura della nuvola.
+     Riga «[DirectX] disegno con shader» ogni 5 s con blocchi e punti disegnati e memoria video usata.

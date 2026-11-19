@@ -1544,6 +1544,92 @@ namespace PointDeviation
         }
 
         /// <summary>Fase 3: disegna i blocchi in vista, fino al numero di punti voluto.</summary>
+        // ------------------------------------------------------------------ voce 194: disegno con shader nostri
+        private static int _nextNativeId;
+        public readonly int NativeId = Interlocked.Increment(ref _nextNativeId);
+        private TileCpu[] _nUp;
+        private int[] _nUpCount, _nUpPts;
+        private long[] _nUpKey;
+        private byte[] _nBuf = new byte[0];
+
+        /// <summary>
+        /// Disegno con shader (Avanzate › «Disegno con shader»): i blocchi scelti si caricano una volta nella scheda video
+        /// come posizione nel modello + colore (16 byte a punto) e si passano alla libreria nativa, che li disegna con
+        /// punti tondi la cui grandezza segue lo zoom senza rifare nulla. Un blocco si ricarica solo se cambiano i suoi
+        /// punti in memoria, lo stile/i colori o la posizione della nuvola. Al massimo uploadBudget punti nuovi per
+        /// fotogramma, per non fermare la navigazione.
+        /// </summary>
+        public void ShaderDraw(Style st, int[] want, ref long uploadBudget)
+        {
+            int n = Tiles.Length;
+            if (_nUp == null || _nUp.Length != n) { _nUp = new TileCpu[n]; _nUpCount = new int[n]; _nUpPts = new int[n]; _nUpKey = new long[n]; }
+            int argb = LayerArgb(st);
+            bool hl = Highlighted;
+            int nodes = 0, notLoaded = 0, notBuilt = 0; long pts = 0;
+            for (int i = 0; i < n; i++)
+            {
+                TileCpu cpu = Volatile.Read(ref Cpu[i]);
+                if (cpu == null)
+                {
+                    if (_nUp[i] != null) { NativeProbe.Free(NativeId, i); _nUp[i] = null; }
+                    if (want[i] > 0) notLoaded++;
+                    continue;
+                }
+                if (want[i] <= 0) continue;
+                long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L);
+                if (_nUp[i] != cpu || _nUpCount[i] != cpu.Count || _nUpKey[i] != key)
+                {
+                    if (uploadBudget <= 0) { if (_nUp[i] == null) { notBuilt++; continue; } }
+                    else
+                    {
+                        int up = ShaderUpload(i, cpu, st, argb, hl);
+                        uploadBudget -= cpu.Count;
+                        if (up < 0) { notBuilt++; continue; }
+                        _nUp[i] = cpu; _nUpCount[i] = cpu.Count; _nUpKey[i] = key; _nUpPts[i] = up;
+                    }
+                }
+                int cnt = _nUpCount[i];
+                if (cnt <= 0 || _nUpPts[i] <= 0) continue;
+                int w = Math.Min(want[i], cnt);
+                int draw = (int)Math.Max(1, (long)_nUpPts[i] * w / cnt);
+                double sp = _childCount[i] == 0 ? Math.Sqrt(_area[i] / Math.Max(1, cnt)) : _nodeSpacing[i];
+                if (w < cnt) sp *= Math.Sqrt((double)cnt / w);
+                NativeProbe.Add(NativeId, i, draw, (float)sp);
+                nodes++; pts += draw;
+            }
+            StatPoints = pts; StatNodes = nodes; StatNotLoaded = notLoaded; StatNotBuilt = notBuilt;
+            FrameStats.SmallPts += pts;
+        }
+
+        /// <summary>Prepara e carica i punti di un blocco; restituisce i punti caricati (-1 = non riuscito).</summary>
+        private unsafe int ShaderUpload(int i, TileCpu cpu, Style st, int argb, bool hl)
+        {
+            int cnt = cpu.Count;
+            if (_nBuf.Length < cnt * 16) _nBuf = new byte[Math.Max(cnt * 16, 16 * 20000)];
+            byte[] buf = _nBuf;
+            int w = 0;
+            for (int k = 0; k < cnt; k++)
+            {
+                double x, y, z;
+                ToModel(cpu.Pos[k * 3], cpu.Pos[k * 3 + 1], cpu.Pos[k * 3 + 2], out x, out y, out z);
+                if (st.Clip != null && !st.Clip.Contains(x, y, z)) continue;
+                byte r, g, b, t;
+                if (hl) Style.HighlightColor(cpu, k, argb, out r, out g, out b, out t);
+                else if (st.ZoneColor(cpu, k, x, y, z, out r, out g, out b)) t = 0;
+                else if (st.DebugLevels) { CloudDebug.LevelColor(Tiles[i].Level, true, out r, out g, out b); t = 0; }
+                else if (!st.Color(cpu, k, z, argb, out r, out g, out b, out t)) continue;
+                int o = w * 16;
+                fixed (byte* q = &buf[o])
+                {
+                    *(float*)q = (float)x; *(float*)(q + 4) = (float)y; *(float*)(q + 8) = (float)z;
+                    q[12] = r; q[13] = g; q[14] = b; q[15] = 255;
+                }
+                w++;
+            }
+            if (w == 0) { NativeProbe.Free(NativeId, i); return 0; }
+            return NativeProbe.Upload(NativeId, i, buf, w) ? w : -1;
+        }
+
         public void DrawAll(Style st, int[] want)
         {
             long now = Environment.TickCount;

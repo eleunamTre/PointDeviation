@@ -237,13 +237,29 @@ namespace PointDeviation
                 for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
                 long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
                 XYZ cubeAt = null;
-                if (AdvancedSettings.Current.NativeProbe && visible.Count > 0)
+                if ((AdvancedSettings.Current.NativeProbe || AdvancedSettings.Current.NativeShader) && visible.Count > 0)
                 {
                     XYZ bmin, bmax; visible[0].ModelBounds(out bmin, out bmax);
                     cubeAt = (bmin + bmax) / 2.0;
                 }
                 NativeProbe.Begin(cam, cubeAt);
-                try { for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]); }
+                try
+                {
+                    // voce 194: con il disegno con shader acceso e la libreria pronta, i punti li disegna la libreria al
+                    // segnale; altrimenti (o finché non è pronta) il disegno di sempre
+                    if (NativeProbe.ShaderReady)
+                    {
+                        long uploadBudget = budget.Moving ? 1500000 : 6000000;
+                        for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget);
+                        NativeProbe.EndFrame(st, true);
+                        if (uploadBudget <= 0) Redraw.Request();
+                    }
+                    else
+                    {
+                        if (NativeProbe.ShaderWanted) NativeProbe.EndFrame(st, false);
+                        for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]);
+                    }
+                }
                 finally { NativeProbe.End(); }
                 long f3 = System.Diagnostics.Stopwatch.GetTimestamp();
                 bool hit = false;

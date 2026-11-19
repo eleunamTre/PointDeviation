@@ -28,6 +28,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _fullWait = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _holdView = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _fixedBudget = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _shader = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _probe = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _native = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
@@ -188,6 +189,9 @@ namespace PointDeviation
             _native.Text = L.T("Prova: punti disegnati da Revit");
             p.Controls.Add(_native);
             p.Controls.Add(Note(L.T("Spento (consigliato): i punti li disegna il plugin. Acceso: li disegna Revit come le sue nuvole (punti tondi, grandezza che segue lo zoom senza ricostruzioni), senza colori per deviazione, fuoco e «Dimensione punti». Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica.")));
+            _shader.Text = L.T("Disegno con shader (sperimentale)");
+            p.Controls.Add(_shader);
+            p.Controls.Add(Note(L.T("Acceso: la nuvola la disegna la libreria PdRender.dll direttamente nella scheda video, con punti tondi la cui grandezza segue lo zoom senza ricostruire nulla. Serve PdRender.dll accanto al plugin e Revit riavviato. Finché la libreria non è pronta si usa il disegno di sempre. Salva il progetto prima di provarlo.")));
             _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
@@ -237,6 +241,7 @@ namespace PointDeviation
             _fixedBudget.Checked = a.FixedBudget;
             _native.Checked = a.NativeDisplay;
             _probe.Checked = a.NativeProbe;
+            _shader.Checked = a.NativeShader;
         }
 
         private void Apply()
@@ -256,6 +261,7 @@ namespace PointDeviation
             a.FixedBudget = _fixedBudget.Checked;
             a.NativeDisplay = _native.Checked;
             a.NativeProbe = _probe.Checked;
+            a.NativeShader = _shader.Checked;
             a.Save();
             bool levelsChanged = CloudDebug.Levels != _levels.Checked;
             CloudDebug.Levels = _levels.Checked;

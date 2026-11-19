@@ -206,6 +206,8 @@ namespace PointDeviation
         [DataMember] public bool NativeDisplay;
         /// <summary>Prova della libreria nativa DirectX (voce 180): solo diagnostica, non disegna.</summary>
         [DataMember] public bool NativeProbe;
+        /// <summary>Disegno della nuvola con shader propri dentro DirectX 11 di Revit (voce 194, sperimentale).</summary>
+        [DataMember] public bool NativeShader;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 
@@ -273,7 +275,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 193;
+        public const int Change = 194;
 
         public static string Describe()
         {
