@@ -892,3 +892,10 @@ Ottava tornata (28/10/2026): octree
      conteggio passato a un disegno. Se anche l'impostazione di shader e vertici e' a zero mentre Map passa, la
      pipeline di disegno di Revit non usa quel contesto. Il segnale ora e' davanti alla camera (prima nell'origine) ed
      e' dentro la finestra di cattura.
+188. Esperimento DirectX: scoperta la causa dei disegni a zero. Registro del 19/11 10:12: sul contesto di Revit passano
+     per ogni 5 s 5-75 mila impostazioni di shader, 33-338 mila di vertici, 12-173 mila di finestre e 87-3345 di
+     destinazioni, ma nessun disegno; e una seconda swap chain con la stessa tabella mostrava la voce DrawIndexed non
+     piu' agganciata. Il runtime di DirectX 11 riscrive da se' le voci di disegno della tabella del contesto (sceglie la
+     funzione adatta allo stato corrente), cancellando l'aggancio. Ora dopo ogni impostazione di stato (shader, vertici,
+     finestre, destinazioni, Map) la libreria rimette l'aggancio e salva la funzione scelta dal runtime. Riga
+     «[DirectX]» con il numero di riagganci. Serve ricompilare Native\build.bat.
