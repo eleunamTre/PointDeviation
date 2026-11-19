@@ -1599,8 +1599,8 @@ namespace PointDeviation
                     else
                     {
                         int up = ShaderUpload(i, cpu, st, argb, hl);
-                        uploadBudget -= cpu.Count;
                         if (up < 0) { notBuilt++; _nMissing.Add(i); continue; }
+                        uploadBudget -= cpu.Count;
                         _nUpTotal += up - _nUpPts[i];
                         _nUp[i] = cpu; _nUpCount[i] = cpu.Count; _nUpKey[i] = key; _nUpPts[i] = up;
                     }

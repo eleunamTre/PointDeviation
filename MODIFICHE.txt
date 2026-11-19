@@ -1017,3 +1017,10 @@ Ottava tornata (28/10/2026): octree
        (fino a 0,4 M punti) per lasciare la scheda video a Revit; sale solo sotto i 60 ms.
      - Punti piu' piccoli di circa 2,5 px: niente scarto degli angoli (quadrati e tondi sono uguali a quella grandezza).
      - Registro: durata del fotogramma intero accanto al limite.
+
+205. Correzioni da una revisione del codice (19/11):
+     - Disegno con shader: se in una vista la matrice di Revit e' divisa in due (vista e proiezione separate nel suo
+       buffer), lo shader dei punti ora applica entrambe come gia' faceva il cubo di prova; prima usava solo la prima.
+       Finora la matrice e' sempre stata trovata intera, quindi non cambia nulla di visibile oggi.
+     - Caricamento nella scheda video: il budget per fotogramma si scala solo se il caricamento riesce.
+     - Id della vista letto con ElementId.Value (IntegerValue e' deprecato dalla 2024).

@@ -462,7 +462,7 @@ static bool g_shFailed = false;
 // indice condiviso a 6 indici per punto: è la chiamata già verificata con il cubo. Con l'istanziamento (194) la nuvola
 // non compariva. I piani del riquadro si usano solo se sono piani veri (normale lunga 1).
 static const char* g_shHlsl =
-"cbuffer C : register(b0) { int4 Info; float4 P; float4 Pl[6]; };\n"
+"cbuffer C : register(b0) { int4 Info; float4 P; float4 Pl[6]; int4 Info2; };\n"
 "cbuffer R : register(b1) { float4 Rv[4096]; };\n"
 "Buffer<uint4> Pts : register(t0);\n"
 "struct VO { float4 pos : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD0; float4 cd0 : SV_ClipDistance0; float2 cd1 : SV_ClipDistance1; };\n"
@@ -473,8 +473,11 @@ static const char* g_shHlsl =
 "  float4 q = float4(p, 1);\n"
 "  int r = Info.y;\n"
 "  float4x4 M = float4x4(Rv[r], Rv[r + 1], Rv[r + 2], Rv[r + 3]);\n"
-"  float4 cl = (Info.z & 1) != 0 ? mul(M, q) : mul(q, M);\n"
-"  float3 rx = (Info.z & 1) != 0 ? Rv[r].xyz : float3(Rv[r].x, Rv[r + 1].x, Rv[r + 2].x);\n"
+"  if ((Info.z & 1) == 0) M = transpose(M);\n"
+"  if (Info2.x >= 0) { int r2 = Info2.x; float4x4 B = float4x4(Rv[r2], Rv[r2 + 1], Rv[r2 + 2], Rv[r2 + 3]);\n"
+"    if (Info2.y == 0) B = transpose(B); M = mul(B, M); }\n"
+"  float4 cl = mul(M, q);\n"
+"  float3 rx = M[0].xyz;\n"
 "  float rpx = P.x * length(rx) / max(abs(cl.w), 1e-6) * P.y * 0.5;\n"
 "  rpx = clamp(rpx, 0.75, P.w);\n"
 "  float2 cn = float2((cr & 1) != 0 ? 1.0 : -1.0, (cr & 2) != 0 ? 1.0 : -1.0);\n"
@@ -511,7 +514,7 @@ static bool ShaderInit(ID3D11Device* dev)
         D3D11_SUBRESOURCE_DATA isd = {}; isd.pSysMem = idx.data();
         dev->CreateBuffer(&ib, &isd, &g_quadIb);
     }
-    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 128; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 144; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     dev->CreateBuffer(&bd, nullptr, &g_scb);
     D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
     dev->CreateDepthStencilState(&dd, &g_sdss);
@@ -642,6 +645,8 @@ static void ShaderDraw(ID3D11DeviceContext* c)
                 in[0] = 1; in[1] = g_mOff; in[2] = g_mT & 1; in[3] = planes;
                 f[4] = it.spacing * g_shScale; f[5] = vp.Width; f[6] = vp.Height; f[7] = g_shMaxPx;
                 memcpy(f + 8, g_clip, sizeof(g_clip));
+                // voce 205: seconda matrice (vista e proiezione separate nel buffer di Revit), come nel cubo di prova
+                in[32] = g_mOff2; in[33] = (g_mT >> 1) & 1; in[34] = 0; in[35] = 0;
                 c->Unmap(g_scb, 0);
             }
             lastSp = it.spacing;

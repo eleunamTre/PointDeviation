@@ -254,7 +254,7 @@ namespace PointDeviation
                     XYZ bmin, bmax; visible[0].ModelBounds(out bmin, out bmax);
                     cubeAt = (bmin + bmax) / 2.0;
                 }
-                NativeProbe.Begin(cam, cubeAt, view.Id.IntegerValue);
+                NativeProbe.Begin(cam, cubeAt, view.Id.Value);
                 try
                 {
                     // voce 194: con il disegno con shader acceso e la libreria pronta, i punti li disegna la libreria al
