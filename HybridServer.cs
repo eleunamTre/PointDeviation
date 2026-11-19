@@ -236,7 +236,7 @@ namespace PointDeviation
                 for (int k = 0; k < visible.Count; k++) visible[k].Prepare(st, budget, wants[k], pxs[k]);
                 for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
                 long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
-                NativeProbe.Begin();
+                NativeProbe.Begin(cam);
                 try { for (int k = 0; k < visible.Count; k++) visible[k].DrawAll(st, wants[k]); }
                 finally { NativeProbe.End(); }
                 long f3 = System.Diagnostics.Stopwatch.GetTimestamp();

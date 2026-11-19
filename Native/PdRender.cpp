@@ -8,12 +8,14 @@
 #include <windows.h>
 #include <d3d11_4.h>
 #include <dxgi1_2.h>
+#include <d3dcompiler.h>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "user32.lib")
+#pragma comment(lib, "d3dcompiler.lib")
 
 typedef void (STDMETHODCALLTYPE* DrawIndexed_t)(ID3D11DeviceContext*, UINT, UINT, INT);
 typedef void (STDMETHODCALLTYPE* Draw_t)(ID3D11DeviceContext*, UINT, UINT);
@@ -50,6 +52,143 @@ static char g_markerInfo[600] = "";
 static DWORD g_markerThread = 0;
 static void DescribeState(ID3D11DeviceContext* c, char* buf, int cap);
 
+// ---- voce 189: primo disegno con shader nostro. Quando arriva il segnale (Revit sta disegnando il nostro contenuto,
+// con la sua destinazione e il suo buffer di profondità), si disegna un cubo rosso di prova in un punto fisso del
+// modello, con vertex e pixel shader nostri e la matrice della camera passata dal plugin. Lo stato di Revit si salva
+// prima e si rimette dopo. Profondità spenta in questa prova: il cubo resta sempre davanti.
+static float g_viewProj[16];
+static float g_cubePos[3];
+static std::atomic<int> g_testOn{ 0 };
+static std::atomic<long> g_testDrawn{ 0 };
+static char g_testErr[200] = "";
+static ID3D11VertexShader* g_vs = nullptr;
+static ID3D11PixelShader* g_ps = nullptr;
+static ID3D11InputLayout* g_il = nullptr;
+static ID3D11Buffer* g_vb = nullptr;
+static ID3D11Buffer* g_ib = nullptr;
+static ID3D11Buffer* g_cb = nullptr;
+static ID3D11DepthStencilState* g_dss = nullptr;
+static ID3D11RasterizerState* g_rs = nullptr;
+static ID3D11BlendState* g_bs = nullptr;
+static bool g_testFailed = false;
+
+static const char* g_hlsl =
+"cbuffer C : register(b0) { row_major float4x4 VP; float4 Col; };\n"
+"float4 VS(float3 p : POSITION) : SV_Position { return mul(float4(p, 1), VP); }\n"
+"float4 PS() : SV_Target { return Col; }\n";
+
+static bool TestInit(ID3D11Device* dev)
+{
+    if (g_vs) return true;
+    if (g_testFailed) return false;
+    ID3DBlob *vb = nullptr, *pb = nullptr, *err = nullptr;
+    HRESULT hr = D3DCompile(g_hlsl, strlen(g_hlsl), "pd", nullptr, nullptr, "VS", "vs_4_0", 0, 0, &vb, &err);
+    if (FAILED(hr)) { _snprintf_s(g_testErr, sizeof(g_testErr), _TRUNCATE, "shader VS: %s", err ? (char*)err->GetBufferPointer() : "?"); g_testFailed = true; return false; }
+    hr = D3DCompile(g_hlsl, strlen(g_hlsl), "pd", nullptr, nullptr, "PS", "ps_4_0", 0, 0, &pb, &err);
+    if (FAILED(hr)) { _snprintf_s(g_testErr, sizeof(g_testErr), _TRUNCATE, "shader PS: %s", err ? (char*)err->GetBufferPointer() : "?"); g_testFailed = true; return false; }
+    dev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), nullptr, &g_vs);
+    dev->CreatePixelShader(pb->GetBufferPointer(), pb->GetBufferSize(), nullptr, &g_ps);
+    D3D11_INPUT_ELEMENT_DESC el = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
+    dev->CreateInputLayout(&el, 1, vb->GetBufferPointer(), vb->GetBufferSize(), &g_il);
+    vb->Release(); pb->Release();
+    float h = 1.0f; // cubo di 2 piedi di lato, centrato in g_cubePos (le coordinate si aggiungono nello shader tramite VP? no: qui)
+    float v[24] = { -h,-h,-h,  h,-h,-h,  h,h,-h,  -h,h,-h,  -h,-h,h,  h,-h,h,  h,h,h,  -h,h,h };
+    for (int i = 0; i < 8; i++) { v[i * 3] += g_cubePos[0]; v[i * 3 + 1] += g_cubePos[1]; v[i * 3 + 2] += g_cubePos[2]; }
+    unsigned short idx[36] = { 0,1,2, 0,2,3, 4,6,5, 4,7,6, 0,4,5, 0,5,1, 1,5,6, 1,6,2, 2,6,7, 2,7,3, 3,7,4, 3,4,0 };
+    D3D11_BUFFER_DESC bd = {}; D3D11_SUBRESOURCE_DATA sd = {};
+    bd.ByteWidth = sizeof(v); bd.Usage = D3D11_USAGE_IMMUTABLE; bd.BindFlags = D3D11_BIND_VERTEX_BUFFER; sd.pSysMem = v;
+    dev->CreateBuffer(&bd, &sd, &g_vb);
+    bd.ByteWidth = sizeof(idx); bd.BindFlags = D3D11_BIND_INDEX_BUFFER; sd.pSysMem = idx;
+    dev->CreateBuffer(&bd, &sd, &g_ib);
+    bd.ByteWidth = 80; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    dev->CreateBuffer(&bd, nullptr, &g_cb);
+    D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = FALSE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO; dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    dev->CreateDepthStencilState(&dd, &g_dss);
+    D3D11_RASTERIZER_DESC rd = {}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = FALSE;
+    dev->CreateRasterizerState(&rd, &g_rs);
+    D3D11_BLEND_DESC bld = {}; bld.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    dev->CreateBlendState(&bld, &g_bs);
+    if (!g_vs || !g_ps || !g_il || !g_vb || !g_ib || !g_cb || !g_dss || !g_rs || !g_bs)
+    {
+        _snprintf_s(g_testErr, sizeof(g_testErr), _TRUNCATE, "creazione delle risorse non riuscita");
+        g_testFailed = true; return false;
+    }
+    return true;
+}
+
+static void TestDraw(ID3D11DeviceContext* c)
+{
+    ID3D11Device* dev = nullptr; c->GetDevice(&dev);
+    if (!dev) return;
+    bool ok = TestInit(dev);
+    dev->Release();
+    if (!ok) return;
+    // stato di Revit
+    ID3D11InputLayout* il = nullptr; c->IAGetInputLayout(&il);
+    ID3D11Buffer* vb = nullptr; UINT vs = 0, vo = 0; c->IAGetVertexBuffers(0, 1, &vb, &vs, &vo);
+    ID3D11Buffer* ib = nullptr; DXGI_FORMAT ifmt; UINT io = 0; c->IAGetIndexBuffer(&ib, &ifmt, &io);
+    D3D11_PRIMITIVE_TOPOLOGY topo; c->IAGetPrimitiveTopology(&topo);
+    ID3D11VertexShader* ovs = nullptr; c->VSGetShader(&ovs, nullptr, nullptr);
+    ID3D11PixelShader* ops = nullptr; c->PSGetShader(&ops, nullptr, nullptr);
+    ID3D11GeometryShader* ogs = nullptr; c->GSGetShader(&ogs, nullptr, nullptr);
+    ID3D11Buffer* vcb = nullptr; c->VSGetConstantBuffers(0, 1, &vcb);
+    ID3D11Buffer* pcb = nullptr; c->PSGetConstantBuffers(0, 1, &pcb);
+    ID3D11DepthStencilState* dss = nullptr; UINT sref = 0; c->OMGetDepthStencilState(&dss, &sref);
+    ID3D11RasterizerState* rs = nullptr; c->RSGetState(&rs);
+    ID3D11BlendState* bs = nullptr; FLOAT bf[4]; UINT sm = 0; c->OMGetBlendState(&bs, bf, &sm);
+    // nostro disegno
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (SUCCEEDED(c->Map(g_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
+    {
+        float* f = (float*)m.pData;
+        memcpy(f, g_viewProj, 64);
+        f[16] = 1.0f; f[17] = 0.1f; f[18] = 0.1f; f[19] = 1.0f;
+        c->Unmap(g_cb, 0);
+    }
+    UINT stride = 12, off = 0;
+    c->IASetInputLayout(g_il);
+    c->IASetVertexBuffers(0, 1, &g_vb, &stride, &off);
+    c->IASetIndexBuffer(g_ib, DXGI_FORMAT_R16_UINT, 0);
+    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    c->VSSetShader(g_vs, nullptr, 0);
+    c->PSSetShader(g_ps, nullptr, 0);
+    c->GSSetShader(nullptr, nullptr, 0);
+    c->VSSetConstantBuffers(0, 1, &g_cb);
+    c->PSSetConstantBuffers(0, 1, &g_cb);
+    c->OMSetDepthStencilState(g_dss, 0);
+    c->RSSetState(g_rs);
+    FLOAT zero[4] = { 0, 0, 0, 0 };
+    c->OMSetBlendState(g_bs, zero, 0xffffffff);
+    c->DrawIndexed(36, 0, 0);
+    g_testDrawn++;
+    // stato di Revit di nuovo al suo posto
+    c->IASetInputLayout(il);
+    c->IASetVertexBuffers(0, 1, &vb, &vs, &vo);
+    c->IASetIndexBuffer(ib, ifmt, io);
+    c->IASetPrimitiveTopology(topo);
+    c->VSSetShader(ovs, nullptr, 0);
+    c->PSSetShader(ops, nullptr, 0);
+    c->GSSetShader(ogs, nullptr, 0);
+    c->VSSetConstantBuffers(0, 1, &vcb);
+    c->PSSetConstantBuffers(0, 1, &pcb);
+    c->OMSetDepthStencilState(dss, sref);
+    c->RSSetState(rs);
+    c->OMSetBlendState(bs, bf, sm);
+    if (il) il->Release(); if (vb) vb->Release(); if (ib) ib->Release();
+    if (ovs) ovs->Release(); if (ops) ops->Release(); if (ogs) ogs->Release();
+    if (vcb) vcb->Release(); if (pcb) pcb->Release();
+    if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
+}
+
+static std::atomic<int> g_inTest{ 0 };
+
+extern "C" __declspec(dllexport) void PdSetTest(int on, const float* viewProj, const float* cubePos)
+{
+    memcpy(g_viewProj, viewProj, 64);
+    if (!g_vs) { g_cubePos[0] = cubePos[0]; g_cubePos[1] = cubePos[1]; g_cubePos[2] = cubePos[2]; }
+    g_testOn = on;
+}
+
 static std::atomic<UINT> g_lastCount{ 0 };
 static void Marker(ID3D11DeviceContext* c, UINT count)
 {
@@ -57,6 +196,7 @@ static void Marker(ID3D11DeviceContext* c, UINT count)
     g_lastCount.store(count, std::memory_order_relaxed);
     if (count != MarkerIndices) return;
     long n = ++g_markers;
+    if (g_testOn && !g_inTest.exchange(1)) { TestDraw(c); g_inTest = 0; }
     g_markerThread = GetCurrentThreadId();
     if (n % 30 == 1) DescribeState(c, g_markerInfo, sizeof(g_markerInfo));
 }
@@ -490,7 +630,8 @@ extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
         _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld); %s; %s; swap chain viste: %s", d - dd, dd, ind, ex, pr, ops, g_realInfo, g_scInfo);
         return 0;
     }
-    _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", m, d - dd, dd, ind, ex, pr, ops,
+    long td = g_testDrawn.exchange(0);
+    _snprintf_s(msg, cap, _TRUNCATE, "cubo di prova disegnato %ld volte%s%s; segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", td, g_testErr[0] ? ", errore: " : "", g_testErr, m, d - dd, dd, ind, ex, pr, ops,
         g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo, g_realInfo);
     return 1;
 }

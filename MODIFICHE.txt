@@ -900,3 +900,11 @@ Ottava tornata (28/10/2026): octree
      finestre, destinazioni, Map) la libreria rimette l'aggancio e salva la funzione scelta dal runtime. Riga
      «[DirectX]» con il numero di riagganci. Il riaggancio si fa anche a ogni Present per i contesti di tutte le swap
      chain con la stessa tabella. Serve ricompilare Native\build.bat.
+189. Esperimento DirectX: il segnale arriva (registro del 19/11 10:26, con la 188). Disegni visti: 11 mila-1 milione
+     ogni 5 s, riagganci 88-2544, segnale arrivato a ogni nostro fotogramma sul thread di Revit dove gira il nostro
+     disegno, contesto immediato, destinazione 1093x794 (formato 27), profondita' D24S8 (formato 45), finestra
+     1093x794. Primo disegno con shader nostro: al segnale la libreria disegna un cubo rosso di 2 piedi di lato fisso
+     nel modello (nel punto guardato al primo fotogramma), con vertex e pixel shader compilati al volo e la matrice
+     della camera passata dal plugin a ogni fotogramma; lo stato di Revit si salva prima e si rimette dopo. Profondita'
+     spenta: il cubo resta sempre davanti. Serve a verificare che il disegno compaia, resti fermo nel modello
+     navigando e non disturbi il disegno di Revit. build.bat ora collega anche d3dcompiler.lib.

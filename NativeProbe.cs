@@ -26,6 +26,53 @@ namespace PointDeviation
         private static extern int PdCaptureEnd(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern int PdReport(StringBuilder msg, int cap);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetTest(int on, float[] viewProj, float[] cubePos);
+
+        private static readonly float[] _vp = new float[16];
+        private static float[] _cube;
+
+        /// <summary>
+        /// Voce 189: matrice dal modello allo schermo per lo shader di prova, dalla camera del fotogramma (stessa usata dal
+        /// motore). Convenzione: vettore riga per matrice, riga per riga (row_major nello shader). Prospettiva: ampiezza
+        /// HalfW/HalfH alla distanza Target; parallela: ampiezza HalfW/HalfH attorno a Pos.
+        /// </summary>
+        private static void SendCamera(ViewCam cam)
+        {
+            if (cam == null || !cam.Valid) return;
+            XYZ R = cam.Right, U = cam.Up, D = cam.Dir, E = cam.Pos;
+            double er = E.DotProduct(R), eu = E.DotProduct(U), ed = E.DotProduct(D);
+            var m = new double[16];
+            if (cam.Perspective)
+            {
+                double sx = cam.Target / cam.HalfW, sy = cam.Target / cam.HalfH;
+                double ox = -cam.OffU / cam.HalfW, oy = -cam.OffV / cam.HalfH;
+                double n = 0.5, f = 100000.0, A = f / (f - n), B = -n * f / (f - n);
+                // colonne: x, y, z, w
+                double[] cx = { R.X * sx + D.X * ox, R.Y * sx + D.Y * ox, R.Z * sx + D.Z * ox, -er * sx - ed * ox };
+                double[] cy = { U.X * sy + D.X * oy, U.Y * sy + D.Y * oy, U.Z * sy + D.Z * oy, -eu * sy - ed * oy };
+                double[] cz = { D.X * A, D.Y * A, D.Z * A, -ed * A + B };
+                double[] cw = { D.X, D.Y, D.Z, -ed };
+                for (int r = 0; r < 4; r++) { m[r * 4] = cx[r]; m[r * 4 + 1] = cy[r]; m[r * 4 + 2] = cz[r]; m[r * 4 + 3] = cw[r]; }
+            }
+            else
+            {
+                double sx = 1.0 / cam.HalfW, sy = 1.0 / cam.HalfH;
+                double[] cx = { R.X * sx, R.Y * sx, R.Z * sx, -er * sx };
+                double[] cy = { U.X * sy, U.Y * sy, U.Z * sy, -eu * sy };
+                for (int r = 0; r < 4; r++) { m[r * 4] = cx[r]; m[r * 4 + 1] = cy[r]; m[r * 4 + 2] = 0; m[r * 4 + 3] = 0; }
+                m[14] = 0.5; m[15] = 1;
+            }
+            for (int i = 0; i < 16; i++) _vp[i] = (float)m[i];
+            if (_cube == null)
+            {
+                // cubo fisso nel modello: nel punto guardato al primo fotogramma
+                XYZ p = cam.Perspective ? E + D * cam.Target : E;
+                _cube = new[] { (float)p.X, (float)p.Y, (float)p.Z };
+                Log.Write("DirectX", string.Format("cubo di prova in {0:F1}, {1:F1}, {2:F1} piedi", p.X, p.Y, p.Z));
+            }
+            PdSetTest(1, _vp, _cube);
+        }
 
         private static int _state;          // 0 = da provare, 1 = attiva, -1 = non disponibile
         private static bool _capturing;
@@ -78,7 +125,7 @@ namespace PointDeviation
         }
 
         /// <summary>Durante il nostro disegno: segnale e (ogni 5 s) cattura delle chiamate fatte dentro il nostro disegno.</summary>
-        public static void Begin()
+        public static void Begin(ViewCam cam)
         {
             _capturing = false;
             if (!AdvancedSettings.Current.NativeProbe) return;
@@ -86,6 +133,7 @@ namespace PointDeviation
             try
             {
                 if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
+                SendCamera(cam);
                 DrawMarker();
                 _frames++;
             }

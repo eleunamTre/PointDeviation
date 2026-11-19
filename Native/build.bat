@@ -24,7 +24,7 @@ if errorlevel 1 (
 )
 
 :compile
-cl /nologo /O2 /EHsc /LD /MT PdRender.cpp d3d11.lib /Fe:PdRender.dll
+cl /nologo /O2 /EHsc /LD /MT PdRender.cpp d3d11.lib d3dcompiler.lib user32.lib /Fe:PdRender.dll
 if errorlevel 1 goto fail
 echo.
 echo PdRender.dll pronta: ora compila PointDeviation in Visual Studio, la copia nella cartella del plugin.
