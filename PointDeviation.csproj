@@ -42,12 +42,23 @@
     <Exec Command="&quot;$(MSBuildProjectDirectory)\Native\build.bat&quot; nopause" />
   </Target>
 
-  <!-- Copia DLL e manifest nella cartella Addins di Revit 2024 (chiudi Revit prima di compilare) -->
+  <!-- Copia DLL e manifest nella cartella Addins di Revit 2024. Voce 203: si puo' compilare anche con Revit aperto.
+       Windows non lascia sovrascrivere una DLL in uso ma lascia rinominarla: le DLL gia' installate si rinominano in
+       *.<data>.old e quelle nuove si copiano al loro posto; Revit le usa al riavvio. Le .old si cancellano alla
+       compilazione successiva (quelle ancora in uso restano fino alla volta dopo). -->
   <Target Name="DeployToRevit" AfterTargets="Build">
     <PropertyGroup>
       <AddinsDir>$(AppData)\Autodesk\Revit\Addins\2024\</AddinsDir>
+      <DeployDir>$(AddinsDir)PointDeviation\</DeployDir>
+      <DeployStamp>$([System.DateTime]::Now.ToString("yyyyMMdd-HHmmss"))</DeployStamp>
     </PropertyGroup>
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(AddinsDir)PointDeviation\" />
+    <ItemGroup>
+      <OldDeployed Include="$(DeployDir)*.old" />
+    </ItemGroup>
+    <Delete Files="@(OldDeployed)" ContinueOnError="true" />
+    <Move SourceFiles="$(DeployDir)$(TargetFileName)" DestinationFiles="$(DeployDir)$(TargetFileName).$(DeployStamp).old" Condition="Exists('$(DeployDir)$(TargetFileName)')" ContinueOnError="true" />
+    <Move SourceFiles="$(DeployDir)PdRender.dll" DestinationFiles="$(DeployDir)PdRender.dll.$(DeployStamp).old" Condition="Exists('$(DeployDir)PdRender.dll') And Exists('$(MSBuildProjectDirectory)\Native\PdRender.dll')" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DeployDir)" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\PointDeviation.addin" DestinationFolder="$(AddinsDir)" />
     <!-- libreria nativa sperimentale (voce 180), compilata dal passo BuildNative qui sopra -->
     <Copy SourceFiles="$(MSBuildProjectDirectory)\Native\PdRender.dll" DestinationFolder="$(AddinsDir)PointDeviation\" Condition="Exists('$(MSBuildProjectDirectory)\Native\PdRender.dll')" />
