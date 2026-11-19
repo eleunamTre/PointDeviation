@@ -30,6 +30,8 @@ namespace PointDeviation
         private static extern void PdSetTest(int on, float[] viewProj, float[] cubePos);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern int PdDump(StringBuilder msg, int cap);
         private static float[] F3(XYZ p) { return new[] { (float)p.X, (float)p.Y, (float)p.Z }; }
 
         private static readonly float[] _vp = new float[16];
@@ -195,6 +197,8 @@ namespace PointDeviation
                 var rb = new StringBuilder(4096);
                 PdReport(rb, rb.Capacity);
                 Log.Write("DirectX", string.Format("{0} fotogrammi nostri; segnale: {1}; dentro il nostro disegno: {2}", _frames, rb, sb));
+                var db = new StringBuilder(8192);
+                if (PdDump(db, db.Capacity) != 0) Log.Write("DirectX", "buffer di Revit: " + db);
                 _frames = 0;
             }
             catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }

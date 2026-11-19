@@ -139,6 +139,8 @@ static bool TestInit(ID3D11Device* dev)
 static int g_mSlot = -1, g_mOff = 0, g_mT = 0, g_mRev = 0, g_mOff2 = -1, g_mFound = 0;
 static long g_mTries = 0;
 static char g_matInfo[300] = "matrice di Revit non ancora cercata";
+static char g_dump[6000] = "";
+static int g_dumped = 0;
 static ID3D11DepthStencilState* g_dssLess = nullptr;
 static ID3D11DepthStencilState* g_dssGreater = nullptr;
 
@@ -213,6 +215,17 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
         if (SUCCEEDED(c->Map(st, 0, D3D11_MAP_READ, 0, &m)))
         {
             const float* f = (const float*)m.pData;
+            // voce 191: contenuto del buffer e camera, una volta, per capire a mano quale sia la matrice
+            if (!g_dumped && slot == 0)
+            {
+                g_dumped = 1;
+                int k = _snprintf_s(g_dump, sizeof(g_dump), _TRUNCATE, "camera: E %.3f %.3f %.3f D %.4f %.4f %.4f R %.4f %.4f %.4f T %.3f HW %.3f %s; cubo %.3f %.3f %.3f; b0:",
+                    g_camE[0], g_camE[1], g_camE[2], g_camD[0], g_camD[1], g_camD[2], g_camR[0], g_camR[1], g_camR[2], g_camT, g_camHW, g_camPersp ? "prospettiva" : "parallela",
+                    g_cubePos[0], g_cubePos[1], g_cubePos[2]);
+                int nf = (int)(d.ByteWidth / 4); if (nf > 256) nf = 256;
+                for (int q = 0; q < nf && k < (int)sizeof(g_dump) - 40; q++)
+                    k += _snprintf_s(g_dump + k, sizeof(g_dump) - k, _TRUNCATE, "%s%.6g", (q % 4) == 0 ? (q ? " | " : " ") : " ", f[q]);
+            }
             int nb = (int)(d.ByteWidth / 16) - 3;        // posizioni di 4 righe da 16 byte
             if (nb > 512) nb = 512;
             for (int o = 0; o < nb; o++)
@@ -780,5 +793,13 @@ extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
     long td = g_testDrawn.exchange(0);
     _snprintf_s(msg, cap, _TRUNCATE, "cubo di prova disegnato %ld volte%s%s (%s); segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", td, g_testErr[0] ? ", errore: " : "", g_testErr, g_matInfo, m, d - dd, dd, ind, ex, pr, ops,
         g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo, g_realInfo);
+    return 1;
+}
+
+extern "C" __declspec(dllexport) int PdDump(char* msg, int cap)
+{
+    if (!g_dump[0]) return 0;
+    strncpy_s(msg, cap, g_dump, _TRUNCATE);
+    g_dump[0] = 0;
     return 1;
 }
