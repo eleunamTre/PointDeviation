@@ -927,3 +927,7 @@ Ottava tornata (28/10/2026): octree
      {3D} non si vedeva perche' era stato messo nella posizione della camera della vista parallela, fuori dal modello.
      Ora il cubo (6 piedi di lato) sta nel centro dell'ingombro della nuvola e con la matrice di Revit la profondita'
      e' accesa (minore o uguale, senza scrittura): il modello lo copre dove gli sta davanti.
+193. Esperimento DirectX: con la profondita' accesa il cubo al centro della nuvola non si vede (19/11 12:45): puo'
+     essere coperto dal modello o dall'altra nuvola, oppure stare altrove. Ora il cubo e' di 20 piedi di lato e si
+     disegna due volte: pieno rosso con la profondita' di Revit (compare solo dove e' davanti a tutto) e a fil di ferro
+     verde senza profondita' (sempre visibile, mostra dove sta).

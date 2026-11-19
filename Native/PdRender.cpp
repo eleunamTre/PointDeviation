@@ -70,6 +70,7 @@ static ID3D11Buffer* g_ib = nullptr;
 static ID3D11Buffer* g_cb = nullptr;
 static ID3D11DepthStencilState* g_dss = nullptr;
 static ID3D11RasterizerState* g_rs = nullptr;
+static ID3D11RasterizerState* g_rsWire = nullptr;
 static ID3D11BlendState* g_bs = nullptr;
 static bool g_testFailed = false;
 
@@ -106,7 +107,7 @@ static bool TestInit(ID3D11Device* dev)
     D3D11_INPUT_ELEMENT_DESC el = { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 };
     dev->CreateInputLayout(&el, 1, vb->GetBufferPointer(), vb->GetBufferSize(), &g_il);
     vb->Release(); pb->Release();
-    float h = 3.0f; // voce 192: cubo di 6 piedi di lato, centrato in g_cubePos (le coordinate si aggiungono nello shader tramite VP? no: qui)
+    float h = 10.0f; // voce 193: cubo di 20 piedi di lato (visibile anche da lontano), centrato in g_cubePos (le coordinate si aggiungono nello shader tramite VP? no: qui)
     float v[24] = { -h,-h,-h,  h,-h,-h,  h,h,-h,  -h,h,-h,  -h,-h,h,  h,-h,h,  h,h,h,  -h,h,h };
     for (int i = 0; i < 8; i++) { v[i * 3] += g_cubePos[0]; v[i * 3 + 1] += g_cubePos[1]; v[i * 3 + 2] += g_cubePos[2]; }
     unsigned short idx[36] = { 0,1,2, 0,2,3, 4,6,5, 4,7,6, 0,4,5, 0,5,1, 1,5,6, 1,6,2, 2,6,7, 2,7,3, 3,7,4, 3,4,0 };
@@ -121,6 +122,8 @@ static bool TestInit(ID3D11Device* dev)
     dev->CreateDepthStencilState(&dd, &g_dss);
     D3D11_RASTERIZER_DESC rd = {}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = FALSE;
     dev->CreateRasterizerState(&rd, &g_rs);
+    rd.FillMode = D3D11_FILL_WIREFRAME;
+    dev->CreateRasterizerState(&rd, &g_rsWire);
     D3D11_BLEND_DESC bld = {}; bld.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     dev->CreateBlendState(&bld, &g_bs);
     if (!g_vs || !g_ps || !g_il || !g_vb || !g_ib || !g_cb || !g_dss || !g_rs || !g_bs)
@@ -322,6 +325,24 @@ static void TestDraw(ID3D11DeviceContext* c)
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(g_bs, zero, 0xffffffff);
     c->DrawIndexed(36, 0, 0);
+    // voce 193: seconda passata in verde a fil di ferro senza profondita': mostra sempre dove sta il cubo, anche se il
+    // modello lo copre (il pieno rosso compare solo dove il cubo e' davanti)
+    if (rcb && g_rsWire)
+    {
+        D3D11_MAPPED_SUBRESOURCE m2;
+        if (SUCCEEDED(c->Map(g_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m2)))
+        {
+            float* f = (float*)m2.pData;
+            memcpy(f, g_viewProj, 64);
+            f[16] = 0.1f; f[17] = 0.9f; f[18] = 0.1f; f[19] = 1.0f;
+            int* info = (int*)(f + 20);
+            info[0] = g_mOff2 >= 0 ? 2 : 1; info[1] = g_mOff; info[2] = g_mT; info[3] = g_mOff2 >= 0 ? g_mOff2 : 0;
+            c->Unmap(g_cb, 0);
+        }
+        c->OMSetDepthStencilState(g_dss, 0);
+        c->RSSetState(g_rsWire);
+        c->DrawIndexed(36, 0, 0);
+    }
     g_testDrawn++;
     // stato di Revit di nuovo al suo posto
     c->IASetInputLayout(il);
