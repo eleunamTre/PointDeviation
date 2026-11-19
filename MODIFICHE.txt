@@ -945,3 +945,9 @@ Ottava tornata (28/10/2026): octree
      Revit trovati) si usa il disegno di sempre. Da fare: trasparenza, il lavoro di preparazione dei buffer
      DirectContext3D che continua anche quando non serve, liberazione dei buffer alla chiusura della nuvola.
      Riga «[DirectX] disegno con shader» ogni 5 s con blocchi e punti disegnati e memoria video usata.
+195. Disegno con shader, correzione (registro del 19/11 16:08): la libreria disegnava 9-94 mila blocchi ogni 5 s (fino
+     a 10 M punti per fotogramma, 322 MB in memoria video) ma la nuvola non compariva. Il disegno usava l'istanziamento
+     (DrawInstanced), una chiamata diversa da quella verificata con il cubo. Ora i punti si leggono dallo shader
+     (buffer di 16 byte a punto letto come Buffer<uint4>) e si disegnano con DrawIndexed e un indice condiviso di 6
+     indici per punto (fino a 262 mila punti per chiamata), la stessa chiamata del cubo. I piani del riquadro di
+     sezione si usano solo se sono piani veri (normale di lunghezza 1), altrimenti non tagliano.

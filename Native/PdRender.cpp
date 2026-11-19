@@ -377,8 +377,10 @@ static void TestDraw(ID3D11DeviceContext* c)
 //  (prime 6 righe del suo buffer) tagliano i punti come fa Revit.
 // =====================================================================================================================
 static ID3D11Device* g_realDev = nullptr;
-struct PdNode { ID3D11Buffer* vb; int count; };
-struct PdItem { ID3D11Buffer* vb; int count; float spacing; };
+struct PdNode { ID3D11Buffer* vb; ID3D11ShaderResourceView* srv; int count; };
+struct PdItem { ID3D11ShaderResourceView* srv; int count; float spacing; };
+static ID3D11Buffer* g_quadIb = nullptr;
+static const int QuadMax = 262144;   // punti per chiamata di disegno (indici a 32 bit, 6 per punto)
 static std::unordered_map<long long, PdNode> g_nodes;
 static std::vector<PdItem> g_build, g_ready;
 static std::atomic<int> g_shaderOn{ 0 };
@@ -394,25 +396,32 @@ static ID3D11DepthStencilState* g_sdss = nullptr;
 static ID3D11RasterizerState* g_srs = nullptr;
 static bool g_shFailed = false;
 
+// voce 195: i punti si leggono dallo shader (Buffer<uint4>, 16 byte a punto) e si disegnano con DrawIndexed e un
+// indice condiviso a 6 indici per punto: è la chiamata già verificata con il cubo. Con l'istanziamento (194) la nuvola
+// non compariva. I piani del riquadro si usano solo se sono piani veri (normale lunga 1).
 static const char* g_shHlsl =
-"cbuffer C : register(b0) { int4 Info; float4 P; };\n"   // Info: x=1/2 matrici, y=riga, z=verso, w=piani; P: x=distanza punti, y=larghezza, z=altezza, w=raggio max px
+"cbuffer C : register(b0) { int4 Info; float4 P; };\n"
 "cbuffer R : register(b1) { float4 Rv[4096]; };\n"
-"struct VI { float3 p : POSITION; float4 c : COLOR; uint id : SV_VertexID; };\n"
+"Buffer<uint4> Pts : register(t0);\n"
 "struct VO { float4 pos : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD0; float4 cd0 : SV_ClipDistance0; float2 cd1 : SV_ClipDistance1; };\n"
-"float4 Xf(float4 q, int o, int t) { float4x4 M = float4x4(Rv[o], Rv[o + 1], Rv[o + 2], Rv[o + 3]); return t != 0 ? mul(M, q) : mul(q, M); }\n"
-"VO VS(VI v) {\n"
-"  VO o; float4 q = float4(v.p, 1);\n"
-"  float4 cl = Xf(q, Info.y, Info.z & 1);\n"
-"  float3 rx = (Info.z & 1) != 0 ? Rv[Info.y].xyz : float3(Rv[Info.y].x, Rv[Info.y + 1].x, Rv[Info.y + 2].x);\n"
-"  float sx = length(rx);\n"
-"  float rpx = P.x * sx / max(cl.w, 1e-6) * P.y * 0.5;\n"
+"VO VS(uint vid : SV_VertexID) {\n"
+"  VO o; uint pi = vid >> 2; uint cr = vid & 3;\n"
+"  uint4 d = Pts.Load(pi);\n"
+"  float3 p = asfloat(d.xyz);\n"
+"  float4 q = float4(p, 1);\n"
+"  int r = Info.y;\n"
+"  float4x4 M = float4x4(Rv[r], Rv[r + 1], Rv[r + 2], Rv[r + 3]);\n"
+"  float4 cl = (Info.z & 1) != 0 ? mul(M, q) : mul(q, M);\n"
+"  float3 rx = (Info.z & 1) != 0 ? Rv[r].xyz : float3(Rv[r].x, Rv[r + 1].x, Rv[r + 2].x);\n"
+"  float rpx = P.x * length(rx) / max(abs(cl.w), 1e-6) * P.y * 0.5;\n"
 "  rpx = clamp(rpx, 0.75, P.w);\n"
-"  float2 cn = float2((v.id & 1) ? 1.0 : -1.0, (v.id & 2) ? 1.0 : -1.0);\n"
+"  float2 cn = float2((cr & 1) != 0 ? 1.0 : -1.0, (cr & 2) != 0 ? 1.0 : -1.0);\n"
 "  cl.xy += cn * float2(rpx * 2.0 / P.y, rpx * 2.0 / P.z) * cl.w;\n"
-"  o.pos = cl; o.c = v.c; o.uv = cn;\n"
-"  float d[6];\n"
-"  [unroll] for (int k = 0; k < 6; k++) d[k] = Info.w != 0 ? dot(Rv[k].xyz, v.p) + Rv[k].w : 1.0;\n"
-"  o.cd0 = float4(d[0], d[1], d[2], d[3]); o.cd1 = float2(d[4], d[5]);\n"
+"  o.pos = cl; o.uv = cn;\n"
+"  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, 1);\n"
+"  float dd[6];\n"
+"  [unroll] for (int k = 0; k < 6; k++) { float ln = length(Rv[k].xyz); dd[k] = (Info.w != 0 && abs(ln - 1) < 0.01) ? dot(Rv[k].xyz, p) + Rv[k].w : 1.0; }\n"
+"  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
 "  return o; }\n"
 "float4 PS(VO i) : SV_Target { if (dot(i.uv, i.uv) > 1.0) discard; return i.c; }\n";
 
@@ -427,11 +436,19 @@ static bool ShaderInit(ID3D11Device* dev)
     { _snprintf_s(g_shErr, sizeof(g_shErr), _TRUNCATE, "shader PS: %s", err ? (char*)err->GetBufferPointer() : "?"); g_shFailed = true; return false; }
     dev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), nullptr, &g_svs);
     dev->CreatePixelShader(pb->GetBufferPointer(), pb->GetBufferSize(), nullptr, &g_sps);
-    D3D11_INPUT_ELEMENT_DESC el[2] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-        { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 12, D3D11_INPUT_PER_INSTANCE_DATA, 1 } };
-    dev->CreateInputLayout(el, 2, vb->GetBufferPointer(), vb->GetBufferSize(), &g_sil);
     vb->Release(); pb->Release();
+    {
+        std::vector<unsigned int> idx((size_t)QuadMax * 6);
+        for (int k = 0; k < QuadMax; k++)
+        {
+            unsigned int b = (unsigned int)k * 4;
+            unsigned int* q = &idx[(size_t)k * 6];
+            q[0] = b; q[1] = b + 1; q[2] = b + 2; q[3] = b + 2; q[4] = b + 1; q[5] = b + 3;
+        }
+        D3D11_BUFFER_DESC ib = {}; ib.ByteWidth = (UINT)(idx.size() * 4); ib.Usage = D3D11_USAGE_IMMUTABLE; ib.BindFlags = D3D11_BIND_INDEX_BUFFER;
+        D3D11_SUBRESOURCE_DATA isd = {}; isd.pSysMem = idx.data();
+        dev->CreateBuffer(&ib, &isd, &g_quadIb);
+    }
     D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 32; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     dev->CreateBuffer(&bd, nullptr, &g_scb);
     D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
@@ -439,7 +456,7 @@ static bool ShaderInit(ID3D11Device* dev)
     D3D11_RASTERIZER_DESC rd = {}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
     dev->CreateRasterizerState(&rd, &g_srs);
     if (!g_bs) { D3D11_BLEND_DESC bld = {}; bld.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; dev->CreateBlendState(&bld, &g_bs); }
-    if (!g_svs || !g_sps || !g_sil || !g_scb || !g_sdss || !g_srs || !g_bs)
+    if (!g_svs || !g_sps || !g_quadIb || !g_scb || !g_sdss || !g_srs || !g_bs)
     { _snprintf_s(g_shErr, sizeof(g_shErr), _TRUNCATE, "creazione delle risorse dello shader dei punti non riuscita"); g_shFailed = true; return false; }
     return true;
 }
@@ -461,18 +478,20 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
     // stato di Revit
     ID3D11InputLayout* il = nullptr; c->IAGetInputLayout(&il);
-    ID3D11Buffer* vb = nullptr; UINT vs = 0, vo = 0; c->IAGetVertexBuffers(0, 1, &vb, &vs, &vo);
+    ID3D11Buffer* ib = nullptr; DXGI_FORMAT ifmt; UINT io = 0; c->IAGetIndexBuffer(&ib, &ifmt, &io);
     D3D11_PRIMITIVE_TOPOLOGY topo; c->IAGetPrimitiveTopology(&topo);
     ID3D11VertexShader* ovs = nullptr; c->VSGetShader(&ovs, nullptr, nullptr);
     ID3D11PixelShader* ops = nullptr; c->PSGetShader(&ops, nullptr, nullptr);
     ID3D11GeometryShader* ogs = nullptr; c->GSGetShader(&ogs, nullptr, nullptr);
     ID3D11Buffer* vcbs[2] = {}; c->VSGetConstantBuffers(0, 2, vcbs);
+    ID3D11ShaderResourceView* vsrv = nullptr; c->VSGetShaderResources(0, 1, &vsrv);
     ID3D11DepthStencilState* dss = nullptr; UINT sref = 0; c->OMGetDepthStencilState(&dss, &sref);
     ID3D11RasterizerState* rs = nullptr; c->RSGetState(&rs);
     ID3D11BlendState* bs = nullptr; FLOAT bf[4]; UINT sm = 0; c->OMGetBlendState(&bs, bf, &sm);
     // nostro disegno
-    c->IASetInputLayout(g_sil);
-    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    c->IASetInputLayout(nullptr);
+    c->IASetIndexBuffer(g_quadIb, DXGI_FORMAT_R32_UINT, 0);
+    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     c->VSSetShader(g_svs, nullptr, 0);
     c->PSSetShader(g_sps, nullptr, 0);
     c->GSSetShader(nullptr, nullptr, 0);
@@ -486,7 +505,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     float lastSp = -1;
     for (const PdItem& it : g_ready)
     {
-        if (!it.vb || it.count <= 0) continue;
+        if (!it.srv || it.count <= 0) continue;
         if (it.spacing != lastSp)
         {
             D3D11_MAPPED_SUBRESOURCE m;
@@ -499,25 +518,29 @@ static void ShaderDraw(ID3D11DeviceContext* c)
             }
             lastSp = it.spacing;
         }
-        UINT stride = 16, off = 0;
-        c->IASetVertexBuffers(0, 1, &it.vb, &stride, &off);
-        c->DrawInstanced(4, (UINT)it.count, 0, 0);
+        c->VSSetShaderResources(0, 1, &it.srv);
+        for (int st0 = 0; st0 < it.count; st0 += QuadMax)
+        {
+            int nq = it.count - st0 < QuadMax ? it.count - st0 : QuadMax;
+            c->DrawIndexed((UINT)nq * 6, 0, st0 * 4);   // l'indice di vertice parte da st0*4: punto st0
+        }
         g_shDrawn++; g_shPoints += it.count;
     }
     // stato di Revit di nuovo al suo posto
     c->IASetInputLayout(il);
-    c->IASetVertexBuffers(0, 1, &vb, &vs, &vo);
+    c->IASetIndexBuffer(ib, ifmt, io);
     c->IASetPrimitiveTopology(topo);
     c->VSSetShader(ovs, nullptr, 0);
     c->PSSetShader(ops, nullptr, 0);
     c->GSSetShader(ogs, nullptr, 0);
     c->VSSetConstantBuffers(0, 2, vcbs);
+    c->VSSetShaderResources(0, 1, &vsrv);
     c->OMSetDepthStencilState(dss, sref);
     c->RSSetState(rs);
     c->OMSetBlendState(bs, bf, sm);
-    if (il) il->Release(); if (vb) vb->Release();
+    if (il) il->Release(); if (ib) ib->Release();
     if (ovs) ovs->Release(); if (ops) ops->Release(); if (ogs) ogs->Release();
-    if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release();
+    if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release(); if (vsrv) vsrv->Release();
     if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
     rcb->Release();
 }
@@ -530,12 +553,21 @@ extern "C" __declspec(dllexport) int PdShaderUpload(int layer, int node, const v
     if (!g_realDev || count <= 0) return 0;
     long long k = NodeKey(layer, node);
     auto f = g_nodes.find(k);
-    if (f != g_nodes.end()) { if (f->second.vb) { f->second.vb->Release(); g_shBytes -= (long long)f->second.count * 16; } g_nodes.erase(f); }
-    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = (UINT)count * 16; bd.Usage = D3D11_USAGE_IMMUTABLE; bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    if (f != g_nodes.end())
+    {
+        if (f->second.srv) f->second.srv->Release();
+        if (f->second.vb) { f->second.vb->Release(); g_shBytes -= (long long)f->second.count * 16; }
+        g_nodes.erase(f);
+    }
+    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = (UINT)count * 16; bd.Usage = D3D11_USAGE_IMMUTABLE; bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     D3D11_SUBRESOURCE_DATA sd = {}; sd.pSysMem = data;
     ID3D11Buffer* b = nullptr;
     if (FAILED(g_realDev->CreateBuffer(&bd, &sd, &b)) || !b) return 0;
-    g_nodes[k] = PdNode{ b, count };
+    D3D11_SHADER_RESOURCE_VIEW_DESC vd = {}; vd.Format = DXGI_FORMAT_R32G32B32A32_UINT; vd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+    vd.Buffer.FirstElement = 0; vd.Buffer.NumElements = (UINT)count;
+    ID3D11ShaderResourceView* v = nullptr;
+    if (FAILED(g_realDev->CreateShaderResourceView(b, &vd, &v)) || !v) { b->Release(); return 0; }
+    g_nodes[k] = PdNode{ b, v, count };
     g_shBytes += (long long)count * 16;
     g_shUploads++;
     return 1;
@@ -545,6 +577,7 @@ extern "C" __declspec(dllexport) void PdShaderFree(int layer, int node)
 {
     auto f = g_nodes.find(NodeKey(layer, node));
     if (f == g_nodes.end()) return;
+    if (f->second.srv) f->second.srv->Release();
     if (f->second.vb) { f->second.vb->Release(); g_shBytes -= (long long)f->second.count * 16; }
     g_nodes.erase(f);
 }
@@ -552,9 +585,9 @@ extern "C" __declspec(dllexport) void PdShaderFree(int layer, int node)
 extern "C" __declspec(dllexport) void PdShaderAdd(int layer, int node, int count, float spacing)
 {
     auto f = g_nodes.find(NodeKey(layer, node));
-    if (f == g_nodes.end() || !f->second.vb) return;
+    if (f == g_nodes.end() || !f->second.srv) return;
     if (count > f->second.count) count = f->second.count;
-    g_build.push_back(PdItem{ f->second.vb, count, spacing });
+    g_build.push_back(PdItem{ f->second.srv, count, spacing });
 }
 
 // Fine dell'elenco del fotogramma: diventa quello da disegnare al prossimo segnale. maxPx = raggio massimo dei punti.
