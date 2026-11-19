@@ -997,3 +997,8 @@ Ottava tornata (28/10/2026): octree
      - Registro DirectX: tempo della scheda video per i punti (media e massimo), limite di punti in movimento,
        segnali senza disegno (matrice non pronta, elenco vuoto) e fotogrammi con la libreria non pronta, per capire
        se la nuvola che sparisce dipende da noi o da Revit.
+
+202. Compilazione in un passo solo: la compilazione di PointDeviation in Visual Studio lancia da sola Native\build.bat
+     (senza attese a fine lavoro) prima di copiare i file in Revit, e solo se PdRender.cpp o build.bat sono piu'
+     recenti di PdRender.dll; altrimenti il passo si salta. Gli errori del compilatore C++ compaiono nella finestra
+     Output di Visual Studio. Il doppio clic su build.bat funziona come prima.

@@ -36,6 +36,12 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!-- Voce 202: la libreria nativa si compila da sola prima del plugin, solo se PdRender.cpp e' piu' recente della
+       DLL (altrimenti il passo si salta). Errori del compilatore C++ nella finestra Output di Visual Studio. -->
+  <Target Name="BuildNative" BeforeTargets="Build" Inputs="$(MSBuildProjectDirectory)\Native\PdRender.cpp;$(MSBuildProjectDirectory)\Native\build.bat" Outputs="$(MSBuildProjectDirectory)\Native\PdRender.dll">
+    <Exec Command="&quot;$(MSBuildProjectDirectory)\Native\build.bat&quot; nopause" />
+  </Target>
+
   <!-- Copia DLL e manifest nella cartella Addins di Revit 2024 (chiudi Revit prima di compilare) -->
   <Target Name="DeployToRevit" AfterTargets="Build">
     <PropertyGroup>
@@ -43,7 +49,7 @@
     </PropertyGroup>
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(AddinsDir)PointDeviation\" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\PointDeviation.addin" DestinationFolder="$(AddinsDir)" />
-    <!-- libreria nativa sperimentale (voce 180), solo se compilata con Native\build.bat -->
+    <!-- libreria nativa sperimentale (voce 180), compilata dal passo BuildNative qui sopra -->
     <Copy SourceFiles="$(MSBuildProjectDirectory)\Native\PdRender.dll" DestinationFolder="$(AddinsDir)PointDeviation\" Condition="Exists('$(MSBuildProjectDirectory)\Native\PdRender.dll')" />
   </Target>
 
