@@ -51,6 +51,26 @@ oggi non risulta rosso perché lì non c'è nuvola da colorare). Da fare dopo av
   ordinabile per percentuale con zoom, selezione, isolamento ed esportazione CSV, come per le Zone mancanti.
 - Presentato come elenco da verificare, non come verdetto (restano casi come un muro coperto da un armadio).
 
+## 2c. Analisi con i modelli collegati: lentezza
+Con l'analisi estesa ai modelli collegati sia l'analisi sia la navigazione diventano molto lente (log del
+19/11/2026, stesso rilievo da 42,5 M punti):
+- solo modello: 717 elementi, 272 mila triangoli, lato massimo dopo la suddivisione 0,53 m;
+- con i collegati: 3.946 elementi, 1,73 M triangoli, lato massimo dopo la suddivisione **17,2 km**: almeno un
+  elemento enorme (terreno, elemento di riferimento lontano o trasformazione del collegamento sbagliata) non viene
+  suddiviso e finisce in molte celle della ricerca;
+- durante il calcolo in background delle distanze di tutta la nuvola la navigazione scende a 1–2 fotogrammi al
+  secondo (letture e preparazioni dei blocchi molto più lente) e torna a 6–7 quando il calcolo finisce.
+Da fare:
+- registrare nel log, per ogni collegamento, elementi, triangoli e l'elemento con il triangolo più grande
+  (categoria, id, ingombro), per capire da dove arriva il lato da 17 km;
+- usare solo gli elementi collegati che cadono nell'ingombro della nuvola (più un margine), scartare il resto
+  prima della triangolazione; filtro per categoria anche per i collegati;
+- suddividere sempre i triangoli grandi, senza un limite che lasci passare quelli enormi;
+- tenere in memoria la triangolazione dei collegati finché il file collegato non cambia;
+- calcolo in background con meno thread e priorità bassa mentre la camera si muove, a piena velocità da fermi;
+- errore da correggere: «Salvataggio distanze: Cannot access a closed file» (DistCache.Write) quando un'analisi
+  nuova parte mentre il salvataggio di quella precedente è ancora in corso.
+
 ## 3. Interfaccia
 - (fatto) Eliminare i ricaricamenti visibili all'apertura delle finestre: contenuto costruito prima di mostrare la
   finestra (Profili colore), doppio buffer e prima comparsa disegnata fuori schermo per tutte le finestre
