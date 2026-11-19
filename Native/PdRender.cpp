@@ -549,17 +549,22 @@ static void GpuCollect(ID3D11DeviceContext* c)
         g_gpuSum += ms; g_gpuN++; if (ms > g_gpuMax) g_gpuMax = ms;
     }
 }
-static int GpuBegin(ID3D11Device* dev, ID3D11DeviceContext* c)
+static int GpuBegin(ID3D11DeviceContext* c)
 {
     GpuCollect(c);
     int k = g_qIdx % QN;
     if (g_qPend[k]) return -1;
-    if (!g_qDisj[k])
+    if (!g_qDisj[k] || !g_qBeg[k] || !g_qEnd[k])
     {
+        ID3D11Device* dev = nullptr; c->GetDevice(&dev);
+        if (!dev) return -1;
         D3D11_QUERY_DESC qd = {}; qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-        if (FAILED(dev->CreateQuery(&qd, &g_qDisj[k]))) return -1;
+        if (!g_qDisj[k]) dev->CreateQuery(&qd, &g_qDisj[k]);
         qd.Query = D3D11_QUERY_TIMESTAMP;
-        if (FAILED(dev->CreateQuery(&qd, &g_qBeg[k])) || FAILED(dev->CreateQuery(&qd, &g_qEnd[k]))) return -1;
+        if (!g_qBeg[k]) dev->CreateQuery(&qd, &g_qBeg[k]);
+        if (!g_qEnd[k]) dev->CreateQuery(&qd, &g_qEnd[k]);
+        dev->Release();
+        if (!g_qDisj[k] || !g_qBeg[k] || !g_qEnd[k]) return -1;
     }
     c->Begin(g_qDisj[k]);
     c->End(g_qBeg[k]);
@@ -589,7 +594,6 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
     if (!dev) return;
     bool ok = ShaderInit(dev);
-    int qk = ok ? GpuBegin(dev, c) : -1;
     dev->Release();
     if (!ok) return;
     ID3D11Buffer* rcb = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &rcb);
@@ -609,6 +613,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     ID3D11RasterizerState* rs = nullptr; c->RSGetState(&rs);
     ID3D11BlendState* bs = nullptr; FLOAT bf[4]; UINT sm = 0; c->OMGetBlendState(&bs, bf, &sm);
     // nostro disegno
+    int qk = GpuBegin(c);
     c->IASetInputLayout(nullptr);
     c->IASetIndexBuffer(g_quadIb, DXGI_FORMAT_R32_UINT, 0);
     c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
