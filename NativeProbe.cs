@@ -39,7 +39,7 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdShaderAdd(int layer, int node, int count, float spacing);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdShaderEndFrame(int on, float maxPx, float scale);
+        private static extern void PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern int PdShaderReport(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -64,11 +64,14 @@ namespace PointDeviation
         {
             try
             {
-                float maxPx = (float)Math.Max(1.0, 2.5 * Math.Max(st.PointScale, 20) / 100.0 * 1.6);
-                PdShaderEndFrame(on ? 1 : 0, maxPx, 0.6f);
+                // voce 197: raggio massimo come il motore di sempre (100% = circa 5 px di diametro); con la 194 era 1,6 volte
+                // tanto e i punti risultavano piu' grandi del normale
+                float maxPx = (float)Math.Max(1.0, 2.5 * Math.Max(st.PointScale, 20) / 100.0);
+                PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }
         }
+        private static bool _shaderWasOn;
 
         private static float[] F3(XYZ p) { return new[] { (float)p.X, (float)p.Y, (float)p.Z }; }
 
@@ -179,6 +182,8 @@ namespace PointDeviation
             try
             {
                 if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
+                if (_shaderWasOn && !ShaderWanted) PdShaderEndFrame(0, 1, 0.5f, 0);   // opzione spenta a Revit aperto
+                _shaderWasOn = ShaderWanted;
                 SendCamera(cam, cubeAt);
                 DrawMarker();
                 _frames++;

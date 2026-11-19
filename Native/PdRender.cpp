@@ -593,13 +593,16 @@ extern "C" __declspec(dllexport) void PdShaderAdd(int layer, int node, int count
 }
 
 // Fine dell'elenco del fotogramma: diventa quello da disegnare al prossimo segnale. maxPx = raggio massimo dei punti.
-extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, float scale)
+// voce 197: wanted = opzione accesa (la libreria cerca la matrice); on = elenco valido da disegnare. Spegnendo l'opzione
+// a Revit aperto l'elenco si svuota: prima restava l'ultimo e si continuava a disegnarlo.
+extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, float scale, int wanted)
 {
     g_ready.swap(g_build);
     g_build.clear();
+    if (!on) g_ready.clear();
     g_shMaxPx = maxPx; g_shScale = scale;
     g_shaderOn = on;
-    g_shaderWanted = 1;
+    g_shaderWanted = wanted;
     g_shFrames++;
 }
 

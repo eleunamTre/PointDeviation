@@ -954,3 +954,9 @@ Ottava tornata (28/10/2026): octree
 196. Disegno con shader: con la 195 la nuvola compare nella vista iniziale ma non in {3D}. Prima ipotesi: i piani del
      riquadro di sezione letti dal buffer di Revit (righe 0-5) in {3D} tagliano tutti i punti. Spenti: il riquadro
      resta applicato a blocchi dal motore (i blocchi fuori si escludono, i punti di un blocco a cavallo si vedono tutti).
+197. Disegno con shader: dal 19/11 16:19 (vista iniziale) la nuvola disegnata dalla libreria compare, con punti tondi la
+     cui grandezza segue lo zoom; pero' l'opzione risultava spenta. Spegnendola a Revit aperto la libreria continuava a
+     disegnare l'ultimo elenco di blocchi ricevuto (sopra al disegno di sempre) e il cubo di prova non tornava. Ora
+     l'elenco si svuota appena l'opzione si spegne. Raggio massimo dei punti come il motore di sempre (100% = circa
+     5 px di diametro; con la 194 era 1,6 volte tanto: punti piu' grandi del normale) e raggio pari a 0,5 volte la
+     distanza tra i punti (era 0,6).
