@@ -59,6 +59,23 @@ namespace PointDeviation
         private static VertexFormat _mFormat;
         private static EffectInstance _mEffect;
         private static int _frames;
+        private static XYZ _mPos;
+
+        private static void RebuildMarker(XYZ p)
+        {
+            int fl = 3 * VertexPositionColored.GetSizeInFloats();
+            var vb = new VertexBuffer(fl);
+            vb.Map(fl);
+            var c = new ColorWithTransparency(0, 0, 0, 255);
+            vb.GetVertexStreamPositionColored().AddVertices(new List<VertexPositionColored>
+            {
+                new VertexPositionColored(p, c), new VertexPositionColored(p, c), new VertexPositionColored(p, c)
+            });
+            vb.Unmap();
+            if (_mVb != null) _mVb.Dispose();
+            _mVb = vb;
+            _mPos = p;
+        }
 
         /// <summary>Durante il nostro disegno: segnale e (ogni 5 s) cattura delle chiamate fatte dentro il nostro disegno.</summary>
         public static void Begin()
@@ -68,9 +85,9 @@ namespace PointDeviation
             if (!Ready()) return;
             try
             {
+                if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
                 DrawMarker();
                 _frames++;
-                if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
             }
             catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }
         }
@@ -98,6 +115,17 @@ namespace PointDeviation
                 ib.Unmap();
                 _mVb = vb; _mIb = ib;
             }
+            // voce 187: il segnale si sposta davanti alla camera (prima era nell'origine, forse scartato prima del disegno)
+            try
+            {
+                Camera cam = DrawContext.GetCamera();
+                if (cam != null)
+                {
+                    XYZ p = cam.EyePosition + cam.ViewDirection.Normalize() * 10.0;
+                    if (_mPos == null || !_mPos.IsAlmostEqualTo(p, 1.0)) { RebuildMarker(p); }
+                }
+            }
+            catch { }
             DrawContext.FlushBuffer(_mVb, 3, _mIb, MarkerTris * IndexTriangle.GetSizeInShortInts(), _mFormat, _mEffect,
                 PrimitiveType.TriangleList, 0, MarkerTris);
         }

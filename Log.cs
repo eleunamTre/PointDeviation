@@ -273,7 +273,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 186;
+        public const int Change = 187;
 
         public static string Describe()
         {

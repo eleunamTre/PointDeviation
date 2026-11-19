@@ -887,3 +887,8 @@ Ottava tornata (28/10/2026): octree
      (cartella Native) e l'opzione «Prova DirectX» restano solo come diagnostica, spente; la compilazione normale non
      ne ha bisogno. I requisiti «DirectX 11, Shader Model 5.0» citati per il concorrente coincidono con quelli di Revit
      per l'accelerazione hardware: probabilmente anche il concorrente disegna con DirectContext3D.
+187. Esperimento DirectX riaperto con le verifiche proposte dall'utente: si contano sul contesto di Revit anche calcolo
+     (Dispatch), disegni indiretti/automatici, impostazione di destinazioni, shader, vertici e finestre, e l'ultimo
+     conteggio passato a un disegno. Se anche l'impostazione di shader e vertici e' a zero mentre Map passa, la
+     pipeline di disegno di Revit non usa quel contesto. Il segnale ora e' davanti alla camera (prima nell'origine) ed
+     e' dentro la finestra di cattura.
