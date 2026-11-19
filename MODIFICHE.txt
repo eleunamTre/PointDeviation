@@ -875,3 +875,8 @@ Ottava tornata (28/10/2026): octree
      eseguite e disegni indiretti, e si agganciano le altre interfacce del contesto (ID3D11DeviceContext1..4) se hanno
      tabelle diverse. Se Revit fa solo copie e scritture, l'immagine 3D e' prodotta altrove (ad esempio senza
      accelerazione hardware) e DirectX serve solo a presentarla.
+185. Esperimento DirectX, ultimo passo. Registro del 19/11 09:23 (accelerazione hardware attiva, RTX 3070, DirectX 11,
+     Shader Model 5.0): sul contesto di Revit 90-940 mila scritture di memoria ogni 5 s ma nessun disegno, pulizia o
+     copia. Il primo dispositivo agganciato potrebbe essere quello di un pannello e non della vista: ora si annotano
+     tutte le swap chain che presentano (dimensioni e se il loro contesto e' gia' agganciato o ha un'altra tabella).
+     Se nemmeno cosi' compaiono disegni, l'esperimento si chiude.

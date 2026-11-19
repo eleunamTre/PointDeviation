@@ -183,10 +183,46 @@ static int HookExtra(ID3D11DeviceContext* imm, char* buf, int cap)
     return n;
 }
 
+// voce 185: tutte le swap chain che presentano, non solo la prima (la prima poteva essere di un pannello)
+static IDXGISwapChain* g_seenSc[16] = {};
+static int g_nSc = 0;
+static char g_scInfo[600] = "";
+static int g_scLen = 0;
+static void* g_firstVt = nullptr;
+
+static void NoteSwapChain(IDXGISwapChain* s)
+{
+    for (int i = 0; i < g_nSc; i++) if (g_seenSc[i] == s) return;
+    if (g_nSc >= 16) return;
+    g_seenSc[g_nSc++] = s;
+    DXGI_SWAP_CHAIN_DESC d = {};
+    s->GetDesc(&d);
+    ID3D11Device* dev = nullptr;
+    const char* kind = "non DirectX 11";
+    if (SUCCEEDED(s->GetDevice(__uuidof(ID3D11Device), (void**)&dev)) && dev)
+    {
+        ID3D11DeviceContext* imm = nullptr;
+        dev->GetImmediateContext(&imm);
+        if (imm)
+        {
+            void** vt = *(void***)imm;
+            if (vt[12] == (void*)&HookRealDI || vt[12] == (void*)&HookDI) kind = "contesto gia' agganciato";
+            else if (g_firstVt && (void*)vt != g_firstVt) kind = "contesto con ALTRA tabella (non agganciato)";
+            else kind = "contesto non agganciato";
+            imm->Release();
+        }
+        dev->Release();
+    }
+    g_scLen += _snprintf_s(g_scInfo + g_scLen, sizeof(g_scInfo) - g_scLen, _TRUNCATE, "%s#%d %ux%u %s", g_nSc > 1 ? ", " : "", g_nSc,
+        d.BufferDesc.Width, d.BufferDesc.Height, kind);
+}
+
 static void OnRealSwapChain(IDXGISwapChain* s)
 {
-    if (g_realDone.exchange(1)) return;
+    if (g_realDone.load()) { NoteSwapChain(s); return; }
+    g_realDone = 1;
     int n = 0;
+    struct AtEnd { IDXGISwapChain* s; ~AtEnd() { NoteSwapChain(s); } } atEnd{ s };
     ID3D11Device* dev = nullptr;
     if (FAILED(s->GetDevice(__uuidof(ID3D11Device), (void**)&dev)) || !dev)
     {
@@ -212,6 +248,7 @@ static void OnRealSwapChain(IDXGISwapChain* s)
             n += _snprintf_s(g_realInfo + n, sizeof(g_realInfo) - n, _TRUNCATE, "; contesto con la stessa tabella del dispositivo di prova");
         else
         {
+            g_firstVt = (void*)vt;
             g_realDI = (DrawIndexed_t)Patch(vt, 12, (void*)&HookRealDI);
             g_realD = (Draw_t)Patch(vt, 13, (void*)&HookRealD);
             g_realDII = (DrawIndexedInst_t)Patch(vt, 20, (void*)&HookRealDII);
@@ -383,7 +420,7 @@ extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
         g_cClear.exchange(0), g_cCopy.exchange(0), g_cUpdate.exchange(0), g_cMap.exchange(0));
     if (m == 0)
     {
-        _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld); %s; %s", d - dd, dd, ind, ex, pr, ops, g_realInfo);
+        _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld); %s; %s; swap chain viste: %s", d - dd, dd, ind, ex, pr, ops, g_realInfo, g_scInfo);
         return 0;
     }
     _snprintf_s(msg, cap, _TRUNCATE, "segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", m, d - dd, dd, ind, ex, pr, ops,

@@ -111,7 +111,7 @@ namespace PointDeviation
             {
                 var sb = new StringBuilder(1024);
                 PdCaptureEnd(sb, sb.Capacity);
-                var rb = new StringBuilder(2048);
+                var rb = new StringBuilder(4096);
                 PdReport(rb, rb.Capacity);
                 Log.Write("DirectX", string.Format("{0} fotogrammi nostri; segnale: {1}; dentro il nostro disegno: {2}", _frames, rb, sb));
                 _frames = 0;
