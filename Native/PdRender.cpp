@@ -461,7 +461,7 @@ static bool g_shFailed = false;
 // indice condiviso a 6 indici per punto: è la chiamata già verificata con il cubo. Con l'istanziamento (194) la nuvola
 // non compariva. I piani del riquadro si usano solo se sono piani veri (normale lunga 1).
 static const char* g_shHlsl =
-"cbuffer C : register(b0) { int4 Info; float4 P; };\n"
+"cbuffer C : register(b0) { int4 Info; float4 P; float4 Pl[6]; };\n"
 "cbuffer R : register(b1) { float4 Rv[4096]; };\n"
 "Buffer<uint4> Pts : register(t0);\n"
 "struct VO { float4 pos : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD0; float4 cd0 : SV_ClipDistance0; float2 cd1 : SV_ClipDistance1; };\n"
@@ -481,7 +481,7 @@ static const char* g_shHlsl =
 "  o.pos = cl; o.uv = cn;\n"
 "  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, 1);\n"
 "  float dd[6];\n"
-"  [unroll] for (int k = 0; k < 6; k++) { float ln = length(Rv[k].xyz); dd[k] = (Info.w != 0 && abs(ln - 1) < 0.01) ? dot(Rv[k].xyz, p) + Rv[k].w : 1.0; }\n"
+"  [unroll] for (int k = 0; k < 6; k++) dd[k] = Info.w != 0 ? dot(Pl[k].xyz, p) + Pl[k].w : 1.0;\n"
 "  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
 "  return o; }\n"
 "float4 PS(VO i) : SV_Target { if (dot(i.uv, i.uv) > 1.0) discard; return i.c; }\n";
@@ -510,7 +510,7 @@ static bool ShaderInit(ID3D11Device* dev)
         D3D11_SUBRESOURCE_DATA isd = {}; isd.pSysMem = idx.data();
         dev->CreateBuffer(&ib, &isd, &g_quadIb);
     }
-    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 32; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 128; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     dev->CreateBuffer(&bd, nullptr, &g_scb);
     D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
     dev->CreateDepthStencilState(&dd, &g_sdss);
@@ -523,6 +523,13 @@ static bool ShaderInit(ID3D11Device* dev)
 }
 
 static std::atomic<int> g_shaderWanted{ 0 };
+static int g_clipOn = 0;
+static float g_clip[24] = {};
+extern "C" __declspec(dllexport) void PdSetClip(int on, const float* planes)
+{
+    g_clipOn = on ? 1 : 0;
+    if (on) memcpy(g_clip, planes, sizeof(g_clip));
+}
 static void ShaderDraw(ID3D11DeviceContext* c)
 {
     // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
@@ -562,9 +569,9 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     c->RSSetState(g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(g_bs, zero, 0xffffffff);
-    // voce 196: piani del riquadro spenti (con la 195 la nuvola compariva nella vista iniziale ma non in {3D}); il
-    // riquadro di sezione resta applicato a blocchi dal motore
-    int planes = 0;
+    // voce 200: piani di ritaglio dal plugin (riquadro di sezione, intervallo di vista, campo della sezione letti
+    // dalle API di Revit), non piu' dal buffer di Revit (voce 196: li' la loro posizione cambia da vista a vista)
+    int planes = g_clipOn;
     float lastSp = -1;
     for (const PdItem& it : g_ready)
     {
@@ -577,6 +584,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
                 int* in = (int*)m.pData; float* f = (float*)m.pData;
                 in[0] = 1; in[1] = g_mOff; in[2] = g_mT & 1; in[3] = planes;
                 f[4] = it.spacing * g_shScale; f[5] = vp.Width; f[6] = vp.Height; f[7] = g_shMaxPx;
+                memcpy(f + 8, g_clip, sizeof(g_clip));
                 c->Unmap(g_scb, 0);
             }
             lastSp = it.spacing;

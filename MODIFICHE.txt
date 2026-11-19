@@ -973,3 +973,13 @@ Ottava tornata (28/10/2026): octree
      fara' nello shader). Nel registro DirectX si scrive il passaggio usato e la trasparenza del profilo.
      Inoltre la matrice di Revit trovata si ricontrolla ogni 30 fotogrammi con la camera del momento; se non porta piu'
      la camera al centro dello schermo si cerca di nuovo (contatori «matrice controllata / non piu' valida» nel registro).
+
+200. Disegno con shader (19/11 19:14: con la 199 la nuvola in {3D} si vede ed e' ferma anche orbitando; registro:
+     passaggio opaco, trasparenza del profilo 20%, matrice controllata 32 volte e mai sbagliata).
+     - Riquadro di sezione: i punti ora si tagliano uno per uno. I sei piani arrivano dal plugin (riquadro di sezione,
+       intervallo di vista delle piante, campo di sezioni e prospetti, gli stessi gia' usati per scartare i blocchi) e
+       non piu' dal buffer di Revit, dove cambiano posto da vista a vista.
+     - Rallentamento, elementi del modello che sparivano e nuvola che lampeggiava: il limite di punti era quello del
+       disegno di sempre e si arrivava a 9-17 M punti per fotogramma, ognuno disegnato come un quadrato; il tempo
+       misurato dal plugin non comprende il lavoro della scheda video, quindi il limite adattivo saliva invece di
+       scendere. Con lo shader il limite e' un terzo di quello di sempre e il limite adattivo resta fermo.

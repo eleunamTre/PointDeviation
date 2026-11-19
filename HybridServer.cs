@@ -210,6 +210,11 @@ namespace PointDeviation
                 limit = limit * AdvancedSettings.Current.Effective.BudgetPercent / 100;
                 // il limite si adatta alla velocità reale di disegno (vedi DrawGovernor)
                 limit = (long)(limit * DrawGovernor.Scale);
+                // voce 200: con il disegno con shader ogni punto e' un quadrato (4 vertici, 2 triangoli) e il tempo misurato
+                // qui non comprende il lavoro della scheda video: con il limite di sempre si arrivava a 17 M punti per
+                // fotogramma, Revit rallentava, toglieva elementi del modello e la nuvola spariva e ricompariva.
+                bool shader = NativeProbe.ShaderReady;
+                if (shader) limit /= 3;
                 var wants = new List<int[]>();
                 var pxs = new List<double[]>();
                 var visible = new List<CloudLayer>();
@@ -251,10 +256,11 @@ namespace PointDeviation
                 {
                     // voce 194: con il disegno con shader acceso e la libreria pronta, i punti li disegna la libreria al
                     // segnale; altrimenti (o finché non è pronta) il disegno di sempre
-                    if (NativeProbe.ShaderReady)
+                    if (shader)
                     {
                         long uploadBudget = budget.Moving ? 1500000 : 6000000;
                         for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget);
+                        NativeProbe.SetClip(cam.ClipPlanes());
                         NativeProbe.EndFrame(st, true);
                         if (uploadBudget <= 0) Redraw.Request();
                     }
@@ -268,7 +274,7 @@ namespace PointDeviation
                 long f3 = System.Diagnostics.Stopwatch.GetTimestamp();
                 bool hit = false;
                 foreach (CloudLayer vl in visible) hit |= vl.StatBudgetHit;
-                DrawGovernor.Sample(budget.Moving, (f3 - f2) * 1000.0 / System.Diagnostics.Stopwatch.Frequency, FrameStats.BigPts, FrameStats.SmallPts, hit);
+                if (!shader) DrawGovernor.Sample(budget.Moving, (f3 - f2) * 1000.0 / System.Diagnostics.Stopwatch.Frequency, FrameStats.BigPts, FrameStats.SmallPts, hit);
                 FrameStats.End(f1 - f0, f2 - f1, f3 - f2);
                 if (budget.MoreWork) Redraw.Request();
             }

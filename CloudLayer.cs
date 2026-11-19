@@ -2600,6 +2600,30 @@ namespace PointDeviation
         public int BoxCulled;          // diagnostica: blocchi esclusi dal riquadro nell'ultima scelta
         public bool HasBox { get { return _box != null; } }
 
+        /// <summary>
+        /// Voce 200: i sei piani del ritaglio della vista (riquadro di sezione, intervallo di vista della pianta, campo della
+        /// sezione) come 6 x (nx, ny, nz, d) nelle coordinate del modello; un punto resta se nx*x+ny*y+nz*z+d >= 0 per
+        /// tutti. Null se la vista non ritaglia. Servono al disegno con shader per tagliare i singoli punti.
+        /// </summary>
+        public float[] ClipPlanes()
+        {
+            double[] b = _box;
+            if (b == null) return null;
+            var r = new float[24];
+            for (int a = 0; a < 3; a++)
+            {
+                double ax = b[3 + a * 3], ay = b[4 + a * 3], az = b[5 + a * 3];
+                double o = b[0] * ax + b[1] * ay + b[2] * az;
+                double mn = b[12 + a], mx = b[15 + a];
+                // u = asse . p - o: resta se u >= min e u <= max; i limiti «illimitati» (1e30) diventano piani sempre veri
+                r[a * 8 + 0] = (float)ax; r[a * 8 + 1] = (float)ay; r[a * 8 + 2] = (float)az;
+                r[a * 8 + 3] = mn < -1e20 ? 1e20f : (float)(-o - mn);
+                r[a * 8 + 4] = (float)-ax; r[a * 8 + 5] = (float)-ay; r[a * 8 + 6] = (float)-az;
+                r[a * 8 + 7] = mx > 1e20 ? 1e20f : (float)(o + mx);
+            }
+            return r;
+        }
+
         private void SetBox(View view)
         {
             _box = null;

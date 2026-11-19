@@ -46,12 +46,14 @@ namespace PointDeviation
         private static extern int PdShaderReport(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern int PdShaderReady();
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetClip(int on, float[] planes);
 
         // ---------------------------------------------------------------- voce 194: disegno con shader
-        /// <summary>Disegno con shader acceso nelle impostazioni (implica l'aggancio a DirectX).</summary>
         /// <summary>Passaggio di Revit in cui si disegna (voce 199), scritto nel registro con il resoconto DirectX.</summary>
         public static string PassNote = "";
 
+        /// <summary>Disegno con shader acceso nelle impostazioni (implica l'aggancio a DirectX).</summary>
         public static bool ShaderWanted { get { return AdvancedSettings.Current.NativeShader; } }
         /// <summary>La libreria è pronta a disegnare: dispositivo di Revit e sua matrice trovati.</summary>
         public static bool ShaderReady
@@ -61,6 +63,11 @@ namespace PointDeviation
         public static bool Upload(int layer, int node, byte[] data, int count)
         {
             try { return PdShaderUpload(layer, node, data, count) != 0; } catch (Exception ex) { Log.Error("DirectX", ex); return false; }
+        }
+        /// <summary>Voce 200: piani di ritaglio della vista (6 x nx, ny, nz, d) o null.</summary>
+        public static void SetClip(float[] planes)
+        {
+            try { PdSetClip(planes != null ? 1 : 0, planes ?? new float[24]); } catch { }
         }
         public static void Free(int layer, int node) { try { PdShaderFree(layer, node); } catch { } }
         public static void Add(int layer, int node, int count, float spacing) { try { PdShaderAdd(layer, node, count, spacing); } catch { } }
