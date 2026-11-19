@@ -58,6 +58,7 @@ namespace PointDeviation
         private const double GpuTargetMs = 8.0;
         private static double _cap = 2500000;
         private static long _capAdjust;
+        private static double _intEma = -1;
         public static int NotReadyFrames;
         public static double GpuMs { get { try { return PdShaderGpuMs(); } catch { return -1; } } }
         /// <summary>Punti da disegnare in questo fotogramma: in movimento il limite adattivo, da fermi il doppio.</summary>
@@ -65,16 +66,22 @@ namespace PointDeviation
         {
             long now = Environment.TickCount;
             double g = GpuMs;
+            // voce 204: conta anche il fotogramma intero. Senza riquadro di sezione Revit disegna tutto il modello
+            // (13 mila chiamate per fotogramma contro 1.200) e scende a 3-4 fotogrammi al secondo anche con i nostri
+            // punti a 8 ms: la scheda video e' piena di lavoro di Revit e si lascia spazio a lui.
+            double fi = FrameStats.LastMovingIntervalMs;
+            _intEma = fi <= 0 ? _intEma : (_intEma < 0 ? fi : _intEma * 0.7 + fi * 0.3);
             if (moving && g > 0 && now - _capAdjust > 250)
             {
                 _capAdjust = now;
-                if (g > GpuTargetMs * 1.3) _cap *= 0.85;
-                else if (g < GpuTargetMs * 0.7) _cap *= 1.08;
-                _cap = Math.Max(600000, Math.Min(8000000, _cap));
+                bool slowFrame = _intEma > 90;
+                if (g > GpuTargetMs * 1.3 || slowFrame) _cap *= 0.85;
+                else if (g < GpuTargetMs * 0.7 && _intEma < 60) _cap *= 1.08;
+                _cap = Math.Max(400000, Math.Min(8000000, _cap));
             }
             return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 2);
         }
-        public static string CapNote { get { return string.Format("limite punti in movimento {0:F1} M, scheda video {1:F1} ms per fotogramma (obiettivo {2:F0} ms); fotogrammi con la libreria non pronta {3}", _cap / 1e6, GpuMs, GpuTargetMs, NotReadyFrames); } }
+        public static string CapNote { get { return string.Format("limite punti in movimento {0:F1} M, scheda video {1:F1} ms per fotogramma (obiettivo {2:F0} ms), fotogramma intero in movimento {4:F0} ms; fotogrammi con la libreria non pronta {3}", _cap / 1e6, GpuMs, GpuTargetMs, NotReadyFrames, _intEma); } }
 
         // ---------------------------------------------------------------- voce 194: disegno con shader
         /// <summary>Passaggio di Revit in cui si disegna (voce 199), scritto nel registro con il resoconto DirectX.</summary>

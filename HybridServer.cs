@@ -369,6 +369,9 @@ namespace PointDeviation
         private static long _lastBig, _lastSmall;
         public static int OutOfFrame;
 
+        /// <summary>Intervallo tra gli ultimi due fotogrammi in movimento (ms): comprende il lavoro di Revit.</summary>
+        public static double LastMovingIntervalMs = -1;
+
         public static void Begin(bool moving)
         {
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -386,7 +389,7 @@ namespace PointDeviation
             if (moving && _curMoving && _lastFrame >= 0)
             {
                 double ms = (now - _lastFrame) * TickMs;
-                if (ms < 2000) { _intervals++; _intSum += ms; if (ms > _intMax) _intMax = ms; }
+                if (ms < 2000) { _intervals++; _intSum += ms; if (ms > _intMax) _intMax = ms; LastMovingIntervalMs = ms; }
             }
             _lastFrame = now;
             _curMoving = moving;

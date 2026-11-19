@@ -479,7 +479,7 @@ static const char* g_shHlsl =
 "  rpx = clamp(rpx, 0.75, P.w);\n"
 "  float2 cn = float2((cr & 1) != 0 ? 1.0 : -1.0, (cr & 2) != 0 ? 1.0 : -1.0);\n"
 "  cl.xy += cn * float2(rpx * 2.0 / P.y, rpx * 2.0 / P.z) * cl.w;\n"
-"  o.pos = cl; o.uv = cn;\n"
+"  o.pos = cl; o.uv = rpx < 1.25 ? cn * 0.5 : cn;\n"
 "  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, 1);\n"
 "  float dd[6];\n"
 "  [unroll] for (int k = 0; k < 6; k++) dd[k] = Info.w != 0 ? dot(Pl[k].xyz, p) + Pl[k].w : 1.0;\n"
