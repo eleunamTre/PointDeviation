@@ -983,3 +983,17 @@ Ottava tornata (28/10/2026): octree
        disegno di sempre e si arrivava a 9-17 M punti per fotogramma, ognuno disegnato come un quadrato; il tempo
        misurato dal plugin non comprende il lavoro della scheda video, quindi il limite adattivo saliva invece di
        scendere. Con lo shader il limite e' un terzo di quello di sempre e il limite adattivo resta fermo.
+
+201. Disegno con shader: orbita lenta e nuvola che ogni tanto spariva tutta e ricompariva (19/11 19:25; registro: da
+     0,6 a 8,7 M punti per fotogramma, 10-20 fotogrammi al secondo, memoria della scheda video da 58 a 300 MB in un
+     minuto e mai liberata).
+     - Limite di punti dal tempo vero della scheda video: la libreria misura con le query di tempo di DirectX quanto
+       impiega la scheda a disegnare i punti; il limite in movimento parte da 2,5 M e si sposta per stare attorno a 8 ms
+       (tra 0,6 e 8 M punti), da fermi e' il doppio (al massimo 12 M). Il limite vale anche come tetto rigido al disegno.
+     - Blocchi scelti ma non ancora caricati nella scheda video: si disegna al loro posto il primo antenato gia'
+       caricato, invece di lasciare un buco (girando su una zona nuova la nuvola spariva e tornava a pezzi).
+     - Memoria della scheda video: i blocchi non scelti da 20 s si liberano; oltre 25 M punti caricati si liberano
+       subito quelli non scelti.
+     - Registro DirectX: tempo della scheda video per i punti (media e massimo), limite di punti in movimento,
+       segnali senza disegno (matrice non pronta, elenco vuoto) e fotogrammi con la libreria non pronta, per capire
+       se la nuvola che sparisce dipende da noi o da Revit.

@@ -214,7 +214,10 @@ namespace PointDeviation
                 // qui non comprende il lavoro della scheda video: con il limite di sempre si arrivava a 17 M punti per
                 // fotogramma, Revit rallentava, toglieva elementi del modello e la nuvola spariva e ricompariva.
                 bool shader = NativeProbe.ShaderReady;
-                if (shader) limit /= 3;
+                if (NativeProbe.ShaderWanted && !shader) NativeProbe.NotReadyFrames++;
+                // voce 201: limite che segue il tempo della scheda video (vedi NativeProbe.ShaderCap)
+                long shaderCap = shader ? NativeProbe.ShaderCap(budget.Moving) : 0;
+                if (shader) limit = shaderCap;
                 var wants = new List<int[]>();
                 var pxs = new List<double[]>();
                 var visible = new List<CloudLayer>();
@@ -259,7 +262,8 @@ namespace PointDeviation
                     if (shader)
                     {
                         long uploadBudget = budget.Moving ? 1500000 : 6000000;
-                        for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget);
+                        long drawBudget = shaderCap;
+                        for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget);
                         NativeProbe.SetClip(cam.ClipPlanes());
                         NativeProbe.EndFrame(st, true);
                         if (uploadBudget <= 0) Redraw.Request();

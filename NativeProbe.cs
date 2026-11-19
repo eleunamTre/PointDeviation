@@ -48,6 +48,33 @@ namespace PointDeviation
         private static extern int PdShaderReady();
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetClip(int on, float[] planes);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern float PdShaderGpuMs();
+
+        // ---------------------------------------------------------------- voce 201: limite di punti dello shader
+        // Il limite segue il tempo che la scheda video impiega davvero a disegnare i punti (query di tempo DirectX). Prima
+        // (199-200) il limite era fisso o seguiva il tempo misurato dal plugin, che non comprende il disegno: si arrivava a
+        // 7-17 M punti per fotogramma, l'orbita era lenta e Revit saltava fotogrammi (nuvola che spariva e ricompariva).
+        private const double GpuTargetMs = 8.0;
+        private static double _cap = 2500000;
+        private static long _capAdjust;
+        public static int NotReadyFrames;
+        public static double GpuMs { get { try { return PdShaderGpuMs(); } catch { return -1; } } }
+        /// <summary>Punti da disegnare in questo fotogramma: in movimento il limite adattivo, da fermi il doppio.</summary>
+        public static long ShaderCap(bool moving)
+        {
+            long now = Environment.TickCount;
+            double g = GpuMs;
+            if (moving && g > 0 && now - _capAdjust > 250)
+            {
+                _capAdjust = now;
+                if (g > GpuTargetMs * 1.3) _cap *= 0.85;
+                else if (g < GpuTargetMs * 0.7) _cap *= 1.08;
+                _cap = Math.Max(600000, Math.Min(8000000, _cap));
+            }
+            return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 2);
+        }
+        public static string CapNote { get { return string.Format("limite punti in movimento {0:F1} M, scheda video {1:F1} ms per fotogramma (obiettivo {2:F0} ms); fotogrammi con la libreria non pronta {3}", _cap / 1e6, GpuMs, GpuTargetMs, NotReadyFrames); } }
 
         // ---------------------------------------------------------------- voce 194: disegno con shader
         /// <summary>Passaggio di Revit in cui si disegna (voce 199), scritto nel registro con il resoconto DirectX.</summary>
@@ -258,7 +285,8 @@ namespace PointDeviation
                 {
                     var shb = new StringBuilder(1024);
                     PdShaderReport(shb, shb.Capacity);
-                    Log.Write("DirectX", shb.ToString() + "; " + PassNote);
+                    Log.Write("DirectX", shb.ToString() + "; " + PassNote + "; " + CapNote);
+                    NotReadyFrames = 0;
                 }
                 var db = new StringBuilder(8192);
                 if (PdDump(db, db.Capacity) != 0) Log.Write("DirectX", "buffer di Revit: " + db);

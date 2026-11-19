@@ -447,7 +447,8 @@ static std::vector<PdItem> g_build, g_ready;
 static std::atomic<int> g_shaderOn{ 0 };
 static float g_shMaxPx = 3.0f, g_shScale = 0.6f;
 static long long g_shBytes = 0;
-static long g_shUploads = 0, g_shDrawn = 0, g_shPoints = 0, g_shFrames = 0;
+static long g_shUploads = 0, g_shDrawn = 0, g_shFrames = 0;
+static long long g_shPoints = 0;
 static char g_shErr[200] = "";
 static ID3D11VertexShader* g_svs = nullptr;
 static ID3D11PixelShader* g_sps = nullptr;
@@ -523,6 +524,56 @@ static bool ShaderInit(ID3D11Device* dev)
 }
 
 static std::atomic<int> g_shaderWanted{ 0 };
+// voce 201: tempo della scheda video per il nostro disegno (query di tempo DirectX, lette qualche fotogramma dopo
+// senza aspettare). Il tempo misurato dal plugin comprende solo la preparazione dei comandi, non il disegno vero.
+static const int QN = 6;
+static ID3D11Query* g_qDisj[QN] = {}; static ID3D11Query* g_qBeg[QN] = {}; static ID3D11Query* g_qEnd[QN] = {};
+static bool g_qPend[QN] = {};
+static int g_qIdx = 0;
+static double g_gpuEma = -1, g_gpuSum = 0, g_gpuMax = 0; static long g_gpuN = 0;
+static long g_skipMatrix = 0, g_skipEmpty = 0;
+static void GpuCollect(ID3D11DeviceContext* c)
+{
+    for (int k = 0; k < QN; k++)
+    {
+        if (!g_qPend[k]) continue;
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
+        if (c->GetData(g_qDisj[k], &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) continue;
+        UINT64 b = 0, e = 0;
+        if (c->GetData(g_qBeg[k], &b, sizeof(b), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) continue;
+        if (c->GetData(g_qEnd[k], &e, sizeof(e), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) continue;
+        g_qPend[k] = false;
+        if (dj.Disjoint || dj.Frequency == 0 || e < b) continue;
+        double ms = (double)(e - b) * 1000.0 / (double)dj.Frequency;
+        g_gpuEma = g_gpuEma < 0 ? ms : g_gpuEma * 0.7 + ms * 0.3;
+        g_gpuSum += ms; g_gpuN++; if (ms > g_gpuMax) g_gpuMax = ms;
+    }
+}
+static int GpuBegin(ID3D11Device* dev, ID3D11DeviceContext* c)
+{
+    GpuCollect(c);
+    int k = g_qIdx % QN;
+    if (g_qPend[k]) return -1;
+    if (!g_qDisj[k])
+    {
+        D3D11_QUERY_DESC qd = {}; qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+        if (FAILED(dev->CreateQuery(&qd, &g_qDisj[k]))) return -1;
+        qd.Query = D3D11_QUERY_TIMESTAMP;
+        if (FAILED(dev->CreateQuery(&qd, &g_qBeg[k])) || FAILED(dev->CreateQuery(&qd, &g_qEnd[k]))) return -1;
+    }
+    c->Begin(g_qDisj[k]);
+    c->End(g_qBeg[k]);
+    return k;
+}
+static void GpuEnd(ID3D11DeviceContext* c, int k)
+{
+    if (k < 0) return;
+    c->End(g_qEnd[k]);
+    c->End(g_qDisj[k]);
+    g_qPend[k] = true;
+    g_qIdx++;
+}
+extern "C" __declspec(dllexport) float PdShaderGpuMs() { return (float)g_gpuEma; }
 static int g_clipOn = 0;
 static float g_clip[24] = {};
 extern "C" __declspec(dllexport) void PdSetClip(int on, const float* planes)
@@ -533,11 +584,12 @@ extern "C" __declspec(dllexport) void PdSetClip(int on, const float* planes)
 static void ShaderDraw(ID3D11DeviceContext* c)
 {
     // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
-    if (!EnsureMatrix(c)) return;
-    if (!g_shaderOn || g_ready.empty()) return;
+    if (!EnsureMatrix(c)) { g_skipMatrix++; return; }
+    if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
     if (!dev) return;
     bool ok = ShaderInit(dev);
+    int qk = ok ? GpuBegin(dev, c) : -1;
     dev->Release();
     if (!ok) return;
     ID3D11Buffer* rcb = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &rcb);
@@ -597,6 +649,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         }
         g_shDrawn++; g_shPoints += it.count;
     }
+    GpuEnd(c, qk);
     // stato di Revit di nuovo al suo posto
     c->IASetInputLayout(il);
     c->IASetIndexBuffer(ib, ifmt, io);
@@ -677,9 +730,11 @@ extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, floa
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%ld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB)%s%s",
-        g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0, g_shErr[0] ? "; errore: " : "", g_shErr);
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld%s%s",
+        g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
+        g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty, g_shErr[0] ? "; errore: " : "", g_shErr);
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
+    g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0; g_skipMatrix = 0; g_skipEmpty = 0;
     return 1;
 }
 

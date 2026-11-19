@@ -1550,6 +1550,10 @@ namespace PointDeviation
         private TileCpu[] _nUp;
         private int[] _nUpCount, _nUpPts;
         private long[] _nUpKey;
+        private long[] _nUpTick;
+        private bool[] _nAdded;
+        private List<int> _nMissing;
+        private long _nUpTotal;
         private byte[] _nBuf = new byte[0];
 
         /// <summary>
@@ -1559,10 +1563,16 @@ namespace PointDeviation
         /// punti in memoria, lo stile/i colori o la posizione della nuvola. Al massimo uploadBudget punti nuovi per
         /// fotogramma, per non fermare la navigazione.
         /// </summary>
-        public void ShaderDraw(Style st, int[] want, ref long uploadBudget)
+        public void ShaderDraw(Style st, int[] want, ref long uploadBudget, ref long drawBudget)
         {
             int n = Tiles.Length;
-            if (_nUp == null || _nUp.Length != n) { _nUp = new TileCpu[n]; _nUpCount = new int[n]; _nUpPts = new int[n]; _nUpKey = new long[n]; }
+            if (_nUp == null || _nUp.Length != n) { _nUp = new TileCpu[n]; _nUpCount = new int[n]; _nUpPts = new int[n]; _nUpKey = new long[n]; _nUpTick = new long[n]; }
+            long now = Environment.TickCount;
+            // voce 201: blocchi caricati nella scheda video e non scelti da 20 s si liberano (prima restavano fino allo
+            // scaricamento della nuvola: 300 MB dopo pochi minuti); oltre 25 M punti caricati si liberano subito
+            bool tight = _nUpTotal > 25000000;
+            if (_nAdded == null || _nAdded.Length != n) { _nAdded = new bool[n]; _nMissing = new List<int>(); }
+            Array.Clear(_nAdded, 0, n); _nMissing.Clear();
             int argb = LayerArgb(st);
             bool hl = Highlighted;
             int nodes = 0, notLoaded = 0, notBuilt = 0; long pts = 0;
@@ -1571,20 +1581,27 @@ namespace PointDeviation
                 TileCpu cpu = Volatile.Read(ref Cpu[i]);
                 if (cpu == null)
                 {
-                    if (_nUp[i] != null) { NativeProbe.Free(NativeId, i); _nUp[i] = null; }
-                    if (want[i] > 0) notLoaded++;
+                    if (_nUp[i] != null) { NativeProbe.Free(NativeId, i); _nUp[i] = null; _nUpTotal -= _nUpPts[i]; _nUpPts[i] = 0; }
+                    if (want[i] > 0) { notLoaded++; _nMissing.Add(i); }
                     continue;
                 }
-                if (want[i] <= 0) continue;
+                if (want[i] <= 0)
+                {
+                    if (_nUp[i] != null && (tight || now - _nUpTick[i] > 20000))
+                    { NativeProbe.Free(NativeId, i); _nUp[i] = null; _nUpTotal -= _nUpPts[i]; _nUpPts[i] = 0; _nUpKey[i] = 0; }
+                    continue;
+                }
+                _nUpTick[i] = now;
                 long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L);
                 if (_nUp[i] != cpu || _nUpCount[i] != cpu.Count || _nUpKey[i] != key)
                 {
-                    if (uploadBudget <= 0) { if (_nUp[i] == null) { notBuilt++; continue; } }
+                    if (uploadBudget <= 0) { if (_nUp[i] == null) { notBuilt++; _nMissing.Add(i); continue; } }
                     else
                     {
                         int up = ShaderUpload(i, cpu, st, argb, hl);
                         uploadBudget -= cpu.Count;
-                        if (up < 0) { notBuilt++; continue; }
+                        if (up < 0) { notBuilt++; _nMissing.Add(i); continue; }
+                        _nUpTotal += up - _nUpPts[i];
                         _nUp[i] = cpu; _nUpCount[i] = cpu.Count; _nUpKey[i] = key; _nUpPts[i] = up;
                     }
                 }
@@ -1592,11 +1609,32 @@ namespace PointDeviation
                 if (cnt <= 0 || _nUpPts[i] <= 0) continue;
                 int w = Math.Min(want[i], cnt);
                 int draw = (int)Math.Max(1, (long)_nUpPts[i] * w / cnt);
+                if (drawBudget <= 0) continue;
+                if (draw > drawBudget) draw = (int)Math.Max(1, drawBudget);
+                drawBudget -= draw;
                 double sp = _childCount[i] == 0 ? Math.Sqrt(_area[i] / Math.Max(1, cnt)) : _nodeSpacing[i];
-                if (w < cnt) sp *= Math.Sqrt((double)cnt / w);
+                if (draw < _nUpPts[i]) sp *= Math.Sqrt((double)_nUpPts[i] / draw);   // meno punti: piu' distanti, piu' grandi
                 NativeProbe.Add(NativeId, i, draw, (float)sp);
+                _nAdded[i] = true;
                 nodes++; pts += draw;
             }
+            // voce 201: un blocco scelto ma non ancora caricato nella scheda video si sostituisce con il primo antenato
+            // caricato. Prima restava un buco: girando velocemente su una zona nuova (caricamento limitato a 1,5 M punti
+            // per fotogramma in movimento) la nuvola spariva e ricompariva a pezzi.
+            if (IsOctree)
+                foreach (int m in _nMissing)
+                {
+                    int p = _parent[m];
+                    while (p >= 0 && (_nUp[p] == null || _nUpPts[p] <= 0)) p = _parent[p];
+                    if (p < 0 || _nAdded[p] || drawBudget <= 0) continue;
+                    int draw = (int)Math.Min(_nUpPts[p], Math.Max(1, drawBudget));
+                    drawBudget -= draw;
+                    double sp = _childCount[p] == 0 ? Math.Sqrt(_area[p] / Math.Max(1, _nUpCount[p])) : _nodeSpacing[p];
+                    if (draw < _nUpPts[p]) sp *= Math.Sqrt((double)_nUpPts[p] / draw);
+                    NativeProbe.Add(NativeId, p, draw, (float)sp);
+                    _nAdded[p] = true; _nUpTick[p] = now;
+                    nodes++; pts += draw;
+                }
             StatPoints = pts; StatNodes = nodes; StatNotLoaded = notLoaded; StatNotBuilt = notBuilt;
             FrameStats.SmallPts += pts;
         }
