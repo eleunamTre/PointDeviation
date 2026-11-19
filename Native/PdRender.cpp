@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "user32.lib")
@@ -73,8 +74,22 @@ static ID3D11BlendState* g_bs = nullptr;
 static bool g_testFailed = false;
 
 static const char* g_hlsl =
-"cbuffer C : register(b0) { row_major float4x4 VP; float4 Col; };\n"
-"float4 VS(float3 p : POSITION) : SV_Position { return mul(float4(p, 1), VP); }\n"
+"cbuffer C : register(b0) { row_major float4x4 VP; float4 Col; int4 Info; };\n"
+"cbuffer R : register(b1) { float4 Rv[4096]; };\n"
+"float4 VS(float3 p : POSITION) : SV_Position {\n"
+"  float4 q = float4(p, 1);\n"
+"  if (Info.x >= 1) {\n"
+"    int o = Info.y;\n"
+"    float4x4 A = float4x4(Rv[o], Rv[o + 1], Rv[o + 2], Rv[o + 3]);\n"
+"    q = (Info.z & 1) != 0 ? mul(A, q) : mul(q, A);\n"
+"    if (Info.x == 2) {\n"
+"      int o2 = Info.w;\n"
+"      float4x4 B = float4x4(Rv[o2], Rv[o2 + 1], Rv[o2 + 2], Rv[o2 + 3]);\n"
+"      q = (Info.z & 2) != 0 ? mul(B, q) : mul(q, B);\n"
+"    }\n"
+"    return q;\n"
+"  }\n"
+"  return mul(q, VP); }\n"
 "float4 PS() : SV_Target { return Col; }\n";
 
 static bool TestInit(ID3D11Device* dev)
@@ -100,7 +115,7 @@ static bool TestInit(ID3D11Device* dev)
     dev->CreateBuffer(&bd, &sd, &g_vb);
     bd.ByteWidth = sizeof(idx); bd.BindFlags = D3D11_BIND_INDEX_BUFFER; sd.pSysMem = idx;
     dev->CreateBuffer(&bd, &sd, &g_ib);
-    bd.ByteWidth = 80; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    bd.ByteWidth = 96; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     dev->CreateBuffer(&bd, nullptr, &g_cb);
     D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = FALSE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO; dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
     dev->CreateDepthStencilState(&dd, &g_dss);
@@ -116,6 +131,132 @@ static bool TestInit(ID3D11Device* dev)
     return true;
 }
 
+// ---- voce 190: la matrice di Revit. Quando Revit disegna il nostro segnale, nei constant buffer del suo vertex shader
+// c'è la matrice con cui trasforma le coordinate del nostro contenuto. La si cerca confrontando, per alcuni punti
+// attorno al cubo, la posizione a schermo che dà ogni gruppo di 16 numeri con quella data dalla nostra matrice.
+// Trovata (slot, posizione, verso), il cubo si disegna con quella matrice letta direttamente dal buffer di Revit
+// (nessuna copia per fotogramma) e con il buffer di profondità di Revit acceso nel verso giusto.
+static int g_mSlot = -1, g_mOff = 0, g_mT = 0, g_mRev = 0, g_mOff2 = -1, g_mFound = 0;
+static long g_mTries = 0;
+static char g_matInfo[300] = "matrice di Revit non ancora cercata";
+static ID3D11DepthStencilState* g_dssLess = nullptr;
+static ID3D11DepthStencilState* g_dssGreater = nullptr;
+
+static void ClipOf(const float* M, int t, const float* p, float* out)
+{
+    for (int j = 0; j < 4; j++)
+        out[j] = t ? (M[j * 4] * p[0] + M[j * 4 + 1] * p[1] + M[j * 4 + 2] * p[2] + M[j * 4 + 3])
+                   : (p[0] * M[j] + p[1] * M[4 + j] + p[2] * M[8 + j] + M[12 + j]);
+}
+// vettore omogeneo (x,y,z,w) per matrice
+static void Clip4(const float* M, int t, const float* q, float* out)
+{
+    for (int j = 0; j < 4; j++)
+        out[j] = t ? (M[j * 4] * q[0] + M[j * 4 + 1] * q[1] + M[j * 4 + 2] * q[2] + M[j * 4 + 3] * q[3])
+                   : (q[0] * M[j] + q[1] * M[4 + j] + q[2] * M[8 + j] + q[3] * M[12 + j]);
+}
+
+// camera del fotogramma dal plugin (voce 190): occhio/centro E, direzione di vista D, destra R, distanza del bersaglio T,
+// mezza larghezza HalfW, prospettiva sì/no. Serve solo a riconoscere la matrice di Revit, non a disegnare.
+static float g_camE[3], g_camD[3], g_camR[3], g_camT = 0, g_camHW = 0;
+static int g_camPersp = 0;
+extern "C" __declspec(dllexport) void PdSetCameraInfo(const float* e, const float* d, const float* r, float target, float halfW, int persp)
+{
+    for (int i = 0; i < 3; i++) { g_camE[i] = e[i]; g_camD[i] = d[i]; g_camR[i] = r[i]; }
+    g_camT = target; g_camHW = halfW; g_camPersp = persp;
+}
+
+// punteggio di una trasformazione (una o due matrici): <0 se non è quella dal modello allo schermo
+static float Score(const float* A, int ta, const float* B, int tb)
+{
+    float tgt[4], side[4], eye[4], far4[4];
+    for (int i = 0; i < 3; i++)
+    {
+        float c = g_camPersp ? g_camE[i] + g_camD[i] * g_camT : g_camE[i];
+        tgt[i] = c; side[i] = c + g_camR[i] * g_camHW; eye[i] = g_camE[i]; far4[i] = c + g_camD[i] * 10.0f;
+    }
+    tgt[3] = side[3] = eye[3] = far4[3] = 1;
+    float ct[4], cs[4], ce[4], cf[4], tmp[4];
+    Clip4(A, ta, tgt, ct); Clip4(A, ta, side, cs); Clip4(A, ta, eye, ce); Clip4(A, ta, far4, cf);
+    if (B) { memcpy(tmp, ct, 16); Clip4(B, tb, tmp, ct); memcpy(tmp, cs, 16); Clip4(B, tb, tmp, cs);
+             memcpy(tmp, ce, 16); Clip4(B, tb, tmp, ce); memcpy(tmp, cf, 16); Clip4(B, tb, tmp, cf); }
+    if (!(ct[3] > 1e-6f) || !(cs[3] > 1e-6f)) return -1;
+    float x = ct[0] / ct[3], y = ct[1] / ct[3], z = ct[2] / ct[3];
+    if (!(fabsf(x) <= 1.5f && fabsf(y) <= 1.5f && z >= -0.02f && z <= 1.02f)) return -1;
+    float dx = fabsf(cs[0] / cs[3] - x);
+    if (!(dx > 0.3f && dx < 3.0f)) return -1;                    // mezza finestra a destra: circa 1 in coordinate dello schermo
+    if (g_camPersp) { if (!(fabsf(ce[3]) < 0.02f * ct[3])) return -1; }   // prospettiva: w nullo nell'occhio
+    else { if (!(fabsf(cf[3] - ct[3]) < 1e-3f * fabsf(ct[3]))) return -1; } // parallela: w costante
+    return 10.0f - (fabsf(x) + fabsf(y)) - fabsf(dx - 1.0f);
+}
+
+static void FindRevitMatrix(ID3D11DeviceContext* c)
+{
+    g_mTries++;
+    if (g_camHW <= 0) { _snprintf_s(g_matInfo, sizeof(g_matInfo), _TRUNCATE, "camera non ancora ricevuta"); return; }
+    ID3D11Device* dev = nullptr; c->GetDevice(&dev);
+    if (!dev) return;
+    ID3D11Buffer* cbs[4] = {};
+    c->VSGetConstantBuffers(0, 4, cbs);
+    int n = _snprintf_s(g_matInfo, sizeof(g_matInfo), _TRUNCATE, "buffer del vertex shader di Revit:");
+    float best = -1; int bSlot = -1, bOff = 0, bT = 0, bOff2 = -1, bT2 = 0;
+    for (int slot = 0; slot < 4; slot++)
+    {
+        if (!cbs[slot]) continue;
+        D3D11_BUFFER_DESC d; cbs[slot]->GetDesc(&d);
+        n += _snprintf_s(g_matInfo + n, sizeof(g_matInfo) - n, _TRUNCATE, " b%d=%u", slot, d.ByteWidth);
+        D3D11_BUFFER_DESC sd = {}; sd.ByteWidth = d.ByteWidth; sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        ID3D11Buffer* st = nullptr;
+        if (FAILED(dev->CreateBuffer(&sd, nullptr, &st)) || !st) continue;
+        c->CopyResource(st, cbs[slot]);
+        D3D11_MAPPED_SUBRESOURCE m;
+        if (SUCCEEDED(c->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+        {
+            const float* f = (const float*)m.pData;
+            int nb = (int)(d.ByteWidth / 16) - 3;        // posizioni di 4 righe da 16 byte
+            if (nb > 512) nb = 512;
+            for (int o = 0; o < nb; o++)
+                for (int t = 0; t < 2; t++)
+                {
+                    float sc = Score(f + o * 4, t, nullptr, 0);
+                    if (sc > best) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = -1; }
+                }
+            if (best < 0)   // nessuna matrice unica: coppie (vista e proiezione separate)
+                for (int o = 0; o < nb; o++)
+                    for (int o2 = 0; o2 < nb; o2++)
+                    {
+                        if (o2 >= o && o2 < o + 4) continue;
+                        for (int t = 0; t < 2; t++)
+                            for (int t2 = 0; t2 < 2; t2++)
+                            {
+                                float sc = Score(f + o * 4, t, f + o2 * 4, t2);
+                                if (sc > best) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = o2; bT2 = t2; }
+                            }
+                    }
+            c->Unmap(st, 0);
+        }
+        st->Release();
+    }
+    for (int k = 0; k < 4; k++) if (cbs[k]) cbs[k]->Release();
+    if (best >= 0)
+    {
+        g_mSlot = bSlot; g_mOff = bOff; g_mT = bT | (bT2 << 1); g_mOff2 = bOff2;
+        // verso della profondità con la trasformazione trovata: un punto più lontano ha z/w maggiore o minore?
+        n += _snprintf_s(g_matInfo + n, sizeof(g_matInfo) - n, _TRUNCATE, "; TROVATA in b%d riga %d%s%s (%s)",
+            bSlot, bOff, bOff2 >= 0 ? " per la riga " : "", bOff2 >= 0 ? "seconda matrice" : "", bT ? "per colonne" : "per righe");
+        if (bOff2 >= 0) n += _snprintf_s(g_matInfo + n, sizeof(g_matInfo) - n, _TRUNCATE, " %d", bOff2);
+        g_mFound = 1;
+    }
+    else n += _snprintf_s(g_matInfo + n, sizeof(g_matInfo) - n, _TRUNCATE, "; matrice NON trovata (tentativo %ld)", g_mTries);
+    if (best >= 0 && !g_dssLess)
+    {
+        D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+        dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL; dev->CreateDepthStencilState(&dd, &g_dssLess);
+        dd.DepthFunc = D3D11_COMPARISON_GREATER_EQUAL; dev->CreateDepthStencilState(&dd, &g_dssGreater);
+    }
+    dev->Release();
+}
+
 static void TestDraw(ID3D11DeviceContext* c)
 {
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
@@ -123,6 +264,9 @@ static void TestDraw(ID3D11DeviceContext* c)
     bool ok = TestInit(dev);
     dev->Release();
     if (!ok) return;
+    if (g_mSlot < 0 && (g_markers.load() % 60) == 1) FindRevitMatrix(c);
+    ID3D11Buffer* rcb = nullptr;
+    if (g_mSlot >= 0) c->VSGetConstantBuffers(g_mSlot, 1, &rcb);   // buffer di Revit con la matrice di questo disegno
     // stato di Revit
     ID3D11InputLayout* il = nullptr; c->IAGetInputLayout(&il);
     ID3D11Buffer* vb = nullptr; UINT vs = 0, vo = 0; c->IAGetVertexBuffers(0, 1, &vb, &vs, &vo);
@@ -131,7 +275,7 @@ static void TestDraw(ID3D11DeviceContext* c)
     ID3D11VertexShader* ovs = nullptr; c->VSGetShader(&ovs, nullptr, nullptr);
     ID3D11PixelShader* ops = nullptr; c->PSGetShader(&ops, nullptr, nullptr);
     ID3D11GeometryShader* ogs = nullptr; c->GSGetShader(&ogs, nullptr, nullptr);
-    ID3D11Buffer* vcb = nullptr; c->VSGetConstantBuffers(0, 1, &vcb);
+    ID3D11Buffer* vcbs[2] = {}; c->VSGetConstantBuffers(0, 2, vcbs);
     ID3D11Buffer* pcb = nullptr; c->PSGetConstantBuffers(0, 1, &pcb);
     ID3D11DepthStencilState* dss = nullptr; UINT sref = 0; c->OMGetDepthStencilState(&dss, &sref);
     ID3D11RasterizerState* rs = nullptr; c->RSGetState(&rs);
@@ -143,6 +287,8 @@ static void TestDraw(ID3D11DeviceContext* c)
         float* f = (float*)m.pData;
         memcpy(f, g_viewProj, 64);
         f[16] = 1.0f; f[17] = 0.1f; f[18] = 0.1f; f[19] = 1.0f;
+        int* info = (int*)(f + 20);
+        info[0] = rcb ? (g_mOff2 >= 0 ? 2 : 1) : 0; info[1] = g_mOff; info[2] = g_mT; info[3] = g_mOff2 >= 0 ? g_mOff2 : 0;
         c->Unmap(g_cb, 0);
     }
     UINT stride = 12, off = 0;
@@ -153,9 +299,10 @@ static void TestDraw(ID3D11DeviceContext* c)
     c->VSSetShader(g_vs, nullptr, 0);
     c->PSSetShader(g_ps, nullptr, 0);
     c->GSSetShader(nullptr, nullptr, 0);
-    c->VSSetConstantBuffers(0, 1, &g_cb);
+    ID3D11Buffer* ours[2] = { g_cb, rcb };
+    c->VSSetConstantBuffers(0, 2, ours);
     c->PSSetConstantBuffers(0, 1, &g_cb);
-    c->OMSetDepthStencilState(g_dss, 0);
+    c->OMSetDepthStencilState(g_dss, 0);   // voce 190: profondita' ancora spenta, prima si verifica la posizione
     c->RSSetState(g_rs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(g_bs, zero, 0xffffffff);
@@ -169,14 +316,14 @@ static void TestDraw(ID3D11DeviceContext* c)
     c->VSSetShader(ovs, nullptr, 0);
     c->PSSetShader(ops, nullptr, 0);
     c->GSSetShader(ogs, nullptr, 0);
-    c->VSSetConstantBuffers(0, 1, &vcb);
+    c->VSSetConstantBuffers(0, 2, vcbs);
     c->PSSetConstantBuffers(0, 1, &pcb);
     c->OMSetDepthStencilState(dss, sref);
     c->RSSetState(rs);
     c->OMSetBlendState(bs, bf, sm);
     if (il) il->Release(); if (vb) vb->Release(); if (ib) ib->Release();
     if (ovs) ovs->Release(); if (ops) ops->Release(); if (ogs) ogs->Release();
-    if (vcb) vcb->Release(); if (pcb) pcb->Release();
+    if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release(); if (pcb) pcb->Release(); if (rcb) rcb->Release();
     if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
 }
 
@@ -631,7 +778,7 @@ extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
         return 0;
     }
     long td = g_testDrawn.exchange(0);
-    _snprintf_s(msg, cap, _TRUNCATE, "cubo di prova disegnato %ld volte%s%s; segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", td, g_testErr[0] ? ", errore: " : "", g_testErr, m, d - dd, dd, ind, ex, pr, ops,
+    _snprintf_s(msg, cap, _TRUNCATE, "cubo di prova disegnato %ld volte%s%s (%s); segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", td, g_testErr[0] ? ", errore: " : "", g_testErr, g_matInfo, m, d - dd, dd, ind, ex, pr, ops,
         g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo, g_realInfo);
     return 1;
 }

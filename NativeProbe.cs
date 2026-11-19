@@ -28,6 +28,9 @@ namespace PointDeviation
         private static extern int PdReport(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetTest(int on, float[] viewProj, float[] cubePos);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
+        private static float[] F3(XYZ p) { return new[] { (float)p.X, (float)p.Y, (float)p.Z }; }
 
         private static readonly float[] _vp = new float[16];
         private static float[] _cube;
@@ -72,6 +75,8 @@ namespace PointDeviation
                 Log.Write("DirectX", string.Format("cubo di prova in {0:F1}, {1:F1}, {2:F1} piedi", p.X, p.Y, p.Z));
             }
             PdSetTest(1, _vp, _cube);
+            // voce 190: dati della camera per riconoscere la matrice di Revit nei suoi buffer
+            PdSetCameraInfo(F3(E), F3(D), F3(R), (float)cam.Target, (float)cam.HalfW, cam.Perspective ? 1 : 0);
         }
 
         private static int _state;          // 0 = da provare, 1 = attiva, -1 = non disponibile

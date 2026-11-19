@@ -908,3 +908,11 @@ Ottava tornata (28/10/2026): octree
      della camera passata dal plugin a ogni fotogramma; lo stato di Revit si salva prima e si rimette dopo. Profondita'
      spenta: il cubo resta sempre davanti. Serve a verificare che il disegno compaia, resti fermo nel modello
      navigando e non disturbi il disegno di Revit. build.bat ora collega anche d3dcompiler.lib.
+190. Esperimento DirectX: il cubo di prova compare (19/11 11:12, disegnato a ogni fotogramma, resto della vista normale)
+     ma si sposta nella vista a ogni cambio di camera: la matrice calcolata dal plugin non coincide con quella di
+     Revit. Invece di ricostruirla, la libreria cerca la matrice vera nei constant buffer del vertex shader con cui
+     Revit disegna il nostro segnale: riconosce la trasformazione dal modello allo schermo (matrice unica o coppia vista
+     e proiezione, per righe o per colonne) perche' porta il punto guardato vicino al centro dello schermo, mezza
+     finestra a destra a circa 1, e ha w nullo nell'occhio (prospettiva) o costante (parallela). Trovata, il cubo usa
+     quella matrice letta direttamente dal buffer di Revit. Profondita' ancora spenta. La riga «[DirectX]» dice dove
+     l'ha trovata o che non l'ha trovata.
