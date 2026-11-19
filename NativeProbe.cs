@@ -49,6 +49,9 @@ namespace PointDeviation
 
         // ---------------------------------------------------------------- voce 194: disegno con shader
         /// <summary>Disegno con shader acceso nelle impostazioni (implica l'aggancio a DirectX).</summary>
+        /// <summary>Passaggio di Revit in cui si disegna (voce 199), scritto nel registro con il resoconto DirectX.</summary>
+        public static string PassNote = "";
+
         public static bool ShaderWanted { get { return AdvancedSettings.Current.NativeShader; } }
         /// <summary>La libreria è pronta a disegnare: dispositivo di Revit e sua matrice trovati.</summary>
         public static bool ShaderReady
@@ -248,7 +251,7 @@ namespace PointDeviation
                 {
                     var shb = new StringBuilder(1024);
                     PdShaderReport(shb, shb.Capacity);
-                    Log.Write("DirectX", shb.ToString());
+                    Log.Write("DirectX", shb.ToString() + "; " + PassNote);
                 }
                 var db = new StringBuilder(8192);
                 if (PdDump(db, db.Capacity) != 0) Log.Write("DirectX", "buffer di Revit: " + db);

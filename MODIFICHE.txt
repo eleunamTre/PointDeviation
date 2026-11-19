@@ -965,3 +965,11 @@ Ottava tornata (28/10/2026): octree
      (nella prima vista, con il riquadro: riga 15 del buffer) e poi usata ovunque; in una vista con un buffer disposto
      diversamente la riga 15 non e' piu' la matrice e i punti finiscono fuori schermo. Ora la ricerca si rifa' a ogni
      cambio di vista e ogni volta che il buffer cambia dimensione.
+
+199. Disegno con shader in {3D}: la nuvola si vede solo attraverso i vetri e i materiali trasparenti e sembra muoversi
+     per conto suo (19/11 19:04). Nel registro la destinazione del disegno e' un'immagine a 16 bit per canale: probabilmente
+     quella che Revit usa per i materiali trasparenti, che compare solo dove ce ne sono. Con il disegno con shader il plugin
+     ora disegna sempre nel passaggio opaco, anche se il profilo colori chiede trasparenza (la trasparenza dei punti si
+     fara' nello shader). Nel registro DirectX si scrive il passaggio usato e la trasparenza del profilo.
+     Inoltre la matrice di Revit trovata si ricontrolla ogni 30 fotogrammi con la camera del momento; se non porta piu'
+     la camera al centro dello schermo si cerca di nuovo (contatori «matrice controllata / non piu' valida» nel registro).

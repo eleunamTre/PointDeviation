@@ -287,6 +287,41 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
     dev->Release();
 }
 
+// voce 199: controllo della matrice trovata. Ogni 30 segnali si rilegge il buffer di Revit e si verifica che la
+// matrice alla posizione trovata porti ancora la camera di questo fotogramma al centro dello schermo; se no si cerca
+// di nuovo (nuvola che «orbita per conto suo» in {3D}: matrice valida al momento della ricerca ma non dopo).
+static long g_mChecks = 0, g_mBad = 0;
+static bool CheckMatrix(ID3D11DeviceContext* c)
+{
+    ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
+    if (!b) return false;
+    ID3D11Device* dev = nullptr; c->GetDevice(&dev);
+    bool ok = true;
+    if (dev)
+    {
+        D3D11_BUFFER_DESC d; b->GetDesc(&d);
+        D3D11_BUFFER_DESC sd = {}; sd.ByteWidth = d.ByteWidth; sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        ID3D11Buffer* st = nullptr;
+        if (SUCCEEDED(dev->CreateBuffer(&sd, nullptr, &st)) && st)
+        {
+            c->CopyResource(st, b);
+            D3D11_MAPPED_SUBRESOURCE m;
+            if (SUCCEEDED(c->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+            {
+                const float* f = (const float*)m.pData;
+                ok = Score(f + g_mOff * 4, g_mT & 1, g_mOff2 >= 0 ? f + g_mOff2 * 4 : nullptr, (g_mT >> 1) & 1) >= 0;
+                c->Unmap(st, 0);
+            }
+            st->Release();
+        }
+        dev->Release();
+    }
+    b->Release();
+    g_mChecks++;
+    if (!ok) g_mBad++;
+    return ok;
+}
+
 // matrice di Revit valida per questo disegno? Se il buffer ha cambiato dimensione o è cambiata la vista si cerca di nuovo.
 static bool EnsureMatrix(ID3D11DeviceContext* c)
 {
@@ -295,6 +330,7 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         UINT w = 0; if (b) { D3D11_BUFFER_DESC d; b->GetDesc(&d); w = d.ByteWidth; b->Release(); }
         if (w != g_mWidth) { g_mSlot = -1; g_mForce = 1; }
+        else if ((g_markers.load() % 30) == 0 && !CheckMatrix(c)) { g_mSlot = -1; g_mForce = 1; }
     }
     if (g_mSlot < 0 && (g_mForce || (g_markers.load() % 30) == 1)) { g_mForce = 0; FindRevitMatrix(c); }
     return g_mSlot >= 0;
@@ -1092,7 +1128,7 @@ extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
         return 0;
     }
     long td = g_testDrawn.exchange(0);
-    _snprintf_s(msg, cap, _TRUNCATE, "cubo di prova disegnato %ld volte%s%s (%s); segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", td, g_testErr[0] ? ", errore: " : "", g_testErr, g_matInfo, m, d - dd, dd, ind, ex, pr, ops,
+    _snprintf_s(msg, cap, _TRUNCATE, "cubo di prova disegnato %ld volte%s%s (%s; matrice controllata %ld volte, non piu' valida %ld); segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", td, g_testErr[0] ? ", errore: " : "", g_testErr, g_matInfo, g_mChecks, g_mBad, m, d - dd, dd, ind, ex, pr, ops,
         g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo, g_realInfo);
     return 1;
 }

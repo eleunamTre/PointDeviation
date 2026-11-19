@@ -190,8 +190,12 @@ namespace PointDeviation
                 if (d == null || d.Style == null) return;
                 Style st = d.Style;
 
-                // un solo passaggio per fotogramma: quello trasparente se serve la trasparenza, altrimenti quello opaco
-                if (DrawContext.IsTransparentPass() != st.NeedsTransparentPass) return;
+                // un solo passaggio per fotogramma: quello trasparente se serve la trasparenza, altrimenti quello opaco.
+                // Voce 199: con il disegno con shader sempre il passaggio opaco. In quello trasparente Revit disegna in
+                // un'immagine a parte che mostra solo dove ci sono materiali trasparenti (nuvola visibile solo nei vetri).
+                bool transparentPass = st.NeedsTransparentPass && !NativeProbe.ShaderWanted;
+                if (DrawContext.IsTransparentPass() != transparentPass) return;
+                NativeProbe.PassNote = "passaggio " + (transparentPass ? "trasparente" : "opaco") + ", trasparenza del profilo " + st.Transparency + "%" + (st.Mode == DisplayMode.XRay ? " (raggi X)" : "");
 
                 long f0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 ViewCam cam = ViewCam.From(DrawContext.GetCamera(), view);
