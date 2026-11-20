@@ -1277,3 +1277,14 @@ Ottava tornata (28/10/2026): octree
        porta il dettaglio da fermi anche se non c'e' altro da caricare;
      - la frazione di punti disegnata in movimento (229) seguiva ogni fotogramma (registro: 53-100%), e con lei la
        grandezza dei punti: ora cambia gradualmente (media sugli ultimi fotogrammi).
+
+233) Nuvola sparita per circa 15 s (registro del 20/11 14:58). Il controllo periodico della matrice di Revit l'ha data
+     «non piu' valida»; la matrice veniva tolta e la ricerca non trovava niente («matrice NON trovata», tentativi 8-17,
+     150 segnali senza disegno), poi al cambio del riquadro di sezione la ricerca ritrovava la stessa posizione (b0 riga
+     15). Il controllo verificava anche che il punto della camera cadesse tra i piani vicino e lontano, che Revit adatta
+     al modello: zoomando verso un punto lontano il punto ne esce e la matrice giusta risultava sbagliata. Ora:
+     - il controllo della matrice gia' trovata non guarda la profondita';
+     - se il controllo fallisce si cerca subito e, se la ricerca non trova niente, si tiene la matrice di prima (nel
+       registro «tenuta perche' la ricerca non ne trovava altre»);
+     - se la ricerca normale non trova niente (anche al cambio di dimensione del buffer) si riprova senza il controllo
+       della profondita'.

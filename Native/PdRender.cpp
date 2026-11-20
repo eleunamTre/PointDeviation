@@ -114,7 +114,7 @@ extern "C" __declspec(dllexport) void PdSetCameraInfo(const float* e, const floa
 }
 
 // punteggio di una trasformazione (una o due matrici): <0 se non è quella dal modello allo schermo
-static float Score(const float* A, int ta, const float* B, int tb)
+static float Score(const float* A, int ta, const float* B, int tb, bool loose = false)
 {
     float tgt[4], side[4], eye[4], far4[4];
     for (int i = 0; i < 3; i++)
@@ -129,7 +129,11 @@ static float Score(const float* A, int ta, const float* B, int tb)
              memcpy(tmp, ce, 16); Clip4(B, tb, tmp, ce); memcpy(tmp, cf, 16); Clip4(B, tb, tmp, cf); }
     if (!(ct[3] > 1e-6f) || !(cs[3] > 1e-6f)) return -1;
     float x = ct[0] / ct[3], y = ct[1] / ct[3], z = ct[2] / ct[3];
-    if (!(fabsf(x) <= 1.5f && fabsf(y) <= 1.5f && z >= -0.02f && z <= 1.02f)) return -1;
+    if (!(fabsf(x) <= 1.5f && fabsf(y) <= 1.5f)) return -1;
+    // voce 233: nel controllo della matrice gia' trovata non si guarda la profondita': il punto della camera puo' cadere
+    // oltre i piani vicino/lontano che Revit adatta al modello (zoom verso un punto lontano), e la matrice giusta
+    // risultava «non piu' valida»
+    if (!loose && !(z >= -0.02f && z <= 1.02f)) return -1;
     float dx = fabsf(cs[0] / cs[3] - x);
     if (!(dx > 0.3f && dx < 3.0f)) return -1;                    // mezza finestra a destra: circa 1 in coordinate dello schermo
     if (g_camPersp) { if (!(fabsf(ce[3]) < 0.02f * ct[3])) return -1; }   // prospettiva: w nullo nell'occhio
@@ -137,7 +141,7 @@ static float Score(const float* A, int ta, const float* B, int tb)
     return 10.0f - (fabsf(x) + fabsf(y)) - fabsf(dx - 1.0f);
 }
 
-static void FindRevitMatrix(ID3D11DeviceContext* c)
+static void FindRevitMatrixEx(ID3D11DeviceContext* c, bool loose)
 {
     g_mTries++;
     if (g_camHW <= 0) { _snprintf_s(g_matInfo, sizeof(g_matInfo), _TRUNCATE, "camera non ancora ricevuta"); return; }
@@ -165,7 +169,7 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
             for (int o = 0; o < nb; o++)
                 for (int t = 0; t < 2; t++)
                 {
-                    float sc = Score(f + o * 4, t, nullptr, 0);
+                    float sc = Score(f + o * 4, t, nullptr, 0, loose);
                     if (sc > best) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = -1; }
                 }
             if (best < 0)   // nessuna matrice unica: coppie (vista e proiezione separate)
@@ -176,7 +180,7 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
                         for (int t = 0; t < 2; t++)
                             for (int t2 = 0; t2 < 2; t2++)
                             {
-                                float sc = Score(f + o * 4, t, f + o2 * 4, t2);
+                                float sc = Score(f + o * 4, t, f + o2 * 4, t2, loose);
                                 if (sc > best) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = o2; bT2 = t2; }
                             }
                     }
@@ -197,6 +201,7 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
         g_mFound = 1;
     }
     else n += _snprintf_s(g_matInfo + n, sizeof(g_matInfo) - n, _TRUNCATE, "; matrice NON trovata (tentativo %ld)", g_mTries);
+    if (best >= 0 && loose) n += _snprintf_s(g_matInfo + n, sizeof(g_matInfo) - n, _TRUNCATE, " (senza il controllo della profondita')");
     if (best >= 0 && !g_dssLess)
     {
         D3D11_DEPTH_STENCIL_DESC dd = {}; dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
@@ -205,11 +210,17 @@ static void FindRevitMatrix(ID3D11DeviceContext* c)
     }
     dev->Release();
 }
+// voce 233: se la ricerca normale non trova niente si riprova senza guardare la profondita' del punto della camera
+static void FindRevitMatrix(ID3D11DeviceContext* c)
+{
+    FindRevitMatrixEx(c, false);
+    if (g_mSlot < 0 && g_camHW > 0) FindRevitMatrixEx(c, true);
+}
 
 // voce 199: controllo della matrice trovata. Ogni 30 segnali si rilegge il buffer di Revit e si verifica che la
 // matrice alla posizione trovata porti ancora la camera di questo fotogramma al centro dello schermo; se no si cerca
 // di nuovo (nuvola che «orbita per conto suo» in {3D}: matrice valida al momento della ricerca ma non dopo).
-static long g_mChecks = 0, g_mBad = 0;
+static long g_mChecks = 0, g_mBad = 0, g_mKept = 0;
 static bool CheckMatrix(ID3D11DeviceContext* c)
 {
     ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
@@ -228,7 +239,7 @@ static bool CheckMatrix(ID3D11DeviceContext* c)
             if (SUCCEEDED(c->Map(st, 0, D3D11_MAP_READ, 0, &m)))
             {
                 const float* f = (const float*)m.pData;
-                ok = Score(f + g_mOff * 4, g_mT & 1, g_mOff2 >= 0 ? f + g_mOff2 * 4 : nullptr, (g_mT >> 1) & 1) >= 0;
+                ok = Score(f + g_mOff * 4, g_mT & 1, g_mOff2 >= 0 ? f + g_mOff2 * 4 : nullptr, (g_mT >> 1) & 1, true) >= 0;
                 c->Unmap(st, 0);
             }
             st->Release();
@@ -249,7 +260,15 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         UINT w = 0; if (b) { D3D11_BUFFER_DESC d; b->GetDesc(&d); w = d.ByteWidth; b->Release(); }
         if (w != g_mWidth) { g_mSlot = -1; g_mForce = 1; g_viewGen++; }
-        else if ((g_markers.load() % 30) == 0 && !CheckMatrix(c)) { g_mSlot = -1; g_mForce = 1; }
+        else if ((g_markers.load() % 30) == 0 && !CheckMatrix(c))
+        {
+            // voce 233 (registro 20/11 14:58): un controllo fallito toglieva la matrice e, se la ricerca non trovava
+            // nulla, la nuvola spariva per 15 s (matrice non pronta in 150 segnali); poi la ricerca ritrovava la stessa
+            // posizione. Ora si cerca subito e, se non si trova niente, si tiene quella di prima.
+            int os = g_mSlot, oo = g_mOff, ot = g_mT, oo2 = g_mOff2; UINT ow = g_mWidth;
+            g_mSlot = -1; FindRevitMatrix(c);
+            if (g_mSlot < 0) { g_mSlot = os; g_mOff = oo; g_mT = ot; g_mOff2 = oo2; g_mWidth = ow; g_mKept++; }
+        }
     }
     if (g_mSlot < 0 && (g_mForce || (g_markers.load() % 30) == 1)) { g_mForce = 0; FindRevitMatrix(c); }
     return g_mSlot >= 0;
@@ -1675,7 +1694,7 @@ extern "C" __declspec(dllexport) int PdReport(char* msg, int cap)
         _snprintf_s(msg, cap, _TRUNCATE, "segnale mai arrivato (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld); %s; %s; swap chain viste: %s", d - dd, dd, ind, ex, pr, ops, g_realInfo, g_scInfo);
         return 0;
     }
-    _snprintf_s(msg, cap, _TRUNCATE, "%s (matrice controllata %ld volte, non piu' valida %ld); segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", g_matInfo, g_mChecks, g_mBad, m, d - dd, dd, ind, ex, pr, ops,
+    _snprintf_s(msg, cap, _TRUNCATE, "%s (matrice controllata %ld volte, non piu' valida %ld, tenuta perche' la ricerca non ne trovava altre %ld); segnale arrivato %ld volte (disegni: immediati %ld, differiti %ld, indiretti %ld; liste eseguite %ld; Present %ld; %s), thread %s; %s; %s", g_matInfo, g_mChecks, g_mBad, g_mKept, m, d - dd, dd, ind, ex, pr, ops,
         g_markerThread == g_thread ? "di Revit dove gira il nostro disegno" : "diverso dal nostro", g_markerInfo, g_realInfo);
     return 1;
 }
