@@ -1254,3 +1254,10 @@ Ottava tornata (28/10/2026): octree
        fuori (intere zone tornavano al livello piu' rado e poi, da fermi, si riempivano). Ora tutti i blocchi si riducono
        nella stessa proporzione, con punti un po' piu' grandi e distanti ovunque. Nel registro: «punti chiesti disegnati
        nell'ultimo fotogramma».
+
+230) Selezione con la 229 (video e registro del 20/11 14:26): la nuvola si vedeva solo nel rettangolo attorno
+     all'elemento e il resto restava bianco. Il registro conferma il meccanismo (rettangolo trovato dalle forbici al
+     segnale, es. 616x466), ma fuori dal rettangolo Revit ricompone l'immagine dal modello, senza la nuvola: con la
+     trasparenza la nuvola sta solo nell'immagine della finestra. Ora nei fotogrammi parziali, se c'e' la profondita'
+     intera del fotogramma precedente con la stessa camera, la nuvola si ridisegna su tutta la finestra con quella;
+     il rettangolo si usa solo se quella copia non c'e' (o se in quel fotogramma se n'e' dovuta prendere una nuova).

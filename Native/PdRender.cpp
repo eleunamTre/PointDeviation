@@ -549,6 +549,7 @@ static void KeepDepthFrom(ID3D11DeviceContext* c);
 static bool g_partial = false; static D3D11_RECT g_partRect = {};
 static long g_partMarker = 0, g_partDirty = 0, g_partScPresent = 0, g_partKeepSkip = 0; static D3D11_RECT g_partLast = {};
 static float g_keepCam[32]; static bool g_keepCamOk = false;
+static bool g_keptOld = false;   // voce 230: in questo fotogramma parziale si usa la profondita' intera di prima
 static bool PartialRect(D3D11_RECT r, const D3D11_VIEWPORT& vp, D3D11_RECT& out)
 {
     LONG x0 = (LONG)vp.TopLeftX, y0 = (LONG)vp.TopLeftY, x1 = x0 + (LONG)vp.Width, y1 = y0 + (LONG)vp.Height;
@@ -990,7 +991,12 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
     // voce 229: rettangolo ridisegnato in questo fotogramma (forbici al segnale, altrimenti rettangoli di Present1)
     const D3D11_RECT* sc = nullptr; D3D11_RECT dirty = {};
-    if (g_drawnThisFrame && g_partial) sc = &g_partRect;
+    // voce 230 (video del 20/11 14:26): fuori dal rettangolo Revit ricompone l'immagine dal modello senza nuvola (con la
+    // trasparenza la nuvola sta solo nell'immagine della finestra), quindi limitarsi al rettangolo lasciava il resto bianco.
+    // Se c'e' la profondita' intera del fotogramma precedente con la stessa camera, la nuvola si ridisegna ovunque con
+    // quella; il rettangolo serve solo quando quella copia non c'e'.
+    // (una copia presa in questo fotogramma parziale e' vuota fuori dal rettangolo: allora si resta nel rettangolo)
+    if (g_drawnThisFrame && g_partial && !(g_keptOld || (!g_keepThisFrame && KeepStillGood()))) sc = &g_partRect;
     else if (pp && pp->DirtyRectsCount > 0 && pp->pDirtyRects)
     {
         RECT u = pp->pDirtyRects[0];
@@ -1024,9 +1030,10 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         // voce 227: profondita' copiata quando Revit ha lasciato il buffer della scena (nella VistaIniziale al Present
         // quel buffer e' gia' stato svuotato); se la copia non c'e' stata, si copia ora come nella 222
         if (!(g_keepThisFrame && g_keepOk) && !KeepStillGood() && g_shaderOn && !g_ready.empty()) KeepDepth();
+        if (g_partial && KeepStillGood()) g_keptOld = true;
         ID3D11DepthStencilView* dz = g_keepOk ? g_keepDsv : g_fbDsv;
         if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) g_fbAlpha++;
-        g_keepThisFrame = false; g_dzArm = false; g_partial = false;
+        g_keepThisFrame = false; g_dzArm = false; g_partial = false; g_keptOld = false;
         return;
     }
     if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
@@ -1119,7 +1126,7 @@ static void ClearForNewView()
     g_hasRef = false; g_hasLastCap = false; g_chainGen = -1;
     g_nCand = 0; g_cmN = 0;
     g_fbSwap = nullptr; g_drawnThisFrame = false; g_keepOk = false; g_keepThisFrame = false; g_dzArm = false;
-    g_partial = false; g_keepCamOk = false;
+    g_partial = false; g_keepCamOk = false; g_keptOld = false;
 }
 // voce 223: il plugin non disegna piu' nella vista (nuvola spenta o nascosta): niente da ridisegnare nei fotogrammi
 // senza il plugin, altrimenti restava a schermo l'ultima nuvola
@@ -1351,7 +1358,7 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
     if (leave)
     {
         g_dzArm = false;
-        if (KeepStillGood()) g_partKeepSkip++; else KeepDepthFrom(c);   // voce 229
+        if (KeepStillGood()) { g_partKeepSkip++; g_keptOld = true; } else KeepDepthFrom(c);   // voce 229
         g_keepThisFrame = g_keepOk; if (g_trRec) TrPut(" COPIA-PROF");
     }
     Rehook(c);
