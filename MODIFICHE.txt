@@ -1087,3 +1087,12 @@ Ottava tornata (28/10/2026): octree
      libreria copia i buffer di costanti che Revit scrive e vi cerca la matrice vera del fotogramma (rotazione e scala,
      e matrice intera); il risultato va nel registro («camera del modello: ...»). Se Revit tiene li' la camera del
      modello, nella prossima versione i fotogrammi interrotti la useranno.
+
+212. Fotogrammi interrotti con la camera giusta. La ricerca della 211 (registro 20/11 10:12) ha trovato la matrice
+     vera del fotogramma in 1.462 scritture di buffer di Revit su 3.281, tutte nei buffer della stessa dimensione del
+     nostro e alla stessa riga: e' la camera con cui Revit disegna il modello. Ora a ogni scrittura di un buffer di quella
+     dimensione si legge la matrice in quella riga; nei fotogrammi interrotti si usa la piu' scritta (almeno 3 volte),
+     cioe' la camera del modello di quel fotogramma, invece di quella dell'ultimo fotogramma completo: la nuvola non
+     deve piu' restare indietro rispetto al modello. Se non si trova, si usa ancora quella precedente.
+     Registro: fotogrammi interrotti ridisegnati con la camera del fotogramma / con quella precedente, e quante volte nei
+     fotogrammi completi la camera dedotta e' uguale a quella vera (deve essere sempre).

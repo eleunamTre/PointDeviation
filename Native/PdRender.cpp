@@ -777,6 +777,45 @@ static void LearnSearch()
     g_learnFrames--;
 }
 
+// ---- voce 212: camera dei fotogrammi interrotti. La ricerca della 211 (registro 20/11 10:12) ha trovato la matrice vera
+// in 1.462 scritture di buffer di Revit per fotogramma, tutte con la stessa forma del nostro (stessa dimensione, stessa
+// riga). A ogni scrittura di un buffer di costanti di quella dimensione si legge la matrice in quella riga; a fine
+// fotogramma la piu' scritta e' la camera del modello di quel fotogramma, anche se Revit lo interrompe prima di noi.
+struct MatCand { float m[32]; int n; };
+static MatCand g_cand[16]; static int g_nCand = 0;
+static ID3D11Resource* g_cmRes[32] = {}; static void* g_cmPtr[32] = {}; static int g_cmN = 0;
+static long g_camUsed = 0, g_camStale = 0;
+static void CamMap(ID3D11Resource* r, void* p)
+{
+    if (g_mSlot < 0 || g_mWidth == 0 || !r || !p) return;
+    D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
+    if (dim != D3D11_RESOURCE_DIMENSION_BUFFER) return;
+    D3D11_BUFFER_DESC d; ((ID3D11Buffer*)r)->GetDesc(&d);
+    if (d.ByteWidth != g_mWidth || !(d.BindFlags & D3D11_BIND_CONSTANT_BUFFER)) return;
+    int k = g_cmN < 32 ? g_cmN++ : 31;
+    g_cmRes[k] = r; g_cmPtr[k] = p;
+}
+static void CamUnmap(ID3D11Resource* r)
+{
+    for (int k = g_cmN - 1; k >= 0; k--)
+        if (g_cmRes[k] == r)
+        {
+            float m[32] = {};
+            const float* f = (const float*)g_cmPtr[k];
+            memcpy(m, f + g_mOff * 4, 64);
+            if (g_mOff2 >= 0) memcpy(m + 16, f + g_mOff2 * 4, 64);
+            g_cmRes[k] = g_cmRes[g_cmN - 1]; g_cmPtr[k] = g_cmPtr[g_cmN - 1]; g_cmN--;
+            int nf = g_mOff2 >= 0 ? 32 : 16;
+            for (int i = 0; i < g_nCand; i++) if (memcmp(g_cand[i].m, m, nf * 4) == 0) { g_cand[i].n++; return; }
+            int slot = g_nCand;
+            if (slot >= 16) { slot = 0; for (int i = 1; i < 16; i++) if (g_cand[i].n < g_cand[slot].n) slot = i; if (g_cand[slot].n > 1) return; }
+            else g_nCand++;
+            memcpy(g_cand[slot].m, m, sizeof(m)); g_cand[slot].n = 1;
+            return;
+        }
+}
+static int BestCand() { int b = -1; for (int i = 0; i < g_nCand; i++) if (b < 0 || g_cand[i].n > g_cand[b].n) b = i; return b; }
+
 static void ShaderDraw(ID3D11DeviceContext* c)
 {
     // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
@@ -822,8 +861,18 @@ static void FallbackAtPresent(IDXGISwapChain* s)
     DXGI_SWAP_CHAIN_DESC sd = {};
     if (FAILED(s->GetDesc(&sd))) return;
     if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
-    if (g_drawnThisFrame) { g_fbNormal++; g_drawnThisFrame = false; LearnSearch(); return; }
+    if (g_drawnThisFrame)
+    {
+        g_fbNormal++; g_drawnThisFrame = false; LearnSearch();
+        int b = BestCand();
+        if (b >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[b].m, g_refRaw, (g_mOff2 >= 0 ? 32 : 16) * 4) == 0) g_fbAgree++; }
+        g_nCand = 0; g_cmN = 0;
+        return;
+    }
     g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
+    int best = BestCand();
+    const float* camNow = (best >= 0 && g_cand[best].n >= 3) ? g_cand[best].m : nullptr;
+    g_nCand = 0; g_cmN = 0;
     if (!g_shaderOn || g_ready.empty() || !g_svs || !g_fbDsv) return;
     if (!g_hasRef) { g_fbNoMat++; return; }
     ID3D11Texture2D* bb = nullptr;
@@ -845,7 +894,9 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         D3D11_MAPPED_SUBRESOURCE m;
         if (SUCCEEDED(c->Map(g_fbMat, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
         {
-            memcpy(m.pData, g_refRaw, 128);
+            // voce 212: camera del modello di questo fotogramma se trovata, altrimenti quella dell'ultimo completo
+            memcpy(m.pData, camNow ? camNow : g_refRaw, 128);
+            if (camNow) g_camUsed++; else g_camStale++;
             c->Unmap(g_fbMat, 0);
             SavedState st; st.Save(c, true);
             c->OMSetRenderTargets(1, &rtv, g_fbDsv);
@@ -921,11 +972,12 @@ extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, floa
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld, interrotti ridisegnati da noi %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld, interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
-        g_fbNormal, g_fbDrawn, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+        g_fbNormal, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     g_fbNormal = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
+    g_camUsed = g_camStale = 0;
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0; g_skipMatrix = 0; g_skipEmpty = 0;
     return 1;
@@ -1037,7 +1089,7 @@ static HRESULT STDMETHODCALLTYPE HookRMap(ID3D11DeviceContext* c, ID3D11Resource
 {
     g_cMap++; HRESULT h = g_rMap(c, r, a, t, f, m);
     if (r && r == g_capBuf && SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE || t == D3D11_MAP_WRITE)) g_capPtr = m->pData;
-    if (SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE)) LearnMap(r, m->pData);
+    if (SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE)) { LearnMap(r, m->pData); CamMap(r, m->pData); }
     Rehook(c); return h;
 }
 // voce 209: alla chiusura della scrittura del buffer della matrice si legge la matrice appena scritta
@@ -1047,6 +1099,7 @@ static void STDMETHODCALLTYPE HookRUnmap(ID3D11DeviceContext* c, ID3D11Resource*
 {
     if (r && r == g_capBuf && g_capPtr) { CaptureWrite(g_capPtr); g_capPtr = nullptr; }
     LearnUnmap(r);
+    CamUnmap(r);
     g_rUnmap(c, r, a);
 }
 static void STDMETHODCALLTYPE HookRExec(ID3D11DeviceContext* c, ID3D11CommandList* l, BOOL r) { g_cExec++; g_rExec(c, l, r); }
