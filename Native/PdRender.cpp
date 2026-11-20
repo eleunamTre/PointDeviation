@@ -300,6 +300,7 @@ static const char* g_shHlsl =
 "cbuffer C : register(b0) { int4 Info; float4 P; float4 Pl[6]; int4 Info2; };\n"
 "cbuffer R : register(b1) { float4 Rv[4096]; };\n"
 "Buffer<uint4> Pts : register(t0);\n"
+"Texture2D<float> Dz : register(t1);\n"
 "struct VO { float4 pos : SV_Position; float4 c : COLOR; float2 uv : TEXCOORD0; float4 cd0 : SV_ClipDistance0; float2 cd1 : SV_ClipDistance1; };\n"
 "VO VS(uint vid : SV_VertexID) {\n"
 "  VO o; uint pi = vid >> 2; uint cr = vid & 3;\n"
@@ -323,7 +324,9 @@ static const char* g_shHlsl =
 "  [unroll] for (int k = 0; k < 6; k++) dd[k] = Info.w != 0 ? dot(Pl[k].xyz, p) + Pl[k].w : 1.0;\n"
 "  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
 "  return o; }\n"
-"float4 PS(VO i) : SV_Target { if (dot(i.uv, i.uv) > 1.0) discard; return i.c; }\n";
+"float4 PS(VO i) : SV_Target { if (dot(i.uv, i.uv) > 1.0) discard;\n"
+"  if (Info2.w != 0 && i.pos.z > Dz.Load(int3(i.pos.xy, 0)) + 2e-6) discard;\n"
+"  return i.c; }\n";
 
 static bool ShaderInit(ID3D11Device* dev)
 {
@@ -439,7 +442,7 @@ struct SavedState
     ID3D11InputLayout* il = nullptr; ID3D11Buffer* ib = nullptr; DXGI_FORMAT ifmt = DXGI_FORMAT_UNKNOWN; UINT io = 0;
     D3D11_PRIMITIVE_TOPOLOGY topo = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
     ID3D11VertexShader* vs = nullptr; ID3D11PixelShader* ps = nullptr; ID3D11GeometryShader* gs = nullptr;
-    ID3D11Buffer* vcbs[2] = {}; ID3D11ShaderResourceView* vsrv = nullptr;
+    ID3D11Buffer* vcbs[2] = {}; ID3D11ShaderResourceView* vsrv = nullptr; ID3D11ShaderResourceView* psrv1 = nullptr;
     ID3D11DepthStencilState* dss = nullptr; UINT sref = 0; ID3D11RasterizerState* rs = nullptr;
     ID3D11BlendState* bs = nullptr; FLOAT bf[4] = {}; UINT sm = 0;
     bool target = false; ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
@@ -448,7 +451,7 @@ struct SavedState
     {
         c->IAGetInputLayout(&il); c->IAGetIndexBuffer(&ib, &ifmt, &io); c->IAGetPrimitiveTopology(&topo);
         c->VSGetShader(&vs, nullptr, nullptr); c->PSGetShader(&ps, nullptr, nullptr); c->GSGetShader(&gs, nullptr, nullptr);
-        c->VSGetConstantBuffers(0, 2, vcbs); c->VSGetShaderResources(0, 1, &vsrv);
+        c->VSGetConstantBuffers(0, 2, vcbs); c->VSGetShaderResources(0, 1, &vsrv); c->PSGetShaderResources(1, 1, &psrv1);
         c->OMGetDepthStencilState(&dss, &sref); c->RSGetState(&rs); c->OMGetBlendState(&bs, bf, &sm);
         target = withTarget;
         if (withTarget) { c->OMGetRenderTargets(1, &rtv, &dsv); nvp = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE; c->RSGetViewports(&nvp, vps); }
@@ -457,19 +460,20 @@ struct SavedState
     {
         c->IASetInputLayout(il); c->IASetIndexBuffer(ib, ifmt, io); c->IASetPrimitiveTopology(topo);
         c->VSSetShader(vs, nullptr, 0); c->PSSetShader(ps, nullptr, 0); c->GSSetShader(gs, nullptr, 0);
-        c->VSSetConstantBuffers(0, 2, vcbs); c->VSSetShaderResources(0, 1, &vsrv);
+        c->VSSetConstantBuffers(0, 2, vcbs); c->VSSetShaderResources(0, 1, &vsrv); c->PSSetShaderResources(1, 1, &psrv1);
         c->OMSetDepthStencilState(dss, sref); c->RSSetState(rs); c->OMSetBlendState(bs, bf, sm);
         if (target) { c->OMSetRenderTargets(1, &rtv, dsv); if (nvp > 0) c->RSSetViewports(nvp, vps); }
         if (il) il->Release(); if (ib) ib->Release();
         if (vs) vs->Release(); if (ps) ps->Release(); if (gs) gs->Release();
-        if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release(); if (vsrv) vsrv->Release();
+        if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release(); if (vsrv) vsrv->Release(); if (psrv1) psrv1->Release();
         if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
         if (rtv) rtv->Release(); if (dsv) dsv->Release();
     }
 };
 
 // Disegno dei punti in g_ready con la matrice in matBuf (righe off..off+3, e off2..off2+3 se c'e' la seconda).
-static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off, int t, int off2, int t2, const D3D11_VIEWPORT& vp)
+// depthSrv: copia della profondita' presa al segnale (voce 219), o nullptr
+static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off, int t, int off2, int t2, const D3D11_VIEWPORT& vp, ID3D11ShaderResourceView* depthSrv = nullptr)
 {
     int qk = GpuBegin(c);
     c->IASetInputLayout(nullptr);
@@ -486,6 +490,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(tr ? g_bsAlpha : g_bs, zero, 0xffffffff);
     float alpha = tr ? g_alpha : 1.0f;
+    if (depthSrv) c->PSSetShaderResources(1, 1, &depthSrv);
     // voce 200: piani di ritaglio dal plugin (riquadro di sezione, intervallo di vista, campo della sezione letti
     // dalle API di Revit), non piu' dal buffer di Revit (voce 196: li' la loro posizione cambia da vista a vista)
     int planes = g_clipOn;
@@ -503,7 +508,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
                 f[4] = it.spacing * g_shScale; f[5] = vp.Width; f[6] = vp.Height; f[7] = g_shMaxPx;
                 memcpy(f + 8, g_clip, sizeof(g_clip));
                 // voce 205: seconda matrice (vista e proiezione separate nel buffer di Revit), come nel cubo di prova
-                in[32] = off2; in[33] = t2; f[34] = alpha; in[35] = 0;
+                in[32] = off2; in[33] = t2; f[34] = alpha; in[35] = depthSrv ? 1 : 0;
                 c->Unmap(g_scb, 0);
             }
             lastSp = it.spacing;
@@ -535,6 +540,48 @@ static float g_lastCap[32]; static bool g_hasLastCap = false;
 static float g_refRaw[32]; static bool g_hasRef = false;
 static ID3D11DepthStencilView* g_fbDsv = nullptr;   // con riferimento: va usata nei fotogrammi interrotti
 static D3D11_VIEWPORT g_fbVp = {};
+// voce 219: nella VistaIniziale, al Present il buffer di profondita' non ha piu' il modello (la nuvola trasparente
+// compariva davanti ai muri), mentre al segnale si'. Con la trasparenza si copia la profondita' al segnale e al Present
+// il punto si scarta se e' dietro la copia o dietro la profondita' del Present: vale sia per le viste in cui il modello e'
+// gia' tutto disegnato al segnale sia per quelle in cui lo finisce dopo.
+static ID3D11Texture2D* g_dzTex = nullptr;
+static ID3D11ShaderResourceView* g_dzSrv = nullptr;
+static UINT g_dzW = 0, g_dzH = 0; static DXGI_FORMAT g_dzFmt = DXGI_FORMAT_UNKNOWN;
+static bool g_dzOk = false;
+static long g_dzCopies = 0, g_dzFail = 0;
+static void CopyDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv)
+{
+    g_dzOk = false;
+    if (!dsv || !g_realDev) return;
+    ID3D11Resource* r = nullptr; dsv->GetResource(&r);
+    if (!r) return;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+    DXGI_FORMAT tf, sf;
+    switch (d.Format)
+    {
+    case DXGI_FORMAT_D24_UNORM_S8_UINT: case DXGI_FORMAT_R24G8_TYPELESS: tf = DXGI_FORMAT_R24G8_TYPELESS; sf = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; break;
+    case DXGI_FORMAT_D32_FLOAT: case DXGI_FORMAT_R32_TYPELESS: tf = DXGI_FORMAT_R32_TYPELESS; sf = DXGI_FORMAT_R32_FLOAT; break;
+    case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: case DXGI_FORMAT_R32G8X24_TYPELESS: tf = DXGI_FORMAT_R32G8X24_TYPELESS; sf = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS; break;
+    case DXGI_FORMAT_D16_UNORM: case DXGI_FORMAT_R16_TYPELESS: tf = DXGI_FORMAT_R16_TYPELESS; sf = DXGI_FORMAT_R16_UNORM; break;
+    default: r->Release(); g_dzFail++; return;
+    }
+    if (d.SampleDesc.Count != 1 || d.ArraySize != 1) { r->Release(); g_dzFail++; return; }
+    if (!g_dzTex || g_dzW != d.Width || g_dzH != d.Height || g_dzFmt != tf)
+    {
+        if (g_dzSrv) { g_dzSrv->Release(); g_dzSrv = nullptr; }
+        if (g_dzTex) { g_dzTex->Release(); g_dzTex = nullptr; }
+        D3D11_TEXTURE2D_DESC nd = {}; nd.Width = d.Width; nd.Height = d.Height; nd.MipLevels = 1; nd.ArraySize = 1;
+        nd.Format = tf; nd.SampleDesc.Count = 1; nd.Usage = D3D11_USAGE_DEFAULT; nd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_dzTex)) && g_dzTex)
+        {
+            D3D11_SHADER_RESOURCE_VIEW_DESC sd = {}; sd.Format = sf; sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sd.Texture2D.MipLevels = 1;
+            if (FAILED(g_realDev->CreateShaderResourceView(g_dzTex, &sd, &g_dzSrv))) { g_dzTex->Release(); g_dzTex = nullptr; g_dzSrv = nullptr; }
+        }
+        g_dzW = d.Width; g_dzH = d.Height; g_dzFmt = tf;
+    }
+    if (g_dzTex && g_dzSrv) { c->CopyResource(g_dzTex, r); g_dzOk = true; g_dzCopies++; } else g_dzFail++;
+    r->Release();
+}
 static UINT g_fbW = 0, g_fbH = 0;
 static bool g_drawnThisFrame = false;
 static ID3D11Buffer* g_fbMat = nullptr;
@@ -729,7 +776,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         g_drawnThisFrame = true;
     }
     if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
-    if (Transparent()) return;   // voce 217: con la trasparenza si disegna al Present (DrawAtPresent)
+    if (Transparent()) { CopyDepth(c, g_fbDsv); return; }   // voce 217: con la trasparenza si disegna al Present (DrawAtPresent)
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
     if (!dev) return;
     bool ok = ShaderInit(dev);
@@ -754,7 +801,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
 // vera dell'ultimo fotogramma completo (la nuvola puo' restare indietro di qualche fotogramma rispetto al modello).
 // Disegno dei punti nell'immagine della finestra, con il buffer di profondita' di Revit e la camera cam (formato del
 // buffer di Revit). Restituisce true se ha disegnato.
-static bool DrawAtPresent(IDXGISwapChain* s, const float* cam)
+static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11ShaderResourceView* depthSrv = nullptr)
 {
     if (!g_fbDsv || !ShaderInit(g_realDev)) return false;
     bool done = false;
@@ -782,7 +829,7 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam)
             SavedState st; st.Save(c, true);
             c->OMSetRenderTargets(1, &rtv, g_fbDsv);
             c->RSSetViewports(1, &g_fbVp);
-            DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
+            DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp, depthSrv);
             st.Restore(c);
             done = true;
         }
@@ -808,7 +855,8 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         g_nCand = 0; g_cmN = 0;
         // voce 217: con la trasparenza la nuvola del fotogramma completo si disegna qui, sopra il modello finito, con la
         // camera vera di questo fotogramma (al segnale si e' solo presa la matrice)
-        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw)) g_fbAlpha++;
+        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, g_dzOk ? g_dzSrv : nullptr)) g_fbAlpha++;
+        g_dzOk = false;
         return;
     }
     if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
@@ -905,10 +953,11 @@ static void ClearForNewView()
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld (di cui trasparenti disegnati al Present %ld, opacita' %.2f), interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, matrici scartate (tasselli) %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld (di cui trasparenti disegnati al Present %ld, opacita' %.2f, profondita' copiata al segnale %ld, copia non riuscita %ld), interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, matrici scartate (tasselli) %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
-        g_fbNormal, g_fbAlpha, g_alpha, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+        g_fbNormal, g_fbAlpha, g_alpha, g_dzCopies, g_dzFail, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+    g_dzCopies = g_dzFail = 0;
     g_fbNormal = g_fbAlpha = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
     g_camUsed = g_camStale = g_camRejected = 0;
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;

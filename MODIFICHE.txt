@@ -1143,3 +1143,11 @@ Ottava tornata (28/10/2026): octree
      mentre il disegno di sempre liberava i blocchi dalla scheda video, e il primo disegno con un buffer gia' rilasciato
      chiudeva Revit. Ora lo spegnimento si manda prima di quell'uscita, e la libreria toglie dagli elenchi da disegnare
      ogni blocco che viene liberato o ricaricato (`DropSrv`), qualunque sia l'ordine delle chiamate.
+
+219) Trasparenza nella VistaIniziale: la nuvola compariva davanti ai muri (20/11), nelle altre viste andava bene. Al
+     Present il buffer di profondita' di quella vista non contiene piu' il modello, al segnale si' (con la nuvola opaca,
+     disegnata al segnale, i muri la coprono). Ora con la trasparenza al segnale si copia la profondita' in una texture
+     nostra e al Present ogni punto si scarta se sta dietro la copia (oltre al confronto con la profondita' del Present):
+     vale per le viste in cui il modello e' gia' tutto disegnato al segnale e per quelle in cui Revit lo finisce dopo.
+     Solo nei fotogrammi completi (nei fotogrammi interrotti la copia sarebbe di un'altra camera). Registro: «profondita'
+     copiata al segnale N, copia non riuscita M».
