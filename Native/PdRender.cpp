@@ -292,6 +292,8 @@ static ID3D11InputLayout* g_sil = nullptr;
 static ID3D11Buffer* g_scb = nullptr;
 static ID3D11DepthStencilState* g_sdss = nullptr;
 static ID3D11RasterizerState* g_srs = nullptr;
+static ID3D11RasterizerState* g_srsSc = nullptr;   // voce 229: come g_srs ma con il rettangolo di ritaglio (forbici)
+static bool g_useScissor = false;
 static bool g_shFailed = false;
 
 // voce 195: i punti si leggono dallo shader (Buffer<uint4>, 16 byte a punto) e si disegnano con DrawIndexed e un
@@ -356,6 +358,7 @@ static bool ShaderInit(ID3D11Device* dev)
     dev->CreateDepthStencilState(&dd, &g_sdss);
     D3D11_RASTERIZER_DESC rd = {}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
     dev->CreateRasterizerState(&rd, &g_srs);
+    rd.ScissorEnable = TRUE; dev->CreateRasterizerState(&rd, &g_srsSc); rd.ScissorEnable = FALSE;
     if (!g_bs) { D3D11_BLEND_DESC bld = {}; bld.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; dev->CreateBlendState(&bld, &g_bs); }
     {
         D3D11_BLEND_DESC bld = {}; D3D11_RENDER_TARGET_BLEND_DESC& rt = bld.RenderTarget[0];
@@ -483,7 +486,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     c->VSSetConstantBuffers(0, 2, ours);
     bool tr = Transparent();
     c->OMSetDepthStencilState(tr ? g_sdssNoWrite : g_sdss, 0);
-    c->RSSetState(g_srs);
+    c->RSSetState(g_useScissor && g_srsSc ? g_srsSc : g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(tr ? g_bsAlpha : g_bs, zero, 0xffffffff);
     float alpha = tr ? g_alpha : 1.0f;
@@ -539,6 +542,22 @@ static D3D11_VIEWPORT g_fbVp = {};
 // voce 227: copia della profondita' del modello presa quando Revit smette di usarla dopo il segnale (vedi HookROMSet)
 static bool g_dzArm = false, g_keepThisFrame = false;
 static void KeepDepthFrom(ID3D11DeviceContext* c);
+// voce 229: fotogrammi parziali. Passando col mouse o selezionando, Revit ridisegna solo un rettangolo attorno
+// all'elemento (video del 20/11 14:13): fuori dal rettangolo la profondita' della scena e' vuota e l'immagine e' quella
+// di prima, ma la nuvola si disegnava su tutta la finestra, davanti ai muri. Il rettangolo si legge dalle forbici attive
+// al segnale o dai rettangoli passati a Present1; la nuvola si disegna solo li'.
+static bool g_partial = false; static D3D11_RECT g_partRect = {};
+static long g_partMarker = 0, g_partDirty = 0, g_partScPresent = 0, g_partKeepSkip = 0; static D3D11_RECT g_partLast = {};
+static float g_keepCam[32]; static bool g_keepCamOk = false;
+static bool PartialRect(D3D11_RECT r, const D3D11_VIEWPORT& vp, D3D11_RECT& out)
+{
+    LONG x0 = (LONG)vp.TopLeftX, y0 = (LONG)vp.TopLeftY, x1 = x0 + (LONG)vp.Width, y1 = y0 + (LONG)vp.Height;
+    if (r.left < x0) r.left = x0; if (r.top < y0) r.top = y0; if (r.right > x1) r.right = x1; if (r.bottom > y1) r.bottom = y1;
+    if (r.right <= r.left || r.bottom <= r.top) return false;
+    if (r.right - r.left >= x1 - x0 - 1 && r.bottom - r.top >= y1 - y0 - 1) return false;   // tutta la finestra
+    out = r; return true;
+}
+static bool KeepStillGood();
 
 // =====================================================================================================================
 // Voce 224: diagnostica per la trasparenza nella VistaIniziale (nuvola davanti ai muri solo li'). Ogni 5 s si registra
@@ -827,6 +846,15 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         UINT nv = 1; c->RSGetViewports(&nv, &g_fbVp);
         g_drawnThisFrame = true;
         g_dzArm = true;
+        // voce 229: forbici di Revit attive al segnale = fotogramma parziale
+        g_partial = false;
+        ID3D11RasterizerState* rrs = nullptr; c->RSGetState(&rrs);
+        D3D11_RASTERIZER_DESC rrd = {}; if (rrs) { rrs->GetDesc(&rrd); rrs->Release(); }
+        if (rrd.ScissorEnable)
+        {
+            UINT ns = 1; D3D11_RECT sr = {}; c->RSGetScissorRects(&ns, &sr);
+            if (ns > 0 && PartialRect(sr, g_fbVp, g_partRect)) { g_partial = true; g_partMarker++; g_partLast = g_partRect; }
+        }
     }
     if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
     if (Transparent()) return;   // voce 217: con la trasparenza si disegna al Present (DrawAtPresent)
@@ -840,7 +868,9 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     D3D11_VIEWPORT vp; UINT nv = 1; c->RSGetViewports(&nv, &vp);
     if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
     SavedState st; st.Save(c, false);
+    g_useScissor = g_partial;   // voce 229: le forbici di Revit sono gia' impostate, basta rispettarle
     DrawPointsCore(c, rcb, g_mOff, g_mT & 1, g_mOff2, (g_mT >> 1) & 1, vp);
+    g_useScissor = false;
     st.Restore(c);
     rcb->Release();
 }
@@ -854,7 +884,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
 // vera dell'ultimo fotogramma completo (la nuvola puo' restare indietro di qualche fotogramma rispetto al modello).
 // Disegno dei punti nell'immagine della finestra, con il buffer di profondita' di Revit e la camera cam (formato del
 // buffer di Revit). Restituisce true se ha disegnato.
-static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStencilView* dsv)
+static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStencilView* dsv, const D3D11_RECT* sc)
 {
     if (!dsv || !ShaderInit(g_realDev)) return false;
     bool done = false;
@@ -882,7 +912,15 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStenci
             SavedState st; st.Save(c, true);
             c->OMSetRenderTargets(1, &rtv, dsv);
             c->RSSetViewports(1, &g_fbVp);
+            // voce 229: fotogramma parziale, solo dentro il rettangolo ridisegnato da Revit
+            D3D11_RECT oldSc[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]; UINT nOld = 0;
+            if (sc)
+            {
+                nOld = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE; c->RSGetScissorRects(&nOld, oldSc);
+                c->RSSetScissorRects(1, sc); g_useScissor = true;
+            }
             DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
+            if (sc) { g_useScissor = false; c->RSSetScissorRects(nOld, nOld ? oldSc : nullptr); }
             st.Restore(c);
             done = true;
         }
@@ -904,6 +942,12 @@ static ID3D11Texture2D* g_keepTex = nullptr;
 static ID3D11DepthStencilView* g_keepDsv = nullptr;
 static bool g_keepOk = false;
 static long g_keepCopies = 0;
+// La copia della profondita' gia' tenuta va ancora bene per un fotogramma parziale se la camera e' la stessa: fuori dal
+// rettangolo la copia nuova sarebbe vuota (e servirebbe ai fotogrammi interrotti successivi).
+static bool KeepStillGood()
+{
+    return g_partial && g_keepOk && g_keepCamOk && memcmp(g_keepCam, g_refRaw, sizeof(g_keepCam)) == 0;
+}
 static void KeepDepth()
 {
     ID3D11DeviceContext* c = nullptr; if (g_realDev) g_realDev->GetImmediateContext(&c);
@@ -911,7 +955,7 @@ static void KeepDepth()
 }
 static void KeepDepthFrom(ID3D11DeviceContext* ctx)
 {
-    g_keepOk = false;
+    g_keepOk = false; g_keepCamOk = false;
     if (!g_fbDsv || !g_realDev) return;
     ID3D11Resource* r = nullptr; g_fbDsv->GetResource(&r);
     if (!r) return;
@@ -929,10 +973,10 @@ static void KeepDepthFrom(ID3D11DeviceContext* ctx)
         if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_keepTex)) && g_keepTex)
             if (FAILED(g_realDev->CreateDepthStencilView(g_keepTex, &vd, &g_keepDsv))) { g_keepTex->Release(); g_keepTex = nullptr; g_keepDsv = nullptr; }
     }
-    if (g_keepTex && g_keepDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_keepTex, r); g_keepOk = true; g_keepCopies++; }
+    if (g_keepTex && g_keepDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_keepTex, r); g_keepOk = true; g_keepCopies++; memcpy(g_keepCam, g_refRaw, sizeof(g_keepCam)); g_keepCamOk = g_hasRef; }
     r->Release();
 }
-static void FallbackAtPresent(IDXGISwapChain* s)
+static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* pp)
 {
     if (g_trRec && g_drawnThisFrame && g_keepThisFrame && g_keepOk && g_realDev)
     {
@@ -944,6 +988,31 @@ static void FallbackAtPresent(IDXGISwapChain* s)
     DXGI_SWAP_CHAIN_DESC sd = {};
     if (FAILED(s->GetDesc(&sd))) return;
     if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
+    // voce 229: rettangolo ridisegnato in questo fotogramma (forbici al segnale, altrimenti rettangoli di Present1)
+    const D3D11_RECT* sc = nullptr; D3D11_RECT dirty = {};
+    if (g_drawnThisFrame && g_partial) sc = &g_partRect;
+    else if (pp && pp->DirtyRectsCount > 0 && pp->pDirtyRects)
+    {
+        RECT u = pp->pDirtyRects[0];
+        for (UINT k = 1; k < pp->DirtyRectsCount; k++)
+        {
+            const RECT& q = pp->pDirtyRects[k];
+            if (q.left < u.left) u.left = q.left; if (q.top < u.top) u.top = q.top;
+            if (q.right > u.right) u.right = q.right; if (q.bottom > u.bottom) u.bottom = q.bottom;
+        }
+        D3D11_RECT ur = { u.left, u.top, u.right, u.bottom };
+        if (PartialRect(ur, g_fbVp, dirty)) { sc = &dirty; g_partDirty++; g_partLast = dirty; }
+    }
+    {   // solo per il registro: forbici attive al Present (ultimo disegno di Revit nella finestra)
+        ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
+        if (c)
+        {
+            ID3D11RasterizerState* rrs = nullptr; c->RSGetState(&rrs);
+            D3D11_RASTERIZER_DESC rrd = {}; if (rrs) { rrs->GetDesc(&rrd); rrs->Release(); }
+            if (rrd.ScissorEnable) { UINT ns = 1; D3D11_RECT sr = {}, o = {}; c->RSGetScissorRects(&ns, &sr); if (ns > 0 && PartialRect(sr, g_fbVp, o)) g_partScPresent++; }
+            c->Release();
+        }
+    }
     if (g_drawnThisFrame)
     {
         g_fbNormal++; g_drawnThisFrame = false; g_fbSwap = s; LearnSearch();
@@ -954,10 +1023,10 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         // camera vera di questo fotogramma (al segnale si e' solo presa la matrice)
         // voce 227: profondita' copiata quando Revit ha lasciato il buffer della scena (nella VistaIniziale al Present
         // quel buffer e' gia' stato svuotato); se la copia non c'e' stata, si copia ora come nella 222
-        if (!(g_keepThisFrame && g_keepOk) && g_shaderOn && !g_ready.empty()) KeepDepth();
+        if (!(g_keepThisFrame && g_keepOk) && !KeepStillGood() && g_shaderOn && !g_ready.empty()) KeepDepth();
         ID3D11DepthStencilView* dz = g_keepOk ? g_keepDsv : g_fbDsv;
-        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz)) g_fbAlpha++;
-        g_keepThisFrame = false; g_dzArm = false;
+        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) g_fbAlpha++;
+        g_keepThisFrame = false; g_dzArm = false; g_partial = false;
         return;
     }
     if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
@@ -970,7 +1039,7 @@ static void FallbackAtPresent(IDXGISwapChain* s)
     if (!g_shaderOn || g_ready.empty() || !g_fbDsv) return;
     if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; return; }
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
-    if (DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv)) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
+    if (DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc)) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -1050,6 +1119,7 @@ static void ClearForNewView()
     g_hasRef = false; g_hasLastCap = false; g_chainGen = -1;
     g_nCand = 0; g_cmN = 0;
     g_fbSwap = nullptr; g_drawnThisFrame = false; g_keepOk = false; g_keepThisFrame = false; g_dzArm = false;
+    g_partial = false; g_keepCamOk = false;
 }
 // voce 223: il plugin non disegna piu' nella vista (nuvola spenta o nascosta): niente da ridisegnare nei fotogrammi
 // senza il plugin, altrimenti restava a schermo l'ultima nuvola
@@ -1064,6 +1134,12 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+    {
+        size_t L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0;
+    }
     if (g_trDone && g_trBuf[0])
     {
         size_t L = strlen(msg);
@@ -1272,7 +1348,12 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
         }
     }
     g_rOMSet(c, n, r, d);
-    if (leave) { g_dzArm = false; KeepDepthFrom(c); g_keepThisFrame = g_keepOk; if (g_trRec) TrPut(" COPIA-PROF"); }
+    if (leave)
+    {
+        g_dzArm = false;
+        if (KeepStillGood()) g_partKeepSkip++; else KeepDepthFrom(c);   // voce 229
+        g_keepThisFrame = g_keepOk; if (g_trRec) TrPut(" COPIA-PROF");
+    }
     Rehook(c);
 }
 static void STDMETHODCALLTYPE HookRVS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rVS(c, s, i, n); Rehook(c); }
@@ -1435,8 +1516,8 @@ static void OnRealSwapChain(IDXGISwapChain* s)
     dev->Release();
 }
 
-static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) FallbackAtPresent(s); return g_origPresent(s, a, f); }
-static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) FallbackAtPresent(s); return g_origPresent1(s, a, f, p); }
+static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) FallbackAtPresent(s, nullptr); return g_origPresent(s, a, f); }
+static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) FallbackAtPresent(s, p); return g_origPresent1(s, a, f, p); }
 
 static void* Patch(void** vt, int index, void* hook);
 

@@ -264,7 +264,13 @@ namespace PointDeviation
                         // spalmano su piu' fotogrammi invece di bloccarne uno
                         long uploadBudget = budget.Moving ? 1500000 : 3000000;
                         long drawBudget = shaderCap;
-                        for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget);
+                        // voce 229: in movimento il livello di dettaglio resta quello di fermo (CloudLayer.DesiredOctree) e i
+                        // punti chiesti superano il limite: si riducono tutti i blocchi in proporzione
+                        long wantAll = 0;
+                        for (int k = 0; k < visible.Count; k++) wantAll += visible[k].WantTotal(wants[k]);
+                        double scale = wantAll > drawBudget && wantAll > 0 ? (double)drawBudget / wantAll : 1.0;
+                        NativeProbe.LastScale = scale;
+                        for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget, scale);
                         NativeProbe.SetClip(cam.ClipPlanes());
                         NativeProbe.EndFrame(st, true);
                         if (uploadBudget <= 0) Redraw.Request();

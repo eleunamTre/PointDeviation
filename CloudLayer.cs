@@ -1581,7 +1581,15 @@ namespace PointDeviation
         /// punti in memoria, lo stile/i colori o la posizione della nuvola. Al massimo uploadBudget punti nuovi per
         /// fotogramma, per non fermare la navigazione.
         /// </summary>
-        public void ShaderDraw(Style st, int[] want, ref long uploadBudget, ref long drawBudget)
+        /// <summary>Punti chiesti dal livello di dettaglio (voce 229: per ridurre tutti i blocchi in proporzione).</summary>
+        public long WantTotal(int[] want)
+        {
+            long t = 0;
+            for (int i = 0; i < want.Length && i < Tiles.Length; i++) if (want[i] > 0) t += Math.Min(want[i], Tiles[i].Count);
+            return t;
+        }
+
+        public void ShaderDraw(Style st, int[] want, ref long uploadBudget, ref long drawBudget, double scale)
         {
             int n = Tiles.Length;
             if (_nUp == null || _nUp.Length != n) { _nUp = new TileCpu[n]; _nUpCount = new int[n]; _nUpPts = new int[n]; _nUpKey = new long[n]; _nUpTick = new long[n]; }
@@ -1631,6 +1639,10 @@ namespace PointDeviation
                 if (cnt <= 0 || _nUpPts[i] <= 0) continue;
                 int w = Math.Min(want[i], cnt);
                 int draw = (int)Math.Max(1, (long)_nUpPts[i] * w / cnt);
+                // voce 229: oltre il limite tutti i blocchi si riducono nella stessa proporzione (punti un po' piu' grandi
+                // e distanti ovunque). Prima si prendevano i blocchi in ordine finche' c'era limite e gli ultimi restavano
+                // fuori: in movimento intere zone tornavano al livello piu' rado e da fermi si riempivano.
+                if (scale < 1) draw = (int)Math.Max(1, draw * scale);
                 if (drawBudget <= 0) continue;
                 if (draw > drawBudget) draw = (int)Math.Max(1, drawBudget);
                 drawBudget -= draw;
@@ -1649,7 +1661,7 @@ namespace PointDeviation
                     int p = _parent[m];
                     while (p >= 0 && (_nUp[p] == null || _nUpPts[p] <= 0)) p = _parent[p];
                     if (p < 0 || _nAdded[p] || drawBudget <= 0) continue;
-                    int draw = (int)Math.Min(_nUpPts[p], Math.Max(1, drawBudget));
+                    int draw = (int)Math.Min(scale < 1 ? Math.Max(1, (long)(_nUpPts[p] * scale)) : _nUpPts[p], Math.Max(1, drawBudget));
                     drawBudget -= draw;
                     double sp = _childCount[p] == 0 ? Math.Sqrt(_area[p] / Math.Max(1, _nUpCount[p])) : _nodeSpacing[p];
                     if (draw < _nUpPts[p]) sp *= Math.Sqrt((double)_nUpPts[p] / draw);

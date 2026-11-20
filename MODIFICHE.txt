@@ -1240,3 +1240,17 @@ Ottava tornata (28/10/2026): octree
        +8% sotto 5,6 ms) e non scende sotto 3 M (era 1 M); parte da 4 M;
      - la sequenza di un fotogramma (224) non si registra piu' a ogni resoconto: leggeva la profondita' dalla scheda
        video e poteva dare un piccolo scatto ogni 5 s.
+
+229) Video e registro del 20/11 14:13 (228, trasparenza 42%).
+     - Rettangolo attorno all'elemento sotto il mouse o selezionato: per circa un quarto di secondo fuori dal rettangolo
+       la nuvola finiva davanti ai muri. Passando col mouse o selezionando, Revit ridisegna solo un rettangolo attorno
+       all'elemento; fuori la profondita' della scena e' vuota, ma la nuvola si disegnava su tutta la finestra. Ora il
+       rettangolo si legge dalle forbici di Revit attive al segnale, oppure dai rettangoli passati a Present1, e la nuvola
+       si disegna solo li'. In quei fotogrammi, se la camera e' la stessa, si tiene la copia della profondita' del
+       fotogramma intero precedente invece di copiarne una vuota fuori dal rettangolo. Nel resoconto DirectX:
+       «fotogrammi parziali (mouse/selezione): rettangolo al segnale N, rettangoli di Present1 N, forbici al Present N».
+     - Differenza tra la nuvola in movimento e da ferma. In movimento il livello di dettaglio resta quello di fermo, ma
+       il limite di punti e' piu' basso: i blocchi si prendevano in ordine finche' c'era limite e gli ultimi restavano
+       fuori (intere zone tornavano al livello piu' rado e poi, da fermi, si riempivano). Ora tutti i blocchi si riducono
+       nella stessa proporzione, con punti un po' piu' grandi e distanti ovunque. Nel registro: «punti chiesti disegnati
+       nell'ultimo fotogramma».

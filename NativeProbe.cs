@@ -93,7 +93,9 @@ namespace PointDeviation
             // limite in movimento e' piu' basso, il salto era piu' evidente.
             return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 1.5);
         }
-        public static string CapNote { get { return string.Format("limite punti in movimento {0:F1} M, scheda video {1:F1} ms per fotogramma (obiettivo {2:F0} ms), fotogramma intero in movimento {4:F0} ms; fotogrammi con la libreria non pronta {3}", _cap / 1e6, GpuMs, GpuTargetMs, NotReadyFrames, _intEma); } }
+        /// <summary>Voce 229: frazione dei punti chiesti disegnata nell'ultimo fotogramma (1 = tutti).</summary>
+        public static double LastScale = 1;
+        public static string CapNote { get { return string.Format("limite punti in movimento {0:F1} M, scheda video {1:F1} ms per fotogramma (obiettivo {2:F0} ms), fotogramma intero in movimento {4:F0} ms; punti chiesti disegnati nell'ultimo fotogramma {5:P0}; fotogrammi con la libreria non pronta {3}", _cap / 1e6, GpuMs, GpuTargetMs, NotReadyFrames, _intEma, LastScale); } }
 
         // ---------------------------------------------------------------- voce 194: disegno con shader
         /// <summary>Passaggio di Revit in cui si disegna (voce 199), scritto nel registro con il resoconto DirectX.</summary>
