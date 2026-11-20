@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.DirectContext3D;
@@ -77,6 +78,9 @@ namespace PointDeviation
                     if (!flat) refresh = true;
                 }
                 if (Redraw.Pending && now - _lastRefresh >= (flat ? MinRefreshFlatMs : MinRefreshMs)) { Redraw.Take(); refresh = true; }
+                // voce 232: un ridisegno quando la camera e' ferma da abbastanza tempo, per passare al dettaglio da fermi
+                long settle = Interlocked.Read(ref _settleAt);
+                if (settle > 0 && now - settle >= 0) { Interlocked.Exchange(ref _settleAt, 0); if (!flat) refresh = true; }
                 if (refresh)
                 {
                     _lastRefresh = now;
@@ -84,13 +88,19 @@ namespace PointDeviation
                 }
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
                 // Revit ci richiama subito invece che dopo una lunga pausa
-                if (_zoomDirty || Redraw.Pending || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
+                if (_zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
             catch { }
         }
 
         private static readonly Dictionary<long, double[]> _lastCam = new Dictionary<long, double[]>();
         private static readonly Dictionary<long, long> _camTick = new Dictionary<long, long>();
+        private static long _settleAt;
+        private static double _scaleEma = -1;
+        // voce 232: con il disegno con shader la camera conta come ferma dopo 700 ms senza cambiamenti (prima 300). Con la
+        // rotella gli scatti arrivano a qualche centinaio di ms l'uno dall'altro: tra uno scatto e l'altro si passava al
+        // dettaglio da fermi (piu' punti, tutti i blocchi) e allo scatto dopo si tornava indietro, e la densita' pulsava.
+        private static int StillMs { get { return NativeProbe.ShaderMode ? 700 : 300; } }
 
         /// <summary>La camera di questa vista è cambiata negli ultimi istanti?</summary>
         private static bool CameraMoving(View view, ViewCam cam)
@@ -109,10 +119,10 @@ namespace PointDeviation
             {
                 bool first = old == null;
                 _camTick[id] = first ? now - 10000 : now;
-                if (!first) Redraw.Request(); // a camera ferma si riprende ad aggiungere dettaglio
+                if (!first) { Redraw.Request(); Interlocked.Exchange(ref _settleAt, now + StillMs + 30); } // a camera ferma si riprende ad aggiungere dettaglio
             }
             long t;
-            return _camTick.TryGetValue(id, out t) && now - t < 300;
+            return _camTick.TryGetValue(id, out t) && now - t < StillMs;
         }
 
         private static DocumentData Data(View view)
@@ -269,6 +279,10 @@ namespace PointDeviation
                         long wantAll = 0;
                         for (int k = 0; k < visible.Count; k++) wantAll += visible[k].WantTotal(wants[k]);
                         double scale = wantAll > drawBudget && wantAll > 0 ? (double)drawBudget / wantAll : 1.0;
+                        // voce 232: la frazione cambia piano da un fotogramma all'altro (prima seguiva ogni fotogramma, tra
+                        // 50 e 100%, e i punti cambiavano grandezza e densita' a scatti: sfarfallio durante lo zoom)
+                        if (budget.Moving) { _scaleEma = _scaleEma <= 0 ? scale : _scaleEma * 0.75 + scale * 0.25; scale = Math.Min(1.0, _scaleEma); }
+                        else _scaleEma = scale;
                         NativeProbe.LastScale = scale;
                         for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget, scale);
                         NativeProbe.SetClip(cam.ClipPlanes());

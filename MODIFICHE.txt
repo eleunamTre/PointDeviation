@@ -1268,3 +1268,12 @@ Ottava tornata (28/10/2026): octree
      togliendone non si ingrandiscono: con la trasparenza cala la sovrapposizione e la nuvola sembra piu' rada e chiara,
      poi da ferma torna piena. Ora l'opacita' del singolo punto si compensa con la frazione disegnata
      (a' = 1-(1-a)^(1/f)), cosi' l'aspetto complessivo resta simile tra movimento e pausa.
+
+232) Sfarfallio leggero durante gli zoom (video e registro del 20/11 14:41, nuvola opaca). Nel video la densita' e la
+     grandezza dei punti cambiano da un fotogramma all'altro. Due cause:
+     - con la rotella gli scatti arrivano a qualche centinaio di ms l'uno dall'altro e la camera contava come ferma dopo
+       300 ms: tra uno scatto e l'altro si passava al dettaglio da fermi e allo scatto dopo si tornava a quello in
+       movimento. Ora con il disegno con shader la camera conta come ferma dopo 700 ms, e un ridisegno a quel punto
+       porta il dettaglio da fermi anche se non c'e' altro da caricare;
+     - la frazione di punti disegnata in movimento (229) seguiva ogni fotogramma (registro: 53-100%), e con lei la
+       grandezza dei punti: ora cambia gradualmente (media sugli ultimi fotogrammi).
