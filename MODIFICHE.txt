@@ -1207,3 +1207,15 @@ Ottava tornata (28/10/2026): octree
      generate da Tools/Icons/make_icons.py (rsvg-convert): il disegno si ritaglia sul contenuto e si ingrandisce fino a
      riempire l'icona. Con «--install» i PNG da 16 e 32 px vanno in Resources con i nomi di sempre. Il pulsante della
      visibilita' ora dice «Nascondi nuvole» / «Mostra nuvole». Testi inglesi aggiunti.
+
+226) Ribbon, dopo la prova in Revit della 225 (20/11 13:16):
+     - Icone in stile Revit (Tools/Icons/make_icons_revit.py): linee sottili grigio scuro, riempimenti chiari piatti,
+       un accento blu e l'arancione solo per i punti della nuvola, colori pieni solo dove servono (facce del cubo RGB,
+       scala dei profili, quota). Margine attorno al disegno come le icone di Revit: con la 225 le icone riempivano
+       tutti i 32 px e i pulsanti sembravano attaccati. Il set colorato della 225 resta in make_icons.py.
+     - Separatori dentro i pannelli Analisi scostamenti (Mostra analisi | analisi | profili, aggiorna, legenda) e
+       Visualizzazione (Modalita' colore | qualita' e aspetto).
+     - «Nascondi nuvole» / «Mostra nuvole» segue lo stato della vista attiva: «Mostra» se nella vista le nuvole sono
+       nascoste (elemento nascosto, categoria spenta, spunta in V/G), «Nascondi» se almeno una si vede. Si aggiorna
+       dopo il pulsante, al cambio di vista e a ogni modifica del documento (es. Nascondi elemento di Revit). Prima il
+       testo seguiva un'impostazione che il pulsante non cambiava.

@@ -97,6 +97,7 @@ namespace PointDeviation
         private void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
         {
             try { DeviationController.OnDocumentChanged(e.GetDocument(), e.GetAddedElementIds(), e.GetDeletedElementIds(), e.GetModifiedElementIds()); } catch { }
+            UpdateCloudToggle(e.GetDocument());
         }
 
         private void OnViewActivated(object sender, ViewActivatedEventArgs e)
@@ -105,6 +106,7 @@ namespace PointDeviation
             {
                 UIApplication uiapp = sender as UIApplication ?? new UIApplication(e.Document.Application);
                 DeviationController.OnViewActivated(uiapp, e.Document);
+                UpdateCloudToggle(e.Document);
             }
             catch { }
         }
@@ -116,12 +118,28 @@ namespace PointDeviation
             try { if (b != null && b.ItemText != text) b.ItemText = text; } catch { }
         }
 
+        // voce 226: il pulsante dice «Mostra nuvole» quando nella vista attiva le nuvole sono nascoste (elemento nascosto,
+        // categoria spenta, spunta in V/G), «Nascondi nuvole» quando almeno una si vede
+        private static bool _cloudsShown = true;
+        internal static void UpdateCloudToggle(Document doc)
+        {
+            try
+            {
+                View v = doc?.ActiveView;
+                DocumentData d = DeviationController.ActiveData;
+                if (v == null || d == null || !d.HasCloud) return;
+                _cloudsShown = d.Layers.Exists(l => l.VisibleIn(v));
+                SyncRibbon(DeviationController.Current);
+            }
+            catch { }
+        }
+
         /// <summary>Riallinea etichette dei pulsanti e gruppo di modalità con le impostazioni del progetto attivo.</summary>
         internal static void SyncRibbon(DeviationSettings s)
         {
             try
             {
-                SetText(_visButton, L.T(s.Visible ? "Nascondi\nnuvole" : "Mostra\nnuvole"));
+                SetText(_visButton, L.T(s.Visible && _cloudsShown ? "Nascondi\nnuvole" : "Mostra\nnuvole"));
                 SetText(_invertButton, L.T(s.ClipInvert ? "Inverti\n(attivo)" : "Inverti"));
                 SetText(_analysisButton, L.T(s.Display == DisplayMode.Discrepanze ? "Nascondi\nanalisi" : "Mostra\nanalisi"));
 
@@ -161,12 +179,14 @@ namespace PointDeviation
             RibbonPanel pAnalyze = app.CreateRibbonPanel(tabName, L.T("Analisi scostamenti"));
             _analysisButton = (PushButton)pAnalyze.AddItem(Push("ShowAnalysis", "Mostra\nanalisi", asm, typeof(ShowAnalysisCommand), "deviation",
                 "Mostra o nasconde i colori dell'analisi. Nascondendola si torna a RGB o quota, e Legenda e Aggiorna si disattivano."));
+            pAnalyze.AddSeparator();   // voce 226: gruppi separati, i pulsanti risultavano tutti attaccati
             pAnalyze.AddItem(Push("AnalyzeView", "Analizza\nvista", asm, typeof(AnalyzeViewCommand), "analyze_view",
                 "Confronta la nuvola con tutti gli elementi visibili nella vista attiva."));
             pAnalyze.AddItem(Push("AnalyzeSelection", "Analizza\nselezione", asm, typeof(AnalyzeSelectionCommand), "analyze_sel",
                 "Confronta la nuvola solo con gli elementi selezionati (anche istanze di link). La selezione resta memorizzata per i ricalcoli."));
             pAnalyze.AddItem(Push("MissingZones", "Zone\nmancanti", asm, typeof(MissingZonesCommand), "missing_zones",
                 "Completezza: raggruppa i punti lontani dal modello in zone (parti rilevate ma non modellate) con superficie stimata, tipo e livello. Zoom e isolamento della zona, esportazione in CSV."));
+            pAnalyze.AddSeparator();
             pAnalyze.AddItem(Push("ColorProfiles", "Profili\ncolore", asm, typeof(ColorProfilesCommand), "colormap",
                 "Scegli, modifica o crea i profili: gradiente, tolleranza a fasce, classi, completezza, interferenze."));
             pAnalyze.AddItem(Push("Recompute", "Aggiorna", asm, typeof(RecomputeCommand), "recompute",
@@ -192,6 +212,7 @@ namespace PointDeviation
             var qData = new ComboBoxData("Quality") { ToolTip = L.T("Quanti punti disegnare: Automatica si adatta alla vista, Media alleggerisce, Fine mostra più dettaglio.") };
             PushButtonData appData = Push("Appearance", "Aspetto", asm, typeof(AppearanceCommand), "appearance",
                 "Dimensione dei punti, luminosità, contrasto, trasparenza e contrasto X-ray.");
+            pDisplay.AddSeparator();
             IList<RibbonItem> stack = pDisplay.AddStackedItems(qData, appData);
             _quality = stack[0] as Autodesk.Revit.UI.ComboBox;
             if (_quality != null)

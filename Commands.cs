@@ -84,7 +84,7 @@ namespace PointDeviation
                 }
                 DeviationSettings s = DeviationController.Current;
                 NativeSync.ToggleAllInView(uidoc.Document, uidoc.ActiveView, d);
-                App.SyncRibbon(s);
+                App.UpdateCloudToggle(uidoc.Document);
             });
         }
     }
