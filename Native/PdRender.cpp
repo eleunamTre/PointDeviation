@@ -826,6 +826,18 @@ static void FallbackAtPresent(IDXGISwapChain* s)
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
 
+// voce 218: un blocco liberato o ricaricato non deve restare negli elenchi da disegnare. Spegnendo l'opzione dello shader
+// il plugin liberava i blocchi ma l'elenco restava quello vecchio, con i buffer gia' rilasciati: Revit si chiudeva al
+// primo disegno (segnale o Present).
+static void DropSrv(ID3D11ShaderResourceView* srv)
+{
+    if (!srv) return;
+    std::vector<PdItem>* lists[2] = { &g_ready, &g_build };
+    for (std::vector<PdItem>* v : lists)
+        for (size_t k = 0; k < v->size(); )
+            if ((*v)[k].srv == srv) { (*v)[k] = v->back(); v->pop_back(); } else k++;
+}
+
 // Buffer di un blocco: data = count × (x, y, z float + colore RGBA 4 byte), coordinate del modello in piedi.
 extern "C" __declspec(dllexport) int PdShaderUpload(int layer, int node, const void* data, int count)
 {
@@ -834,7 +846,7 @@ extern "C" __declspec(dllexport) int PdShaderUpload(int layer, int node, const v
     auto f = g_nodes.find(k);
     if (f != g_nodes.end())
     {
-        if (f->second.srv) f->second.srv->Release();
+        if (f->second.srv) { DropSrv(f->second.srv); f->second.srv->Release(); }
         if (f->second.vb) { f->second.vb->Release(); g_shBytes -= (long long)f->second.count * 16; }
         g_nodes.erase(f);
     }
@@ -856,7 +868,7 @@ extern "C" __declspec(dllexport) void PdShaderFree(int layer, int node)
 {
     auto f = g_nodes.find(NodeKey(layer, node));
     if (f == g_nodes.end()) return;
-    if (f->second.srv) f->second.srv->Release();
+    if (f->second.srv) { DropSrv(f->second.srv); f->second.srv->Release(); }
     if (f->second.vb) { f->second.vb->Release(); g_shBytes -= (long long)f->second.count * 16; }
     g_nodes.erase(f);
 }

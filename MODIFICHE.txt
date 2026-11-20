@@ -1137,3 +1137,9 @@ Ottava tornata (28/10/2026): octree
      possono disegnare al segnale (il modello disegnato dopo li coprirebbe): al segnale si prende solo la matrice e la
      nuvola si disegna al Present, sopra il modello finito, con la camera vera di quel fotogramma e il buffer di
      profondita' di Revit (come nei fotogrammi interrotti). Nel registro: «di cui trasparenti disegnati al Present».
+
+218) Revit si chiudeva spegnendo «Disegno con shader» (20/11). Con «Prova DirectX» spenta `NativeProbe.Begin` usciva
+     subito, quindi la libreria non riceveva l'ordine di smettere: continuava a disegnare l'elenco dell'ultimo fotogramma
+     mentre il disegno di sempre liberava i blocchi dalla scheda video, e il primo disegno con un buffer gia' rilasciato
+     chiudeva Revit. Ora lo spegnimento si manda prima di quell'uscita, e la libreria toglie dagli elenchi da disegnare
+     ogni blocco che viene liberato o ricaricato (`DropSrv`), qualunque sia l'ordine delle chiamate.

@@ -198,13 +198,20 @@ namespace PointDeviation
         public static void Begin(ViewCam cam, long viewId)
         {
             _capturing = false;
+            // voce 218: opzione spenta a Revit aperto. Va fatto prima dell'uscita qui sotto: con «Prova DirectX» spenta
+            // Begin usciva subito, la libreria continuava a disegnare l'elenco vecchio con i blocchi gia' liberati dal
+            // disegno di sempre e Revit si chiudeva.
+            if (_shaderWasOn && !ShaderWanted && _state > 0)
+            {
+                try { PdShaderEndFrame(0, 1, 0.5f, 0); } catch (Exception ex) { Log.Error("DirectX", ex); }
+            }
+            _shaderWasOn = ShaderWanted && _state > 0;
             if (!AdvancedSettings.Current.NativeProbe && !AdvancedSettings.Current.NativeShader) return;
             if (!Ready()) return;
+            _shaderWasOn = ShaderWanted;
             try
             {
                 if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
-                if (_shaderWasOn && !ShaderWanted) PdShaderEndFrame(0, 1, 0.5f, 0);   // opzione spenta a Revit aperto
-                _shaderWasOn = ShaderWanted;
                 PdSetView(viewId);
                 SendCamera(cam);
                 DrawMarker();
