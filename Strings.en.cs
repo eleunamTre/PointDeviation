@@ -131,6 +131,16 @@ namespace PointDeviation
             d["Inverti\n(attivo)"] = "Invert\n(on)";
             d["Inverti"] = "Invert";
             d["Inserisci"] = "Insert";
+            // voce 225: ribbon riorganizzata
+            d["Nuvole e rilievo"] = "Clouds & Survey";
+            d["Analisi scostamenti"] = "Deviation Analysis";
+            d["Ritaglio e visibilità"] = "Clipping & Visibility";
+            d["Modalità\ncolore"] = "Color\nMode";
+            d["Nascondi\nnuvole"] = "Hide\nClouds";
+            d["Mostra\nnuvole"] = "Show\nClouds";
+            d["Gestisci\nnuvole"] = "Manage\nClouds";
+            d["Ritagli\nsalvati"] = "Saved\nCrops";
+            d["Un colore per ogni nuvola (si cambia da Gestisci nuvole)."] = "One color per cloud (change it from Manage Clouds).";
             d["Libreria\nnuvole"] = "Cloud\nLibrary";
             d["Libreria delle nuvole convertite: converte LAS, RCP e RCS una sola volta e le inserisce nel progetto con le opzioni di coordinate."] = "Library of converted point clouds: converts LAS, RCP and RCS once and inserts them into the project with coordinate options.";
             d["Rimuovi\nnuvola"] = "Remove\nCloud";

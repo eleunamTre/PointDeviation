@@ -1196,3 +1196,14 @@ Ottava tornata (28/10/2026): octree
      quanta parte della finestra e' coperta e i valori di profondita' («profondita' al segnale», «profondita' usata al
      Present»). Serve a vedere se nella VistaIniziale, al momento in cui disegniamo la nuvola trasparente, il modello nel
      buffer c'e' ancora. Nessun cambio al disegno.
+
+225) Ribbon riorganizzata e icone nuove (richiesta dell'utente del 20/11, per distinguersi dal concorrente). Pannelli:
+     «Nuvole e rilievo» (Libreria nuvole, Coordinate di rilievo, Misura punti), «Analisi scostamenti» (Mostra analisi,
+     Analizza vista, Analizza selezione, Zone mancanti, Profili colore, Aggiorna; Legenda e Impostazioni piccoli),
+     «Visualizzazione» (Modalita' colore: un unico pulsante a tendina che mostra la modalita' attiva al posto dei cinque
+     pulsanti affiancati; Qualita' e Aspetto), «Ritaglio e visibilita'» (prima Nascondi/Mostra nuvole e Gestisci nuvole,
+     poi Recinto, Inverti e Ritagli salvati), «Impostazioni» (Avanzate). Icone disegnate da zero in SVG con colori per
+     pannello (ocra e assi RGB, scala termica per l'analisi, indaco/ciano, verde teal, arancione e grigio acciaio),
+     generate da Tools/Icons/make_icons.py (rsvg-convert): il disegno si ritaglia sul contenuto e si ingrandisce fino a
+     riempire l'icona. Con «--install» i PNG da 16 e 32 px vanno in Resources con i nomi di sempre. Il pulsante della
+     visibilita' ora dice «Nascondi nuvole» / «Mostra nuvole». Testi inglesi aggiunti.

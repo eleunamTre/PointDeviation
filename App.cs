@@ -18,8 +18,8 @@ namespace PointDeviation
         private static PushButton _visButton;
         private static PushButton _invertButton;
         private static PushButton _analysisButton;
-        private static RadioButtonGroup _modeGroup;
-        private static readonly Dictionary<DisplayMode, ToggleButton> _modeButtons = new Dictionary<DisplayMode, ToggleButton>();
+        private static SplitButton _modeSplit;
+        private static readonly Dictionary<DisplayMode, PushButton> _modeButtons = new Dictionary<DisplayMode, PushButton>();
         private static Autodesk.Revit.UI.ComboBox _quality;
         private static bool _syncing;
 
@@ -121,14 +121,14 @@ namespace PointDeviation
         {
             try
             {
-                SetText(_visButton, L.T(s.Visible ? "Visibilità" : "Visibilità\n(spente)"));
+                SetText(_visButton, L.T(s.Visible ? "Nascondi\nnuvole" : "Mostra\nnuvole"));
                 SetText(_invertButton, L.T(s.ClipInvert ? "Inverti\n(attivo)" : "Inverti"));
                 SetText(_analysisButton, L.T(s.Display == DisplayMode.Discrepanze ? "Nascondi\nanalisi" : "Mostra\nanalisi"));
 
                 _syncing = true;
                 DisplayMode view = s.Display == DisplayMode.Discrepanze ? s.LastViewMode : s.Display;
-                ToggleButton tb;
-                if (_modeGroup != null && _modeButtons.TryGetValue(view, out tb) && _modeGroup.Current != tb) _modeGroup.Current = tb;
+                PushButton mb;
+                if (_modeSplit != null && _modeButtons.TryGetValue(view, out mb) && _modeSplit.CurrentButton != mb) _modeSplit.CurrentButton = mb;
                 if (_quality != null)
                 {
                     IList<ComboBoxMember> items = _quality.GetItems();
@@ -147,20 +147,46 @@ namespace PointDeviation
 
             string asm = Assembly.GetExecutingAssembly().Location;
 
-            // ---------------------------------------------------------- Inserisci
-            RibbonPanel pInsert = app.CreateRibbonPanel(tabName, L.T("Inserisci"));
-            pInsert.AddItem(Push("LoadCloud", "Libreria\nnuvole", asm, typeof(LoadCloudCommand), "library",
+            // voce 225: ribbon riorganizzata in 5 pannelli, con icone nuove (Tools/Icons/make_icons.py)
+            // ---------------------------------------------------------- Nuvole e rilievo
+            RibbonPanel pCloud = app.CreateRibbonPanel(tabName, L.T("Nuvole e rilievo"));
+            pCloud.AddItem(Push("LoadCloud", "Libreria\nnuvole", asm, typeof(LoadCloudCommand), "library",
                 "Libreria delle nuvole convertite: converte LAS, RCP e RCS una sola volta e le inserisce nel progetto con le opzioni di coordinate."));
+            pCloud.AddItem(Push("Survey", "Coordinate\ndi rilievo", asm, typeof(SurveyCommand), "survey",
+                "Imposta le coordinate condivise del progetto su quelle originali della nuvola selezionata."));
+            pCloud.AddItem(Push("Measure", "Misura\npunti", asm, typeof(MeasureCommand), "measure",
+                "Clicca sui punti della nuvola: vengono creati dei marcatori a cui si agganciano quote e misure di Revit."));
+
+            // ---------------------------------------------------------- Analisi scostamenti
+            RibbonPanel pAnalyze = app.CreateRibbonPanel(tabName, L.T("Analisi scostamenti"));
+            _analysisButton = (PushButton)pAnalyze.AddItem(Push("ShowAnalysis", "Mostra\nanalisi", asm, typeof(ShowAnalysisCommand), "deviation",
+                "Mostra o nasconde i colori dell'analisi. Nascondendola si torna a RGB o quota, e Legenda e Aggiorna si disattivano."));
+            pAnalyze.AddItem(Push("AnalyzeView", "Analizza\nvista", asm, typeof(AnalyzeViewCommand), "analyze_view",
+                "Confronta la nuvola con tutti gli elementi visibili nella vista attiva."));
+            pAnalyze.AddItem(Push("AnalyzeSelection", "Analizza\nselezione", asm, typeof(AnalyzeSelectionCommand), "analyze_sel",
+                "Confronta la nuvola solo con gli elementi selezionati (anche istanze di link). La selezione resta memorizzata per i ricalcoli."));
+            pAnalyze.AddItem(Push("MissingZones", "Zone\nmancanti", asm, typeof(MissingZonesCommand), "missing_zones",
+                "Completezza: raggruppa i punti lontani dal modello in zone (parti rilevate ma non modellate) con superficie stimata, tipo e livello. Zoom e isolamento della zona, esportazione in CSV."));
+            pAnalyze.AddItem(Push("ColorProfiles", "Profili\ncolore", asm, typeof(ColorProfilesCommand), "colormap",
+                "Scegli, modifica o crea i profili: gradiente, tolleranza a fasce, classi, completezza, interferenze."));
+            pAnalyze.AddItem(Push("Recompute", "Aggiorna", asm, typeof(RecomputeCommand), "recompute",
+                "Ricalcola le distanze dopo aver modificato il modello."));
+            pAnalyze.AddStackedItems(
+                Push("Legend", "Legenda", asm, typeof(ToggleLegendCommand), "legend", "Apre o chiude la legenda del profilo attivo."),
+                Push("Settings", "Impostazioni", asm, typeof(ShowCommand), "tolerances",
+                    "Modelli confrontati, profilo colore, nuvola senza modello, punti per le statistiche."));
 
             // ---------------------------------------------------------- Visualizzazione
             RibbonPanel pDisplay = app.CreateRibbonPanel(tabName, L.T("Visualizzazione"));
-            _modeGroup = (RadioButtonGroup)pDisplay.AddItem(new RadioButtonGroupData("DisplayModes"));
+            var modeData = new SplitButtonData("DisplayModes", L.T("Modalità\ncolore"));
+            _modeSplit = (SplitButton)pDisplay.AddItem(modeData);
+            _modeSplit.IsSynchronizedWithCurrentItem = true;
             Action<DisplayMode, string, string, Type, string, string> mode = (m, name, text, cmd, icon, tip) =>
-                _modeButtons[m] = _modeGroup.AddItem(Toggle(name, text, asm, cmd, icon, tip));
+                _modeButtons[m] = _modeSplit.AddPushButton(Push(name, text, asm, cmd, icon, tip));
             mode(DisplayMode.Rgb, "DisplayRgb", "RGB", typeof(DisplayRgbCommand), "rgb", "Colori originali della scansione.");
             mode(DisplayMode.Normali, "DisplayNormals", "Normali", typeof(DisplayNormalsCommand), "normals", "Colori in base all'orientamento delle superfici: rende leggibili forme e spigoli.");
             mode(DisplayMode.XRay, "DisplayXray", "X-ray", typeof(DisplayXrayCommand), "xray", "Punti grigi semitrasparenti: si vede attraverso la nuvola e risalta il modello.");
-            mode(DisplayMode.Nuvola, "DisplayCloud", "Nuvola", typeof(DisplayCloudCommand), "cloud_single", "Un colore per ogni nuvola (si cambia dal pannello Visibilità).");
+            mode(DisplayMode.Nuvola, "DisplayCloud", "Nuvola", typeof(DisplayCloudCommand), "cloud_single", "Un colore per ogni nuvola (si cambia da Gestisci nuvole).");
             mode(DisplayMode.Quota, "DisplayElevation", "Quota", typeof(DisplayElevationCommand), "elevation", "Colori in base all'altezza dei punti, dal basso (blu) all'alto (rosso): fa leggere piani, pendenze, gradini e terreno.");
 
             var qData = new ComboBoxData("Quality") { ToolTip = L.T("Quanti punti disegnare: Automatica si adatta alla vista, Media alleggerisce, Fine mostra più dettaglio.") };
@@ -183,15 +209,13 @@ namespace PointDeviation
                 };
             }
 
-            // ---------------------------------------------------------- Visibilità
-            RibbonPanel pVis = app.CreateRibbonPanel(tabName, L.T("Visibilità"));
-            _visButton = (PushButton)pVis.AddItem(Push("CloudOnOff", "Visibilità", asm, typeof(ToggleVisibilityCommand), "onoff",
+            // ---------------------------------------------------------- Ritaglio e visibilità
+            RibbonPanel pClip = app.CreateRibbonPanel(tabName, L.T("Ritaglio e visibilità"));
+            _visButton = (PushButton)pClip.AddItem(Push("CloudOnOff", "Nascondi\nnuvole", asm, typeof(ToggleVisibilityCommand), "onoff",
                 "Nasconde o mostra le nuvole nella vista attiva (come «Nascondi elemento» di Revit). Le nuvole si gestiscono anche da Visibilità/Grafica e Gestisci collegamenti."));
-            pVis.AddItem(Push("Visibility", "Gestisci", asm, typeof(VisibilityCommand), "visibility",
+            pClip.AddItem(Push("Visibility", "Gestisci\nnuvole", asm, typeof(VisibilityCommand), "visibility",
                 "Elenco delle nuvole del progetto: accendile e spegnile una per una nella vista attiva e scegli il loro colore. Passando col mouse su un nome la nuvola si illumina del suo colore."));
-
-            // ---------------------------------------------------------- Regione di ritaglio
-            RibbonPanel pClip = app.CreateRibbonPanel(tabName, L.T("Regione di ritaglio"));
+            pClip.AddSeparator();
             var fenceData = new PulldownButtonData("Fence", L.T("Recinto"))
             {
                 ToolTip = L.T("Disegna nella vista attiva un recinto: restano i punti dentro (tieni MAIUSC per tenere quelli fuori). Più recinti da viste diverse si sommano."),
@@ -207,34 +231,8 @@ namespace PointDeviation
                 "Premi sul centro e trascina il raggio."));
             _invertButton = (PushButton)pClip.AddItem(Push("ClipInvert", "Inverti", asm, typeof(InvertClipCommand), "clip_invert",
                 "Inverte il ritaglio: mostra ciò che i recinti escludono e nasconde la zona isolata."));
-            pClip.AddItem(Push("ClipManage", "Gestisci", asm, typeof(ClipManagerCommand), "clip_manage",
+            pClip.AddItem(Push("ClipManage", "Ritagli\nsalvati", asm, typeof(ClipManagerCommand), "clip_manage",
                 "Ritagli salvati con un nome e recinti correnti: richiama, accendi, spegni, elimina, torna a tutti i punti."));
-
-            // ---------------------------------------------------------- Analisi
-            RibbonPanel pAnalyze = app.CreateRibbonPanel(tabName, L.T("Analisi"));
-            _analysisButton = (PushButton)pAnalyze.AddItem(Push("ShowAnalysis", "Mostra\nanalisi", asm, typeof(ShowAnalysisCommand), "deviation",
-                "Mostra o nasconde i colori dell'analisi. Nascondendola si torna a RGB o quota, e Legenda e Aggiorna si disattivano."));
-            pAnalyze.AddItem(Push("AnalyzeView", "Analizza\nvista", asm, typeof(AnalyzeViewCommand), "analyze_view",
-                "Confronta la nuvola con tutti gli elementi visibili nella vista attiva."));
-            pAnalyze.AddItem(Push("AnalyzeSelection", "Analizza\nselezione", asm, typeof(AnalyzeSelectionCommand), "analyze_sel",
-                "Confronta la nuvola solo con gli elementi selezionati (anche istanze di link). La selezione resta memorizzata per i ricalcoli."));
-            pAnalyze.AddItem(Push("ColorProfiles", "Profili\ncolore", asm, typeof(ColorProfilesCommand), "colormap",
-                "Scegli, modifica o crea i profili: gradiente, tolleranza a fasce, classi, completezza, interferenze."));
-            pAnalyze.AddItem(Push("MissingZones", "Zone\nmancanti", asm, typeof(MissingZonesCommand), "missing_zones",
-                "Completezza: raggruppa i punti lontani dal modello in zone (parti rilevate ma non modellate) con superficie stimata, tipo e livello. Zoom e isolamento della zona, esportazione in CSV."));
-            pAnalyze.AddItem(Push("Legend", "Legenda", asm, typeof(ToggleLegendCommand), "legend",
-                "Apre o chiude la legenda del profilo attivo."));
-            pAnalyze.AddItem(Push("Recompute", "Aggiorna", asm, typeof(RecomputeCommand), "recompute",
-                "Ricalcola le distanze dopo aver modificato il modello."));
-            pAnalyze.AddItem(Push("Settings", "Impostazioni", asm, typeof(ShowCommand), "settings",
-                "Modelli confrontati, profilo colore, nuvola senza modello, punti per le statistiche."));
-
-            // ---------------------------------------------------------- Strumenti
-            RibbonPanel pTools = app.CreateRibbonPanel(tabName, L.T("Strumenti"));
-            pTools.AddItem(Push("Survey", "Coordinate\ndi rilievo", asm, typeof(SurveyCommand), "survey",
-                "Imposta le coordinate condivise del progetto su quelle originali della nuvola selezionata."));
-            pTools.AddItem(Push("Measure", "Misura\npunti", asm, typeof(MeasureCommand), "measure",
-                "Clicca sui punti della nuvola: vengono creati dei marcatori a cui si agganciano quote e misure di Revit."));
 
             // ---------------------------------------------------------- Impostazioni del plugin
             RibbonPanel pManage = app.CreateRibbonPanel(tabName, L.T("Impostazioni"));
