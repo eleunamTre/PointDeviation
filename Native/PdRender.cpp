@@ -168,6 +168,10 @@ static void Clip4(const float* M, int t, const float* q, float* out)
 static float g_camE[3], g_camD[3], g_camR[3], g_camT = 0, g_camHW = 0;
 static int g_camPersp = 0;
 static long long g_mView = -1;
+// voce 214: generazione della vista (cambia con la vista o con la forma del buffer di Revit). La camera di riferimento
+// per i fotogrammi interrotti vale solo se presa nella generazione corrente: aprendo la {3D} si vedeva per un attimo la
+// nuvola piccola e storta, disegnata con la camera della vista precedente.
+static long g_viewGen = 0, g_refGen = -1;
 static UINT g_mWidth = 0;
 static int g_mForce = 0;
 // voce 198: la disposizione del buffer di Revit cambia da vista a vista (la matrice era alla riga 15 nella vista con il
@@ -175,7 +179,7 @@ static int g_mForce = 0;
 // la dimensione del buffer, la matrice si cerca di nuovo.
 extern "C" __declspec(dllexport) void PdSetView(long long viewId)
 {
-    if (viewId != g_mView) { g_mView = viewId; g_mSlot = -1; g_mForce = 1; }
+    if (viewId != g_mView) { g_mView = viewId; g_mSlot = -1; g_mForce = 1; g_viewGen++; }
 }
 extern "C" __declspec(dllexport) void PdSetCameraInfo(const float* e, const float* d, const float* r, float target, float halfW, int persp)
 {
@@ -329,7 +333,7 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         UINT w = 0; if (b) { D3D11_BUFFER_DESC d; b->GetDesc(&d); w = d.ByteWidth; b->Release(); }
-        if (w != g_mWidth) { g_mSlot = -1; g_mForce = 1; }
+        if (w != g_mWidth) { g_mSlot = -1; g_mForce = 1; g_viewGen++; }
         else if ((g_markers.load() % 30) == 0 && !CheckMatrix(c)) { g_mSlot = -1; g_mForce = 1; }
     }
     if (g_mSlot < 0 && (g_mForce || (g_markers.load() % 30) == 1)) { g_mForce = 0; FindRevitMatrix(c); }
@@ -841,7 +845,13 @@ static bool LikeRef(const float* raw)
     if (fabsf((c0 / c1) / (r0 / r1) - 1) > 0.02f) return false;
     if (fabsf(C[0] * C[4] + C[1] * C[5] + C[2] * C[6]) > 0.02f * c0 * c1) return false;
     float k = c0 / r0;
-    return k > 0.75f && k < 1.33f;
+    if (!(k > 0.75f && k < 1.33f)) return false;
+    // voce 214: stessa scala ma spostata (tassello disegnato con la vista traslata: nuvola in basso a sinistra). Il centro
+    // della nuvola a schermo non puo' saltare di oltre un terzo della finestra da un fotogramma all'altro.
+    float pc[4], pr[4], q[4] = { g_cubePos[0], g_cubePos[1], g_cubePos[2], 1 };
+    for (int r = 0; r < 4; r++) { pc[r] = C[r * 4] * q[0] + C[r * 4 + 1] * q[1] + C[r * 4 + 2] * q[2] + C[r * 4 + 3]; pr[r] = R[r * 4] * q[0] + R[r * 4 + 1] * q[1] + R[r * 4 + 2] * q[2] + R[r * 4 + 3]; }
+    if (!(pc[3] > 1e-6f && pr[3] > 1e-6f)) return false;
+    return fabsf(pc[0] / pc[3] - pr[0] / pr[3]) < 0.66f && fabsf(pc[1] / pc[3] - pr[1] / pr[3]) < 0.66f;
 }
 static int BestValidCand()
 {
@@ -863,7 +873,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         if (b) { g_capBuf = b; b->Release(); }
-        if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; }
+        if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; g_refGen = g_viewGen; }
         ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
         c->OMGetRenderTargets(1, &rtv, &dsv);
         if (rtv) rtv->Release();
@@ -913,7 +923,7 @@ static void FallbackAtPresent(IDXGISwapChain* s)
     const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
     g_nCand = 0; g_cmN = 0;
     if (!g_shaderOn || g_ready.empty() || !g_svs || !g_fbDsv) return;
-    if (!g_hasRef) { g_fbNoMat++; return; }
+    if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; return; }
     ID3D11Texture2D* bb = nullptr;
     if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return;
     ID3D11Resource* dr = nullptr; g_fbDsv->GetResource(&dr);

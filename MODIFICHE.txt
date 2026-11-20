@@ -1104,3 +1104,11 @@ Ottava tornata (28/10/2026): octree
      (stessa proiezione, stesse proporzioni, assi perpendicolari, scala tra 0,75 e 1,33 volte), scritta almeno 2 volte;
      le altre si scartano e si conta quante (registro: «matrici scartate (tasselli)»). Nel registro della 212 la camera
      dedotta era uguale a quella vera in tutti i fotogrammi completi.
+
+214) Disegno con shader: via la nuvola piccola e storta all'apertura della vista e la copia in basso a sinistra.
+     - La camera di riferimento per i fotogrammi interrotti ora vale solo per la vista in cui e' stata presa: cambiando
+       vista (o forma del buffer di Revit) si aspetta il primo fotogramma completo della nuova vista invece di disegnare
+       con la camera della vista precedente (era la nuvola piccola intera e storta vista per un attimo aprendo la {3D}).
+     - Una matrice dedotta dai buffer di Revit si scarta anche se sposta il centro della nuvola a schermo di oltre un
+       terzo della finestra rispetto alla camera vera: erano tasselli con la stessa scala ma traslati, che passavano il
+       controllo della 213 e disegnavano la nuvola in basso a sinistra.
