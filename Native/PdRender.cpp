@@ -684,11 +684,9 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
 // =====================================================================================================================
 static ID3D11Resource* g_capBuf = nullptr;      // buffer di Revit con la matrice (solo per confronto, nessun riferimento)
 static void* g_capPtr = nullptr;
-struct MatCand { float m[32]; int n; };
-static MatCand g_cand[32]; static int g_nCand = 0; static long g_capWrites = 0;
+static long g_capWrites = 0;
 static float g_lastCap[32]; static bool g_hasLastCap = false;
 static float g_refRaw[32]; static bool g_hasRef = false;
-static ID3D11Resource* g_fbRt = nullptr;        // destinazione dell'ultimo fotogramma normale (solo confronto)
 static ID3D11DepthStencilView* g_fbDsv = nullptr;   // con riferimento: va usata nei fotogrammi interrotti
 static D3D11_VIEWPORT g_fbVp = {};
 static UINT g_fbW = 0, g_fbH = 0;
@@ -700,46 +698,11 @@ static int MatFloats() { return g_mOff2 >= 0 ? 32 : 16; }
 static void CaptureWrite(const void* data)
 {
     if (g_mSlot < 0) return;
-    float m[32] = {};
     const float* f = (const float*)data;
-    memcpy(m, f + g_mOff * 4, 64);
-    if (g_mOff2 >= 0) memcpy(m + 16, f + g_mOff2 * 4, 64);
-    int nf = MatFloats();
-    memcpy(g_lastCap, m, sizeof(m)); g_hasLastCap = true;
+    memcpy(g_lastCap, f + g_mOff * 4, 64);
+    if (g_mOff2 >= 0) memcpy(g_lastCap + 16, f + g_mOff2 * 4, 64);
+    g_hasLastCap = true;
     g_capWrites++;
-    for (int i = 0; i < g_nCand; i++)
-        if (memcmp(g_cand[i].m, m, nf * 4) == 0) { g_cand[i].n++; return; }
-    int slot = g_nCand;
-    if (slot >= 32) { slot = 0; for (int i = 1; i < 32; i++) if (g_cand[i].n < g_cand[slot].n) slot = i; if (g_cand[slot].n > 1) return; }
-    else g_nCand++;
-    memcpy(g_cand[slot].m, m, sizeof(m)); g_cand[slot].n = 1;
-}
-
-// matrice composta (per colonne: clip = C * p) dai dati grezzi, con le convenzioni trovate dalla ricerca
-static void Composite(const float* raw, float* C)
-{
-    float A[16], B[16];
-    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) A[r * 4 + k] = (g_mT & 1) ? raw[r * 4 + k] : raw[k * 4 + r];
-    if (g_mOff2 < 0) { memcpy(C, A, 64); return; }
-    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) B[r * 4 + k] = ((g_mT >> 1) & 1) ? raw[16 + r * 4 + k] : raw[16 + k * 4 + r];
-    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++)
-    { float v = 0; for (int j = 0; j < 4; j++) v += B[r * 4 + j] * A[j * 4 + k]; C[r * 4 + k] = v; }
-}
-static float Len3(const float* v) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
-// stessa forma della matrice di riferimento: stesso tipo di proiezione, stesso rapporto tra le scale orizzontale e
-// verticale (proporzioni della finestra), righe orizzontale e verticale perpendicolari
-static bool SameShape(const float* raw, const float* ref)
-{
-    float C[16], R[16];
-    Composite(raw, C); Composite(ref, R);
-    float c0 = Len3(C), c1 = Len3(C + 4), r0 = Len3(R), r1 = Len3(R + 4);
-    if (!(c0 > 0 && c1 > 0 && r0 > 0 && r1 > 0)) return false;
-    bool cPar = Len3(C + 12) < 1e-6f * c0 && fabsf(C[15] - 1) < 1e-3f;
-    bool rPar = Len3(R + 12) < 1e-6f * r0 && fabsf(R[15] - 1) < 1e-3f;
-    if (cPar != rPar) return false;
-    if (fabsf((c0 / c1) / (r0 / r1) - 1) > 0.015f) return false;
-    float d = C[0] * C[4] + C[1] * C[5] + C[2] * C[6];
-    return fabsf(d) <= 0.02f * c0 * c1;
 }
 
 static void ShaderDraw(ID3D11DeviceContext* c)
@@ -753,7 +716,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; }
         ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
         c->OMGetRenderTargets(1, &rtv, &dsv);
-        if (rtv) { ID3D11Resource* r = nullptr; rtv->GetResource(&r); g_fbRt = r; if (r) r->Release(); rtv->Release(); }
+        if (rtv) rtv->Release();
         if (g_fbDsv != dsv) { if (g_fbDsv) g_fbDsv->Release(); g_fbDsv = dsv; } else if (dsv) dsv->Release();
         UINT nv = 1; c->RSGetViewports(&nv, &g_fbVp);
         g_drawnThisFrame = true;
@@ -775,56 +738,53 @@ static void ShaderDraw(ID3D11DeviceContext* c)
 }
 
 // Al Present della finestra della vista: se in questo fotogramma Revit non ha chiamato il plugin, disegna la nuvola qui.
+// Voce 210 (registro 20/11 9:31): Revit disegna la vista in un'immagine a parte (la destinazione del nostro disegno non e'
+// mai l'immagine della finestra: «altre destinazioni» a ogni Present) e il buffer della matrice viene scritto solo per il
+// nostro contenuto (una scrittura per fotogramma), quindi la camera dei fotogrammi interrotti non si puo' ricavare.
+// Ora: la finestra della vista e' quella con l'immagine grande quanto la nostra destinazione; nei fotogrammi interrotti
+// la nuvola si disegna direttamente nell'immagine della finestra, con il buffer di profondita' di Revit e la matrice
+// vera dell'ultimo fotogramma completo (la nuvola puo' restare indietro di qualche fotogramma rispetto al modello).
 static void FallbackAtPresent(IDXGISwapChain* s)
 {
-    if (!g_fbRt || !g_realDev) return;
+    if (!g_realDev || g_fbVp.Width < 1) return;
+    DXGI_SWAP_CHAIN_DESC sd = {};
+    if (FAILED(s->GetDesc(&sd))) return;
+    if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
+    if (g_drawnThisFrame) { g_fbNormal++; g_drawnThisFrame = false; return; }
+    if (!g_shaderOn || g_ready.empty() || !g_svs || !g_fbDsv) return;
+    if (!g_hasRef) { g_fbNoMat++; return; }
     ID3D11Texture2D* bb = nullptr;
     if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return;
-    bool mine = (ID3D11Resource*)bb == g_fbRt;
-    if (!mine) { bb->Release(); g_fbOther++; return; }   // altra finestra o Revit disegna altrove (vedi registro)
-    // fotogramma normale: si confronta la matrice dedotta con quella vera, per sapere quanto ci si puo' fidare
-    int best = -1;
-    for (int i = 0; i < g_nCand; i++) if (best < 0 || g_cand[i].n > g_cand[best].n) best = i;
-    if (g_drawnThisFrame)
+    ID3D11Resource* dr = nullptr; g_fbDsv->GetResource(&dr);
+    D3D11_TEXTURE2D_DESC bd2 = {}, dd2 = {};
+    bb->GetDesc(&bd2);
+    if (dr) { ((ID3D11Texture2D*)dr)->GetDesc(&dd2); dr->Release(); }
+    if (dd2.Width != bd2.Width || dd2.Height != bd2.Height || dd2.SampleDesc.Count != bd2.SampleDesc.Count) { g_fbRejected++; bb->Release(); return; }
+    ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
+    if (!g_fbMat)
     {
-        g_fbNormal++;
-        if (best >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[best].m, g_refRaw, MatFloats() * 4) == 0) g_fbAgree++; }
+        D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 128; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        g_realDev->CreateBuffer(&bd, nullptr, &g_fbMat);
     }
-    else if (g_shaderOn && !g_ready.empty() && g_svs && g_fbDsv)
+    ID3D11RenderTargetView* rtv = nullptr;
+    if (c && g_fbMat && SUCCEEDED(g_realDev->CreateRenderTargetView(bb, nullptr, &rtv)) && rtv)
     {
-        D3D11_TEXTURE2D_DESC td; bb->GetDesc(&td);
-        if (best < 0 || !g_hasRef || g_cand[best].n < 2) g_fbNoMat++;
-        else if (!SameShape(g_cand[best].m, g_refRaw) || (UINT)g_fbVp.Width != td.Width || (UINT)g_fbVp.Height != td.Height) g_fbRejected++;
-        else
+        D3D11_MAPPED_SUBRESOURCE m;
+        if (SUCCEEDED(c->Map(g_fbMat, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
         {
-            ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
-            if (!g_fbMat)
-            {
-                D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 128; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-                g_realDev->CreateBuffer(&bd, nullptr, &g_fbMat);
-            }
-            ID3D11RenderTargetView* rtv = nullptr;
-            if (c && g_fbMat && SUCCEEDED(g_realDev->CreateRenderTargetView(bb, nullptr, &rtv)) && rtv)
-            {
-                D3D11_MAPPED_SUBRESOURCE m;
-                if (SUCCEEDED(c->Map(g_fbMat, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
-                {
-                    memcpy(m.pData, g_cand[best].m, 128);
-                    c->Unmap(g_fbMat, 0);
-                    SavedState st; st.Save(c, true);
-                    c->OMSetRenderTargets(1, &rtv, g_fbDsv);
-                    c->RSSetViewports(1, &g_fbVp);
-                    DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
-                    st.Restore(c);
-                    g_fbDrawn++;
-                }
-                rtv->Release();
-            }
-            if (c) c->Release();
+            memcpy(m.pData, g_refRaw, 128);
+            c->Unmap(g_fbMat, 0);
+            SavedState st; st.Save(c, true);
+            c->OMSetRenderTargets(1, &rtv, g_fbDsv);
+            c->RSSetViewports(1, &g_fbVp);
+            DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
+            st.Restore(c);
+            g_fbDrawn++;
         }
+        rtv->Release();
     }
+    if (c) c->Release();
     bb->Release();
-    g_nCand = 0; g_drawnThisFrame = false;
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -888,10 +848,10 @@ extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, floa
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; fotogrammi presentati: normali %ld, interrotti ridisegnati da noi %ld, interrotti senza matrice %ld, scartati per forma %ld, altre destinazioni %ld; matrice dedotta uguale a quella vera %ld su %ld (%ld scritture lette)%s%s",
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld, interrotti ridisegnati da noi %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld%s%s",
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
-        g_fbNormal, g_fbDrawn, g_fbNoMat, g_fbRejected, g_fbOther, g_fbAgree, g_fbCompared, g_capWrites, g_shErr[0] ? "; errore: " : "", g_shErr);
+        g_fbNormal, g_fbDrawn, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_shErr[0] ? "; errore: " : "", g_shErr);
     g_fbNormal = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0; g_skipMatrix = 0; g_skipEmpty = 0;

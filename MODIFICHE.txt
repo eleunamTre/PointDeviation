@@ -1067,3 +1067,16 @@ Ottava tornata (28/10/2026): octree
        scartati, altre destinazioni (se Revit disegna la vista fuori dalla finestra il ridisegno non parte: lo dice
        questo contatore), e quante volte nei fotogrammi normali la matrice dedotta e' uguale a quella vera.
      Sperimentale: da verificare che la nuvola non tremi rispetto al modello durante la rotazione.
+
+210. Fotogrammi interrotti, seconda prova (registro 20/11 9:31, versione 209: la nuvola spariva ancora).
+     Il registro mostra due cose: Revit disegna la vista in un'immagine a parte e poi la porta nella finestra (la
+     nostra destinazione non era mai l'immagine della finestra: «altre destinazioni» a ogni Present), e il buffer della
+     matrice viene scritto solo per il nostro contenuto (una scrittura per fotogramma), quindi la camera dei fotogrammi
+     interrotti non si ricava da li'.
+     - Nei fotogrammi interrotti la nuvola si disegna direttamente nell'immagine della finestra della vista (quella
+       grande quanto la nostra destinazione), con il buffer di profondita' di Revit e la matrice vera dell'ultimo
+       fotogramma completo. Limite: in quei fotogrammi la nuvola puo' restare indietro rispetto al modello.
+     - Tolta la ricerca della matrice tra i disegni del fotogramma (non trovava nulla).
+     - Shader spento a Revit aperto: errore «InternalException» in FlushBuffer (registro 9:14:52). Con lo shader acceso i
+       buffer di DirectContext3D venivano liberati mentre una preparazione in corso li rimetteva al loro posto; ora non si
+       liberano piu' con lo shader acceso.

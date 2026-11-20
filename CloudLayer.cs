@@ -1052,11 +1052,12 @@ namespace PointDeviation
             for (int i = 0; i < Tiles.Length; i++)
             {
                 TileGpu g = _gpu[i], o = _gpuO[i];
-                // voce 206: con lo shader i buffer di DirectContext3D non servono: si liberano tutti
+                // voce 206: con lo shader i buffer di DirectContext3D non servono. Voce 210: non si liberano piu' qui (registro
+                // del 20/11 9:14: spento lo shader, FlushBuffer falliva con InternalException su buffer gia' liberati
+                // mentre una preparazione in corso li rimetteva al loro posto); restano finche' il disegno di sempre
+                // non li libera con le sue regole, e la memoria dei punti si libera come prima
                 if (shaderOnly)
                 {
-                    if (g != null) { g.Dispose(); _gpu[i] = null; }
-                    if (o != null) { o.Dispose(); _gpuO[i] = null; }
                     if (want[i] <= 0 && Cpu[i] != null && now - _wantTick[i] > memKeep && Volatile.Read(ref Pending[i]) == 0) Cpu[i] = null;
                     continue;
                 }
