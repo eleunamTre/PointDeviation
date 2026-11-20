@@ -75,7 +75,12 @@ Da fare:
 - (fatto) Eliminare i ricaricamenti visibili all'apertura delle finestre: contenuto costruito prima di mostrare la
   finestra (Profili colore), doppio buffer e prima comparsa disegnata fuori schermo per tutte le finestre
   (MODIFICHE 127–129). Da confermare sull'uso quotidiano.
-- Armonizzare scelte grafiche e icone (stile, spessori, colori, dimensioni 16/32) su tutta la barra.
+- (fatto) Barra riorganizzata in pannelli e icone ridisegnate in stile Revit (MODIFICHE 225–226).
+- Grafica personalizzata delle finestre e delle schede del plugin (Libreria nuvole con le schede delle nuvole, Profili
+  colore, Zone mancanti, Impostazioni, Aspetto, Legenda...), da uniformare alla barra nuova: stessa palette (grigi,
+  accento blu, arancione solo per i punti), stesse icone e linee sottili, intestazioni, pulsanti, spaziature e
+  caratteri coerenti (base: UiTheme.cs). Obiettivo: un'identità propria del prodotto, distinta dal concorrente, che
+  resti comunque coerente con l'interfaccia di Revit.
 
 ## 4. Verifiche
 - Nuvola da qualche centinaio di milioni di punti (conversione e navigazione).
