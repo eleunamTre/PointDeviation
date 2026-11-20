@@ -1306,3 +1306,14 @@ Ottava tornata (28/10/2026): octree
 
 235) Correzione della compilazione della 234: in HybridServer.RenderScene la variabile del tempo per il diario si
      chiamava f3 come un'altra piu' avanti nello stesso metodo (errore CS0136). Rinominata fd.
+
+236) Scatti e «refresh» durante la navigazione: primo risultato del diario dei fotogrammi (20/11 16:56-17:00, video
+     dalle 16:57:58). Su 881 fotogrammi, il 97% del nostro tempo di disegno (31,8 s su 32,9) era nei caricamenti dei
+     blocchi nella scheda video: circa 120 ms per milione di punti, sul thread di Revit. Tutti i 156 fotogrammi oltre
+     50 ms contenevano un caricamento (fino a 2,5 s con il limite di 12 M della 234 dopo il cambio di stile); senza
+     caricamenti il disegno costa 1-2 ms. Ora i blocchi da caricare si scelgono prima (stesso ordine e stesso limite di
+     punti), i loro punti si preparano in parallelo su tutti i processori a gruppi di 2 M punti e poi si caricano uno
+     dopo l'altro. Limite dopo un cambio di stile 6 M (era 12 M). Nel diario «caricati» e «ms_disegno» mostrano l'effetto.
+     Altro dal diario: memoria della scheda video stabile (400-700 MB), nessun salto per matrice, 50 Present di altre
+     finestre; memoria privata di Revit da 2,2 a 4,5 GB in 3 minuti (heap .NET da 0,5 a 1,9 GB, soprattutto durante
+     l'analisi): da tenere d'occhio.

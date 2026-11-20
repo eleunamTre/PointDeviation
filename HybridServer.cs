@@ -278,10 +278,10 @@ namespace PointDeviation
                         long uploadBudget = budget.Moving ? 1500000 : 3000000;
                         // voce 234: accendendo o spegnendo l'analisi (o cambiando colori, profilo, modalita') ogni blocco si
                         // ricarica con i colori nuovi, 1,5-3 M punti per fotogramma: la nuvola cambiava colore a pezzi per
-                        // qualche secondo (video del 20/11 15:54). Per 3 s dopo un cambio di stile il limite sale a 12 M.
+                        // qualche secondo (video del 20/11 15:54). Per 3 s dopo un cambio di stile il limite sale a 6 M.
                         long nowTick = Environment.TickCount;
                         if (st.Version != _lastStyleVer) { _lastStyleVer = st.Version; _styleBoostUntil = nowTick + 3000; }
-                        if (nowTick - _styleBoostUntil < 0) uploadBudget = 12000000;
+                        if (nowTick - _styleBoostUntil < 0) uploadBudget = 6000000;   // voce 236: era 12 M (fotogrammi fino a 2,5 s)
                         long drawBudget = shaderCap;
                         // voce 229: in movimento il livello di dettaglio resta quello di fermo (CloudLayer.DesiredOctree) e i
                         // punti chiesti superano il limite: si riducono tutti i blocchi in proporzione

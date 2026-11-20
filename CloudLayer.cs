@@ -1572,7 +1572,6 @@ namespace PointDeviation
         private bool[] _nAdded;
         private List<int> _nMissing;
         private long _nUpTotal;
-        private byte[] _nBuf = new byte[0];
 
         /// <summary>
         /// Disegno con shader (Avanzate › «Disegno con shader»): i blocchi scelti si caricano una volta nella scheda video
@@ -1603,6 +1602,7 @@ namespace PointDeviation
             bool hl = Highlighted;
             int nodes = 0, notLoaded = 0, notBuilt = 0; long pts = 0;
             StatUploadPts = 0; StatUploadBlocks = 0;
+            ShaderUploadAll(st, want, argb, hl, ref uploadBudget);
             for (int i = 0; i < n; i++)
             {
                 TileCpu cpu = Volatile.Read(ref Cpu[i]);
@@ -1622,21 +1622,11 @@ namespace PointDeviation
                 // voce 206: distanze o normali non ancora pronte: si disegna quello che c'era (o l'antenato), si carica
                 // quando sono pronte (prima si caricava subito, con i colori sbagliati)
                 bool rdy = ReadyFor(cpu, st);
-                long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L) ^ (rdy ? 1L << 48 : 0L);
                 if (!rdy && _nUp[i] == null) { notBuilt++; _nMissing.Add(i); continue; }
-                if (rdy && (_nUp[i] != cpu || _nUpCount[i] != cpu.Count || _nUpKey[i] != key))
-                {
-                    if (uploadBudget <= 0) { if (_nUp[i] == null) { notBuilt++; _nMissing.Add(i); continue; } }
-                    else
-                    {
-                        int up = ShaderUpload(i, cpu, st, argb, hl);
-                        if (up < 0) { notBuilt++; _nMissing.Add(i); continue; }
-                        uploadBudget -= cpu.Count;
-                        StatUploadPts += up; StatUploadBlocks++;
-                        _nUpTotal += up - _nUpPts[i];
-                        _nUp[i] = cpu; _nUpCount[i] = cpu.Count; _nUpKey[i] = key; _nUpPts[i] = up;
-                    }
-                }
+                if (_upFail[i]) { notBuilt++; _nMissing.Add(i); continue; }
+                // voce 236: i caricamenti li fa ShaderUploadAll prima di questo giro; un blocco ancora da aggiornare (limite
+                // del fotogramma raggiunto) si disegna con la versione di prima, se c'e'
+                if (rdy && _nUp[i] == null) { notBuilt++; _nMissing.Add(i); continue; }
                 int cnt = _nUpCount[i];
                 if (cnt <= 0 || _nUpPts[i] <= 0) continue;
                 int w = Math.Min(want[i], cnt);
@@ -1680,11 +1670,69 @@ namespace PointDeviation
         }
 
         /// <summary>Prepara e carica i punti di un blocco; restituisce i punti caricati (-1 = non riuscito).</summary>
-        private unsafe int ShaderUpload(int i, TileCpu cpu, Style st, int argb, bool hl)
+        // voce 236 (diario dei fotogrammi del 20/11 16:56): il 97% del nostro tempo di disegno erano i caricamenti nella
+        // scheda video, circa 120 ms per milione di punti sul thread di Revit (preparazione punto per punto: posizione nel
+        // modello, ritaglio, colore). Ogni fotogramma oltre 50 ms (156 su 881) ne conteneva uno: erano gli scatti e il
+        // «refresh» durante la navigazione. Ora si scelgono prima i blocchi da caricare (stesso ordine e stesso limite di
+        // punti), i loro punti si preparano in parallelo su tutti i processori a gruppi di 2 M punti, e poi si caricano
+        // uno dopo l'altro (le chiamate DirectX restano sul thread di Revit).
+        private readonly List<int> _upIdx = new List<int>();
+        private readonly List<TileCpu> _upCpu = new List<TileCpu>();
+        private readonly List<long> _upKey = new List<long>();
+        private readonly List<byte[]> _upBuf = new List<byte[]>();
+        private int[] _upW = new int[0];
+        private bool[] _upFail = new bool[0];
+
+        private void ShaderUploadAll(Style st, int[] want, int argb, bool hl, ref long uploadBudget)
+        {
+            int n = Tiles.Length;
+            if (_upFail.Length != n) _upFail = new bool[n]; else Array.Clear(_upFail, 0, n);
+            _upIdx.Clear(); _upCpu.Clear(); _upKey.Clear();
+            for (int i = 0; i < n && uploadBudget > 0; i++)
+            {
+                if (want[i] <= 0) continue;
+                TileCpu cpu = Volatile.Read(ref Cpu[i]);
+                if (cpu == null || !ReadyFor(cpu, st)) continue;
+                long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L) ^ (1L << 48);
+                if (_nUp[i] == cpu && _nUpCount[i] == cpu.Count && _nUpKey[i] == key) continue;
+                _upIdx.Add(i); _upCpu.Add(cpu); _upKey.Add(key);
+                uploadBudget -= cpu.Count;
+            }
+            int s0 = 0;
+            while (s0 < _upIdx.Count)
+            {
+                int s1 = s0; long acc = 0;
+                while (s1 < _upIdx.Count && (s1 == s0 || acc + _upCpu[s1].Count <= 2000000)) { acc += _upCpu[s1].Count; s1++; }
+                int m = s1 - s0;
+                if (_upW.Length < m) _upW = new int[m];
+                while (_upBuf.Count < m) _upBuf.Add(new byte[0]);
+                for (int j = 0; j < m; j++) { int need = _upCpu[s0 + j].Count * 16; if (_upBuf[j].Length < need) _upBuf[j] = new byte[need]; }
+                int b0 = s0;
+                if (m == 1) _upW[0] = ShaderPrepare(_upIdx[b0], _upCpu[b0], st, argb, hl, _upBuf[0]);
+                else Parallel.For(0, m, j => { _upW[j] = ShaderPrepare(_upIdx[b0 + j], _upCpu[b0 + j], st, argb, hl, _upBuf[j]); });
+                for (int j = 0; j < m; j++)
+                {
+                    int i = _upIdx[s0 + j], w = _upW[j];
+                    TileCpu cpu = _upCpu[s0 + j];
+                    int up;
+                    if (w == 0) { NativeProbe.Free(NativeId, i); up = 0; }
+                    else up = NativeProbe.Upload(NativeId, i, _upBuf[j], w) ? w : -1;
+                    if (up < 0) { _upFail[i] = true; continue; }
+                    StatUploadPts += up; StatUploadBlocks++;
+                    _nUpTotal += up - _nUpPts[i];
+                    _nUp[i] = cpu; _nUpCount[i] = cpu.Count; _nUpKey[i] = _upKey[s0 + j]; _nUpPts[i] = up;
+                }
+                s0 = s1;
+            }
+            // memoria dei gruppi: oltre 64 MB si libera (dopo un caricamento grande, es. cambio di stile)
+            long held = 0; foreach (byte[] b in _upBuf) held += b.Length;
+            if (held > (64L << 20)) _upBuf.Clear();
+        }
+
+        /// <summary>Prepara i punti di un blocco nel formato della libreria (16 byte l'uno); restituisce quanti.</summary>
+        private unsafe int ShaderPrepare(int i, TileCpu cpu, Style st, int argb, bool hl, byte[] buf)
         {
             int cnt = cpu.Count;
-            if (_nBuf.Length < cnt * 16) _nBuf = new byte[Math.Max(cnt * 16, 16 * 20000)];
-            byte[] buf = _nBuf;
             int w = 0;
             for (int k = 0; k < cnt; k++)
             {
@@ -1704,8 +1752,7 @@ namespace PointDeviation
                 }
                 w++;
             }
-            if (w == 0) { NativeProbe.Free(NativeId, i); return 0; }
-            return NativeProbe.Upload(NativeId, i, buf, w) ? w : -1;
+            return w;
         }
 
         public void DrawAll(Style st, int[] want)
