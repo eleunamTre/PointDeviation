@@ -130,7 +130,13 @@ namespace PointDeviation
                 // tanto e i punti risultavano piu' grandi del normale
                 float maxPx = (float)Math.Max(1.0, 2.5 * Math.Max(st.PointScale, 20) / 100.0);
                 // voce 217: trasparenza e X-ray come nel disegno di sempre (stessa correzione per i punti sovrapposti)
-                PdSetAlpha(st.NeedsTransparentPass ? (float)(1.0 - st.DrawTransparency) : 1f);
+                // voce 231: con la trasparenza la nuvola sembra piena dove molti punti si sovrappongono nello stesso pixel
+                // (da lontano, VistaIniziale): disegnandone una frazione in movimento (LastScale) la sovrapposizione cala e
+                // la nuvola sembra piu' rada e chiara, poi da ferma «si riempie». Si compensa l'opacita' del singolo punto:
+                // con n strati l'opacita' e' 1-(1-a)^n, con f*n strati serve a' = 1-(1-a)^(1/f).
+                double a = st.NeedsTransparentPass ? 1.0 - st.DrawTransparency : 1.0;
+                if (a < 1 && LastScale > 0 && LastScale < 1) a = 1 - Math.Pow(1 - a, 1 / LastScale);
+                PdSetAlpha((float)Math.Min(1.0, a));
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }

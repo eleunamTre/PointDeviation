@@ -1261,3 +1261,10 @@ Ottava tornata (28/10/2026): octree
      trasparenza la nuvola sta solo nell'immagine della finestra. Ora nei fotogrammi parziali, se c'e' la profondita'
      intera del fotogramma precedente con la stessa camera, la nuvola si ridisegna su tutta la finestra con quella;
      il rettangolo si usa solo se quella copia non c'e' (o se in quel fotogramma se n'e' dovuta prendere una nuova).
+
+231) VistaIniziale: differenza tra zoom e camera ferma (come nella {3D} prima della 229), con trasparenza al 42%. La vista
+     inquadra tutto l'edificio: in movimento si disegna meno della meta' dei punti chiesti (registro: «punti chiesti
+     disegnati» 41-58%). Da lontano molti punti cadono nello stesso pixel e hanno gia' la grandezza minima, quindi
+     togliendone non si ingrandiscono: con la trasparenza cala la sovrapposizione e la nuvola sembra piu' rada e chiara,
+     poi da ferma torna piena. Ora l'opacita' del singolo punto si compensa con la frazione disegnata
+     (a' = 1-(1-a)^(1/f)), cosi' l'aspetto complessivo resta simile tra movimento e pausa.
