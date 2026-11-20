@@ -816,6 +816,45 @@ static void CamUnmap(ID3D11Resource* r)
 }
 static int BestCand() { int b = -1; for (int i = 0; i < g_nCand; i++) if (b < 0 || g_cand[i].n > g_cand[b].n) b = i; return b; }
 
+// voce 213: nei fotogrammi interrotti la matrice piu' scritta a volte non e' la camera della vista intera ma quella di un
+// riquadro (Revit disegna a tasselli: la matrice ingrandisce un pezzo della vista a tutto schermo) e la nuvola compariva
+// ingrandita in basso a sinistra (video del 20/11 10:18). Si accetta solo una matrice con la stessa forma e quasi la
+// stessa scala di quella vera dell'ultimo fotogramma completo: proiezione dello stesso tipo, stesse proporzioni, assi
+// perpendicolari, scala tra 0,75 e 1,33 volte.
+static long g_camRejected = 0;
+static void ColForm(const float* raw, float* C)
+{
+    float A[16], B[16];
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) A[r * 4 + k] = (g_mT & 1) ? raw[r * 4 + k] : raw[k * 4 + r];
+    if (g_mOff2 < 0) { memcpy(C, A, 64); return; }
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) B[r * 4 + k] = ((g_mT >> 1) & 1) ? raw[16 + r * 4 + k] : raw[16 + k * 4 + r];
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = 0; for (int j = 0; j < 4; j++) v += B[r * 4 + j] * A[j * 4 + k]; C[r * 4 + k] = v; }
+}
+static float L3(const float* v) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+static bool LikeRef(const float* raw)
+{
+    float C[16], R[16]; ColForm(raw, C); ColForm(g_refRaw, R);
+    float c0 = L3(C), c1 = L3(C + 4), r0 = L3(R), r1 = L3(R + 4);
+    if (!(c0 > 0 && c1 > 0 && r0 > 0 && r1 > 0)) return false;
+    bool cPar = L3(C + 12) < 1e-6f * c0, rPar = L3(R + 12) < 1e-6f * r0;
+    if (cPar != rPar) return false;
+    if (fabsf((c0 / c1) / (r0 / r1) - 1) > 0.02f) return false;
+    if (fabsf(C[0] * C[4] + C[1] * C[5] + C[2] * C[6]) > 0.02f * c0 * c1) return false;
+    float k = c0 / r0;
+    return k > 0.75f && k < 1.33f;
+}
+static int BestValidCand()
+{
+    int b = -1;
+    for (int i = 0; i < g_nCand; i++)
+    {
+        if (g_cand[i].n < 2) continue;
+        if (!LikeRef(g_cand[i].m)) { g_camRejected++; continue; }
+        if (b < 0 || g_cand[i].n > g_cand[b].n) b = i;
+    }
+    return b;
+}
+
 static void ShaderDraw(ID3D11DeviceContext* c)
 {
     // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
@@ -870,8 +909,8 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         return;
     }
     g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
-    int best = BestCand();
-    const float* camNow = (best >= 0 && g_cand[best].n >= 3) ? g_cand[best].m : nullptr;
+    int best = g_hasRef ? BestValidCand() : -1;
+    const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
     g_nCand = 0; g_cmN = 0;
     if (!g_shaderOn || g_ready.empty() || !g_svs || !g_fbDsv) return;
     if (!g_hasRef) { g_fbNoMat++; return; }
@@ -972,12 +1011,12 @@ extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, floa
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld, interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld, interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, matrici scartate (tasselli) %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
-        g_fbNormal, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+        g_fbNormal, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     g_fbNormal = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
-    g_camUsed = g_camStale = 0;
+    g_camUsed = g_camStale = g_camRejected = 0;
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0; g_skipMatrix = 0; g_skipEmpty = 0;
     return 1;
