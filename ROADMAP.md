@@ -1,5 +1,19 @@
 # PointDeviation – roadmap
 
+## 0. Disegno con shader – da fare
+- **Profondita' propria della nuvola** (prossimo intervento sul disegno). Oggi la nuvola opaca scrive i suoi punti nel
+  buffer di profondita' di Revit: Revit poi considera «nascosti» le maniglie del riquadro di sezione, le quote e gli
+  altri elementi di controllo che stanno dietro un punto e li disegna sbiaditi, e trovare la maniglia da trascinare
+  diventa difficile. Soluzione: un buffer di profondita' nostro per l'ordine dei punti tra loro, mentre quello di Revit
+  si legge soltanto (perche' i muri coprano la nuvola) senza scriverci; maniglie e riquadro restano pieni sopra la
+  nuvola. Da verificare: lettura del buffer di Revit come texture (formato R24G8), fotogrammi interrotti e parziali
+  (selezione), VistaIniziale, trasparenza e raggi X.
+- Zoom molto rapido e ravvicinato: per circa mezzo secondo la nuvola e' quasi vuota (blocchi fini non ancora letti,
+  quelli grossolani al loro posto sono pochi puntini). Possibili rimedi: caricare prima i blocchi verso cui si zooma,
+  punti piu' grandi per i blocchi grossolani usati come sostituti.
+- Con la trasparenza la nuvola puo' passare davanti agli elementi selezionati (Revit li disegna con una profondita' a
+  parte).
+
 ## 1. Formati
 - **E57** (lettura diretta, anche con più scansioni e colori/intensità) – fatto e provato su un rilievo reale
   (4 scansioni, 49 M punti: conversione in 110 s, allineato all'RCP dello stesso rilievo).
