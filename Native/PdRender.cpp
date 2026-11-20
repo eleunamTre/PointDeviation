@@ -589,33 +589,44 @@ extern "C" __declspec(dllexport) void PdSetClip(int on, const float* planes)
     g_clipOn = on ? 1 : 0;
     if (on) memcpy(g_clip, planes, sizeof(g_clip));
 }
-static void ShaderDraw(ID3D11DeviceContext* c)
+// Stato di Revit salvato e rimesso attorno al nostro disegno
+struct SavedState
 {
-    // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
-    if (!EnsureMatrix(c)) { g_skipMatrix++; return; }
-    if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
-    ID3D11Device* dev = nullptr; c->GetDevice(&dev);
-    if (!dev) return;
-    bool ok = ShaderInit(dev);
-    dev->Release();
-    if (!ok) return;
-    ID3D11Buffer* rcb = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &rcb);
-    if (!rcb) return;
-    D3D11_VIEWPORT vp; UINT nv = 1; c->RSGetViewports(&nv, &vp);
-    if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
-    // stato di Revit
-    ID3D11InputLayout* il = nullptr; c->IAGetInputLayout(&il);
-    ID3D11Buffer* ib = nullptr; DXGI_FORMAT ifmt; UINT io = 0; c->IAGetIndexBuffer(&ib, &ifmt, &io);
-    D3D11_PRIMITIVE_TOPOLOGY topo; c->IAGetPrimitiveTopology(&topo);
-    ID3D11VertexShader* ovs = nullptr; c->VSGetShader(&ovs, nullptr, nullptr);
-    ID3D11PixelShader* ops = nullptr; c->PSGetShader(&ops, nullptr, nullptr);
-    ID3D11GeometryShader* ogs = nullptr; c->GSGetShader(&ogs, nullptr, nullptr);
-    ID3D11Buffer* vcbs[2] = {}; c->VSGetConstantBuffers(0, 2, vcbs);
-    ID3D11ShaderResourceView* vsrv = nullptr; c->VSGetShaderResources(0, 1, &vsrv);
-    ID3D11DepthStencilState* dss = nullptr; UINT sref = 0; c->OMGetDepthStencilState(&dss, &sref);
-    ID3D11RasterizerState* rs = nullptr; c->RSGetState(&rs);
-    ID3D11BlendState* bs = nullptr; FLOAT bf[4]; UINT sm = 0; c->OMGetBlendState(&bs, bf, &sm);
-    // nostro disegno
+    ID3D11InputLayout* il = nullptr; ID3D11Buffer* ib = nullptr; DXGI_FORMAT ifmt = DXGI_FORMAT_UNKNOWN; UINT io = 0;
+    D3D11_PRIMITIVE_TOPOLOGY topo = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+    ID3D11VertexShader* vs = nullptr; ID3D11PixelShader* ps = nullptr; ID3D11GeometryShader* gs = nullptr;
+    ID3D11Buffer* vcbs[2] = {}; ID3D11ShaderResourceView* vsrv = nullptr;
+    ID3D11DepthStencilState* dss = nullptr; UINT sref = 0; ID3D11RasterizerState* rs = nullptr;
+    ID3D11BlendState* bs = nullptr; FLOAT bf[4] = {}; UINT sm = 0;
+    bool target = false; ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
+    D3D11_VIEWPORT vps[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]; UINT nvp = 0;
+    void Save(ID3D11DeviceContext* c, bool withTarget)
+    {
+        c->IAGetInputLayout(&il); c->IAGetIndexBuffer(&ib, &ifmt, &io); c->IAGetPrimitiveTopology(&topo);
+        c->VSGetShader(&vs, nullptr, nullptr); c->PSGetShader(&ps, nullptr, nullptr); c->GSGetShader(&gs, nullptr, nullptr);
+        c->VSGetConstantBuffers(0, 2, vcbs); c->VSGetShaderResources(0, 1, &vsrv);
+        c->OMGetDepthStencilState(&dss, &sref); c->RSGetState(&rs); c->OMGetBlendState(&bs, bf, &sm);
+        target = withTarget;
+        if (withTarget) { c->OMGetRenderTargets(1, &rtv, &dsv); nvp = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE; c->RSGetViewports(&nvp, vps); }
+    }
+    void Restore(ID3D11DeviceContext* c)
+    {
+        c->IASetInputLayout(il); c->IASetIndexBuffer(ib, ifmt, io); c->IASetPrimitiveTopology(topo);
+        c->VSSetShader(vs, nullptr, 0); c->PSSetShader(ps, nullptr, 0); c->GSSetShader(gs, nullptr, 0);
+        c->VSSetConstantBuffers(0, 2, vcbs); c->VSSetShaderResources(0, 1, &vsrv);
+        c->OMSetDepthStencilState(dss, sref); c->RSSetState(rs); c->OMSetBlendState(bs, bf, sm);
+        if (target) { c->OMSetRenderTargets(1, &rtv, dsv); if (nvp > 0) c->RSSetViewports(nvp, vps); }
+        if (il) il->Release(); if (ib) ib->Release();
+        if (vs) vs->Release(); if (ps) ps->Release(); if (gs) gs->Release();
+        if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release(); if (vsrv) vsrv->Release();
+        if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
+        if (rtv) rtv->Release(); if (dsv) dsv->Release();
+    }
+};
+
+// Disegno dei punti in g_ready con la matrice in matBuf (righe off..off+3, e off2..off2+3 se c'e' la seconda).
+static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off, int t, int off2, int t2, const D3D11_VIEWPORT& vp)
+{
     int qk = GpuBegin(c);
     c->IASetInputLayout(nullptr);
     c->IASetIndexBuffer(g_quadIb, DXGI_FORMAT_R32_UINT, 0);
@@ -623,7 +634,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     c->VSSetShader(g_svs, nullptr, 0);
     c->PSSetShader(g_sps, nullptr, 0);
     c->GSSetShader(nullptr, nullptr, 0);
-    ID3D11Buffer* ours[2] = { g_scb, rcb };
+    ID3D11Buffer* ours[2] = { g_scb, matBuf };
     c->VSSetConstantBuffers(0, 2, ours);
     c->OMSetDepthStencilState(g_sdss, 0);
     c->RSSetState(g_srs);
@@ -642,11 +653,11 @@ static void ShaderDraw(ID3D11DeviceContext* c)
             if (SUCCEEDED(c->Map(g_scb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
             {
                 int* in = (int*)m.pData; float* f = (float*)m.pData;
-                in[0] = 1; in[1] = g_mOff; in[2] = g_mT & 1; in[3] = planes;
+                in[0] = 1; in[1] = off; in[2] = t; in[3] = planes;
                 f[4] = it.spacing * g_shScale; f[5] = vp.Width; f[6] = vp.Height; f[7] = g_shMaxPx;
                 memcpy(f + 8, g_clip, sizeof(g_clip));
                 // voce 205: seconda matrice (vista e proiezione separate nel buffer di Revit), come nel cubo di prova
-                in[32] = g_mOff2; in[33] = (g_mT >> 1) & 1; in[34] = 0; in[35] = 0;
+                in[32] = off2; in[33] = t2; in[34] = 0; in[35] = 0;
                 c->Unmap(g_scb, 0);
             }
             lastSp = it.spacing;
@@ -660,23 +671,160 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         g_shDrawn++; g_shPoints += it.count;
     }
     GpuEnd(c, qk);
-    // stato di Revit di nuovo al suo posto
-    c->IASetInputLayout(il);
-    c->IASetIndexBuffer(ib, ifmt, io);
-    c->IASetPrimitiveTopology(topo);
-    c->VSSetShader(ovs, nullptr, 0);
-    c->PSSetShader(ops, nullptr, 0);
-    c->GSSetShader(ogs, nullptr, 0);
-    c->VSSetConstantBuffers(0, 2, vcbs);
-    c->VSSetShaderResources(0, 1, &vsrv);
-    c->OMSetDepthStencilState(dss, sref);
-    c->RSSetState(rs);
-    c->OMSetBlendState(bs, bf, sm);
-    if (il) il->Release(); if (ib) ib->Release();
-    if (ovs) ovs->Release(); if (ops) ops->Release(); if (ogs) ogs->Release();
-    if (vcbs[0]) vcbs[0]->Release(); if (vcbs[1]) vcbs[1]->Release(); if (vsrv) vsrv->Release();
-    if (dss) dss->Release(); if (rs) rs->Release(); if (bs) bs->Release();
+}
+
+// =====================================================================================================================
+// Voce 209: fotogrammi interrotti da Revit. Con «Allow navigation during redraw» (attiva di serie) Revit, mentre ci si
+// muove, mostra fotogrammi in cui non ha finito di disegnare e non ha chiamato il plugin: la nuvola sparisce (video e
+// registro del 20/11; spegnendo l'opzione non sparisce piu'). In quei fotogrammi la nuvola si disegna noi, subito prima
+// che Revit presenti l'immagine (Present), nella stessa destinazione e con lo stesso buffer di profondita' dell'ultimo
+// fotogramma normale. La camera di quel fotogramma si ricava dal buffer di Revit: a ogni scrittura (Map/Unmap) del
+// buffer che contiene la matrice si legge la matrice scritta; quella usata da piu' disegni del fotogramma e' la
+// trasformazione del modello. Si accetta solo se ha la stessa forma della matrice dell'ultimo fotogramma normale.
+// =====================================================================================================================
+static ID3D11Resource* g_capBuf = nullptr;      // buffer di Revit con la matrice (solo per confronto, nessun riferimento)
+static void* g_capPtr = nullptr;
+struct MatCand { float m[32]; int n; };
+static MatCand g_cand[32]; static int g_nCand = 0; static long g_capWrites = 0;
+static float g_lastCap[32]; static bool g_hasLastCap = false;
+static float g_refRaw[32]; static bool g_hasRef = false;
+static ID3D11Resource* g_fbRt = nullptr;        // destinazione dell'ultimo fotogramma normale (solo confronto)
+static ID3D11DepthStencilView* g_fbDsv = nullptr;   // con riferimento: va usata nei fotogrammi interrotti
+static D3D11_VIEWPORT g_fbVp = {};
+static UINT g_fbW = 0, g_fbH = 0;
+static bool g_drawnThisFrame = false;
+static ID3D11Buffer* g_fbMat = nullptr;
+static long g_fbNormal = 0, g_fbDrawn = 0, g_fbNoMat = 0, g_fbOther = 0, g_fbAgree = 0, g_fbCompared = 0, g_fbRejected = 0;
+static int MatFloats() { return g_mOff2 >= 0 ? 32 : 16; }
+
+static void CaptureWrite(const void* data)
+{
+    if (g_mSlot < 0) return;
+    float m[32] = {};
+    const float* f = (const float*)data;
+    memcpy(m, f + g_mOff * 4, 64);
+    if (g_mOff2 >= 0) memcpy(m + 16, f + g_mOff2 * 4, 64);
+    int nf = MatFloats();
+    memcpy(g_lastCap, m, sizeof(m)); g_hasLastCap = true;
+    g_capWrites++;
+    for (int i = 0; i < g_nCand; i++)
+        if (memcmp(g_cand[i].m, m, nf * 4) == 0) { g_cand[i].n++; return; }
+    int slot = g_nCand;
+    if (slot >= 32) { slot = 0; for (int i = 1; i < 32; i++) if (g_cand[i].n < g_cand[slot].n) slot = i; if (g_cand[slot].n > 1) return; }
+    else g_nCand++;
+    memcpy(g_cand[slot].m, m, sizeof(m)); g_cand[slot].n = 1;
+}
+
+// matrice composta (per colonne: clip = C * p) dai dati grezzi, con le convenzioni trovate dalla ricerca
+static void Composite(const float* raw, float* C)
+{
+    float A[16], B[16];
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) A[r * 4 + k] = (g_mT & 1) ? raw[r * 4 + k] : raw[k * 4 + r];
+    if (g_mOff2 < 0) { memcpy(C, A, 64); return; }
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) B[r * 4 + k] = ((g_mT >> 1) & 1) ? raw[16 + r * 4 + k] : raw[16 + k * 4 + r];
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++)
+    { float v = 0; for (int j = 0; j < 4; j++) v += B[r * 4 + j] * A[j * 4 + k]; C[r * 4 + k] = v; }
+}
+static float Len3(const float* v) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+// stessa forma della matrice di riferimento: stesso tipo di proiezione, stesso rapporto tra le scale orizzontale e
+// verticale (proporzioni della finestra), righe orizzontale e verticale perpendicolari
+static bool SameShape(const float* raw, const float* ref)
+{
+    float C[16], R[16];
+    Composite(raw, C); Composite(ref, R);
+    float c0 = Len3(C), c1 = Len3(C + 4), r0 = Len3(R), r1 = Len3(R + 4);
+    if (!(c0 > 0 && c1 > 0 && r0 > 0 && r1 > 0)) return false;
+    bool cPar = Len3(C + 12) < 1e-6f * c0 && fabsf(C[15] - 1) < 1e-3f;
+    bool rPar = Len3(R + 12) < 1e-6f * r0 && fabsf(R[15] - 1) < 1e-3f;
+    if (cPar != rPar) return false;
+    if (fabsf((c0 / c1) / (r0 / r1) - 1) > 0.015f) return false;
+    float d = C[0] * C[4] + C[1] * C[5] + C[2] * C[6];
+    return fabsf(d) <= 0.02f * c0 * c1;
+}
+
+static void ShaderDraw(ID3D11DeviceContext* c)
+{
+    // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
+    if (!EnsureMatrix(c)) { g_skipMatrix++; return; }
+    // voce 209: buffer della matrice, destinazione e profondita' di questo fotogramma normale, per i fotogrammi interrotti
+    {
+        ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
+        if (b) { g_capBuf = b; b->Release(); }
+        if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; }
+        ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
+        c->OMGetRenderTargets(1, &rtv, &dsv);
+        if (rtv) { ID3D11Resource* r = nullptr; rtv->GetResource(&r); g_fbRt = r; if (r) r->Release(); rtv->Release(); }
+        if (g_fbDsv != dsv) { if (g_fbDsv) g_fbDsv->Release(); g_fbDsv = dsv; } else if (dsv) dsv->Release();
+        UINT nv = 1; c->RSGetViewports(&nv, &g_fbVp);
+        g_drawnThisFrame = true;
+    }
+    if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
+    ID3D11Device* dev = nullptr; c->GetDevice(&dev);
+    if (!dev) return;
+    bool ok = ShaderInit(dev);
+    dev->Release();
+    if (!ok) return;
+    ID3D11Buffer* rcb = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &rcb);
+    if (!rcb) return;
+    D3D11_VIEWPORT vp; UINT nv = 1; c->RSGetViewports(&nv, &vp);
+    if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
+    SavedState st; st.Save(c, false);
+    DrawPointsCore(c, rcb, g_mOff, g_mT & 1, g_mOff2, (g_mT >> 1) & 1, vp);
+    st.Restore(c);
     rcb->Release();
+}
+
+// Al Present della finestra della vista: se in questo fotogramma Revit non ha chiamato il plugin, disegna la nuvola qui.
+static void FallbackAtPresent(IDXGISwapChain* s)
+{
+    if (!g_fbRt || !g_realDev) return;
+    ID3D11Texture2D* bb = nullptr;
+    if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return;
+    bool mine = (ID3D11Resource*)bb == g_fbRt;
+    if (!mine) { bb->Release(); g_fbOther++; return; }   // altra finestra o Revit disegna altrove (vedi registro)
+    // fotogramma normale: si confronta la matrice dedotta con quella vera, per sapere quanto ci si puo' fidare
+    int best = -1;
+    for (int i = 0; i < g_nCand; i++) if (best < 0 || g_cand[i].n > g_cand[best].n) best = i;
+    if (g_drawnThisFrame)
+    {
+        g_fbNormal++;
+        if (best >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[best].m, g_refRaw, MatFloats() * 4) == 0) g_fbAgree++; }
+    }
+    else if (g_shaderOn && !g_ready.empty() && g_svs && g_fbDsv)
+    {
+        D3D11_TEXTURE2D_DESC td; bb->GetDesc(&td);
+        if (best < 0 || !g_hasRef || g_cand[best].n < 2) g_fbNoMat++;
+        else if (!SameShape(g_cand[best].m, g_refRaw) || (UINT)g_fbVp.Width != td.Width || (UINT)g_fbVp.Height != td.Height) g_fbRejected++;
+        else
+        {
+            ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
+            if (!g_fbMat)
+            {
+                D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 128; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+                g_realDev->CreateBuffer(&bd, nullptr, &g_fbMat);
+            }
+            ID3D11RenderTargetView* rtv = nullptr;
+            if (c && g_fbMat && SUCCEEDED(g_realDev->CreateRenderTargetView(bb, nullptr, &rtv)) && rtv)
+            {
+                D3D11_MAPPED_SUBRESOURCE m;
+                if (SUCCEEDED(c->Map(g_fbMat, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
+                {
+                    memcpy(m.pData, g_cand[best].m, 128);
+                    c->Unmap(g_fbMat, 0);
+                    SavedState st; st.Save(c, true);
+                    c->OMSetRenderTargets(1, &rtv, g_fbDsv);
+                    c->RSSetViewports(1, &g_fbVp);
+                    DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
+                    st.Restore(c);
+                    g_fbDrawn++;
+                }
+                rtv->Release();
+            }
+            if (c) c->Release();
+        }
+    }
+    bb->Release();
+    g_nCand = 0; g_drawnThisFrame = false;
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -740,9 +888,11 @@ extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, floa
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld%s%s",
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; fotogrammi presentati: normali %ld, interrotti ridisegnati da noi %ld, interrotti senza matrice %ld, scartati per forma %ld, altre destinazioni %ld; matrice dedotta uguale a quella vera %ld su %ld (%ld scritture lette)%s%s",
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
-        g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty, g_shErr[0] ? "; errore: " : "", g_shErr);
+        g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
+        g_fbNormal, g_fbDrawn, g_fbNoMat, g_fbRejected, g_fbOther, g_fbAgree, g_fbCompared, g_capWrites, g_shErr[0] ? "; errore: " : "", g_shErr);
+    g_fbNormal = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0; g_skipMatrix = 0; g_skipEmpty = 0;
     return 1;
@@ -850,7 +1000,20 @@ static void STDMETHODCALLTYPE HookRClear(ID3D11DeviceContext* c, ID3D11RenderTar
 static void STDMETHODCALLTYPE HookRCopy(ID3D11DeviceContext* c, ID3D11Resource* d, ID3D11Resource* s) { g_cCopy++; g_rCopy(c, d, s); }
 static void STDMETHODCALLTYPE HookRCopyReg(ID3D11DeviceContext* c, ID3D11Resource* d, UINT a, UINT x, UINT y, UINT z, ID3D11Resource* s, UINT b, const D3D11_BOX* bx) { g_cCopy++; g_rCopyReg(c, d, a, x, y, z, s, b, bx); }
 static void STDMETHODCALLTYPE HookRUpdate(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, const D3D11_BOX* b, const void* d, UINT p, UINT q) { g_cUpdate++; g_rUpdate(c, r, a, b, d, p, q); }
-static HRESULT STDMETHODCALLTYPE HookRMap(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, D3D11_MAP t, UINT f, D3D11_MAPPED_SUBRESOURCE* m) { g_cMap++; HRESULT h = g_rMap(c, r, a, t, f, m); Rehook(c); return h; }
+static HRESULT STDMETHODCALLTYPE HookRMap(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, D3D11_MAP t, UINT f, D3D11_MAPPED_SUBRESOURCE* m)
+{
+    g_cMap++; HRESULT h = g_rMap(c, r, a, t, f, m);
+    if (r && r == g_capBuf && SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE || t == D3D11_MAP_WRITE)) g_capPtr = m->pData;
+    Rehook(c); return h;
+}
+// voce 209: alla chiusura della scrittura del buffer della matrice si legge la matrice appena scritta
+typedef void (STDMETHODCALLTYPE* Unmap_t)(ID3D11DeviceContext*, ID3D11Resource*, UINT);
+static Unmap_t g_rUnmap = nullptr;
+static void STDMETHODCALLTYPE HookRUnmap(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a)
+{
+    if (r && r == g_capBuf && g_capPtr) { CaptureWrite(g_capPtr); g_capPtr = nullptr; }
+    g_rUnmap(c, r, a);
+}
 static void STDMETHODCALLTYPE HookRExec(ID3D11DeviceContext* c, ID3D11CommandList* l, BOOL r) { g_cExec++; g_rExec(c, l, r); }
 static void STDMETHODCALLTYPE HookRIndI(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_cIndI++; g_rIndI(c, b, o); }
 
@@ -904,6 +1067,7 @@ static int HookExtra(ID3D11DeviceContext* imm, char* buf, int cap)
     g_rCopyReg = (CopyRegion_t)Patch(vt, 46, (void*)&HookRCopyReg);
     g_rUpdate = (Update_t)Patch(vt, 48, (void*)&HookRUpdate);
     g_rMap = (Map_t)Patch(vt, 14, (void*)&HookRMap);
+    g_rUnmap = (Unmap_t)Patch(vt, 15, (void*)&HookRUnmap);
     g_rExec = (ExecCmd_t)Patch(vt, 58, (void*)&HookRExec);
     g_rIndI = (Indirect_t)Patch(vt, 39, (void*)&HookRIndI);
     g_rDrawInstInd = (Indirect_t)Patch(vt, 40, (void*)&HookRDrawInstInd);
@@ -1048,8 +1212,8 @@ static void OnRealSwapChain(IDXGISwapChain* s)
     dev->Release();
 }
 
-static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); return g_origPresent(s, a, f); }
-static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); return g_origPresent1(s, a, f, p); }
+static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) FallbackAtPresent(s); return g_origPresent(s, a, f); }
+static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) FallbackAtPresent(s); return g_origPresent1(s, a, f, p); }
 
 static void* Patch(void** vt, int index, void* hook);
 
