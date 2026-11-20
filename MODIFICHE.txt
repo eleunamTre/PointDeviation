@@ -1303,3 +1303,6 @@ Ottava tornata (28/10/2026): octree
      - Accendendo o spegnendo l'analisi ogni blocco si ricarica con i colori nuovi, 1,5-3 M punti per fotogramma: la
        nuvola cambiava colore a pezzi per qualche secondo. Per 3 s dopo un cambio di stile il limite di caricamento sale
        a 12 M punti per fotogramma.
+
+235) Correzione della compilazione della 234: in HybridServer.RenderScene la variabile del tempo per il diario si
+     chiamava f3 come un'altra piu' avanti nello stesso metodo (errore CS0136). Rinominata fd.

@@ -301,9 +301,9 @@ namespace PointDeviation
                             long dp = 0, up = 0; int db = 0, nl = 0, nb = 0, ub = 0;
                             foreach (CloudLayer l in visible) { dp += l.StatPoints; db += l.StatNodes; nl += l.StatNotLoaded; nb += l.StatNotBuilt; up += l.StatUploadPts; ub += l.StatUploadBlocks; }
                             double tk = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-                            long f3 = System.Diagnostics.Stopwatch.GetTimestamp();
+                            long fd = System.Diagnostics.Stopwatch.GetTimestamp();
                             FrameDiary.Frame(view.Id.Value, view.Name, st, budget.Moving, shaderCap, wantAll, scale, dp, db, nl, nb, up, ub,
-                                (f1 - f0) * tk, (f2 - f1) * tk, (f3 - f2) * tk);
+                                (f1 - f0) * tk, (f2 - f1) * tk, (fd - f2) * tk);
                         }
                         if (uploadBudget <= 0) Redraw.Request();
                     }
