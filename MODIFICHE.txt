@@ -1124,3 +1124,8 @@ Ottava tornata (28/10/2026): octree
        Il salto massimo del centro della nuvola tra due fotogrammi scende a un quarto della finestra.
      - Accettata anche una matrice scritta una volta sola (nella VistaIniziale non ce n'erano scritte due volte e si
        usava sempre la camera vecchia).
+
+216) Pulizia: tolto il cubo di prova della libreria nativa (voci 189-193) e la copia del buffer di Revit nel registro
+     (voce 191, riga «buffer di Revit: …»). Il controllo dei tasselli (213-215) ora usa il punto guardato dalla camera
+     invece del centro della nuvola: in prospettiva, con la camera dentro l'edificio, il centro poteva stare dietro la
+     camera e la camera vera veniva scartata. Il resoconto «[DirectX]» non scrive piu' «cubo di prova disegnato».

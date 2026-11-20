@@ -27,13 +27,11 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern int PdReport(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetTest(int on, float[] viewProj, float[] cubePos);
+        private static extern void PdSetFocus(float[] p);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetView(long viewId);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        private static extern int PdDump(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern int PdShaderUpload(int layer, int node, byte[] data, int count);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -124,51 +122,15 @@ namespace PointDeviation
 
         private static float[] F3(XYZ p) { return new[] { (float)p.X, (float)p.Y, (float)p.Z }; }
 
-        private static readonly float[] _vp = new float[16];
-        private static float[] _cube;
-
         /// <summary>
-        /// Voce 189: matrice dal modello allo schermo per lo shader di prova, dalla camera del fotogramma (stessa usata dal
-        /// motore). Convenzione: vettore riga per matrice, riga per riga (row_major nello shader). Prospettiva: ampiezza
-        /// HalfW/HalfH alla distanza Target; parallela: ampiezza HalfW/HalfH attorno a Pos.
+        /// Camera del fotogramma alla libreria: serve a riconoscere la matrice di Revit nei suoi buffer (voce 190) e il
+        /// punto guardato per scartare le matrici dei tasselli (voce 216, prima il centro della nuvola del cubo di prova).
         /// </summary>
-        private static void SendCamera(ViewCam cam, XYZ cubeAt)
+        private static void SendCamera(ViewCam cam)
         {
             if (cam == null || !cam.Valid) return;
-            XYZ R = cam.Right, U = cam.Up, D = cam.Dir, E = cam.Pos;
-            double er = E.DotProduct(R), eu = E.DotProduct(U), ed = E.DotProduct(D);
-            var m = new double[16];
-            if (cam.Perspective)
-            {
-                double sx = cam.Target / cam.HalfW, sy = cam.Target / cam.HalfH;
-                double ox = -cam.OffU / cam.HalfW, oy = -cam.OffV / cam.HalfH;
-                double n = 0.5, f = 100000.0, A = f / (f - n), B = -n * f / (f - n);
-                // colonne: x, y, z, w
-                double[] cx = { R.X * sx + D.X * ox, R.Y * sx + D.Y * ox, R.Z * sx + D.Z * ox, -er * sx - ed * ox };
-                double[] cy = { U.X * sy + D.X * oy, U.Y * sy + D.Y * oy, U.Z * sy + D.Z * oy, -eu * sy - ed * oy };
-                double[] cz = { D.X * A, D.Y * A, D.Z * A, -ed * A + B };
-                double[] cw = { D.X, D.Y, D.Z, -ed };
-                for (int r = 0; r < 4; r++) { m[r * 4] = cx[r]; m[r * 4 + 1] = cy[r]; m[r * 4 + 2] = cz[r]; m[r * 4 + 3] = cw[r]; }
-            }
-            else
-            {
-                double sx = 1.0 / cam.HalfW, sy = 1.0 / cam.HalfH;
-                double[] cx = { R.X * sx, R.Y * sx, R.Z * sx, -er * sx };
-                double[] cy = { U.X * sy, U.Y * sy, U.Z * sy, -eu * sy };
-                for (int r = 0; r < 4; r++) { m[r * 4] = cx[r]; m[r * 4 + 1] = cy[r]; m[r * 4 + 2] = 0; m[r * 4 + 3] = 0; }
-                m[14] = 0.5; m[15] = 1;
-            }
-            for (int i = 0; i < 16; i++) _vp[i] = (float)m[i];
-            if (_cube == null)
-            {
-                // voce 192: cubo fisso nel centro dell'ingombro della nuvola (prima nel punto guardato al primo fotogramma, che
-                // nelle viste parallele poteva essere la posizione della camera, fuori dal modello)
-                XYZ p = cubeAt ?? (cam.Perspective ? E + D * cam.Target : E);
-                _cube = new[] { (float)p.X, (float)p.Y, (float)p.Z };
-                Log.Write("DirectX", string.Format("cubo di prova in {0:F1}, {1:F1}, {2:F1} piedi", p.X, p.Y, p.Z));
-            }
-            PdSetTest(AdvancedSettings.Current.NativeShader ? 0 : 1, _vp, _cube);
-            // voce 190: dati della camera per riconoscere la matrice di Revit nei suoi buffer
+            XYZ R = cam.Right, D = cam.Dir, E = cam.Pos;
+            PdSetFocus(F3(E + D * cam.Target));
             PdSetCameraInfo(F3(E), F3(D), F3(R), (float)cam.Target, (float)cam.HalfW, cam.Perspective ? 1 : 0);
         }
 
@@ -229,7 +191,7 @@ namespace PointDeviation
         }
 
         /// <summary>Durante il nostro disegno: segnale e (ogni 5 s) cattura delle chiamate fatte dentro il nostro disegno.</summary>
-        public static void Begin(ViewCam cam, XYZ cubeAt, long viewId)
+        public static void Begin(ViewCam cam, long viewId)
         {
             _capturing = false;
             if (!AdvancedSettings.Current.NativeProbe && !AdvancedSettings.Current.NativeShader) return;
@@ -240,7 +202,7 @@ namespace PointDeviation
                 if (_shaderWasOn && !ShaderWanted) PdShaderEndFrame(0, 1, 0.5f, 0);   // opzione spenta a Revit aperto
                 _shaderWasOn = ShaderWanted;
                 PdSetView(viewId);
-                SendCamera(cam, cubeAt);
+                SendCamera(cam);
                 DrawMarker();
                 _frames++;
             }
@@ -304,8 +266,6 @@ namespace PointDeviation
                     Log.Write("DirectX", shb.ToString() + "; " + PassNote + "; " + CapNote);
                     NotReadyFrames = 0;
                 }
-                var db = new StringBuilder(8192);
-                if (PdDump(db, db.Capacity) != 0) Log.Write("DirectX", "buffer di Revit: " + db);
                 _frames = 0;
             }
             catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }

@@ -250,13 +250,7 @@ namespace PointDeviation
                 for (int k = 0; k < visible.Count; k++) visible[k].Prepare(st, budget, wants[k], pxs[k], shaderMode);
                 if (!shaderMode) for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
                 long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
-                XYZ cubeAt = null;
-                if ((AdvancedSettings.Current.NativeProbe || AdvancedSettings.Current.NativeShader) && visible.Count > 0)
-                {
-                    XYZ bmin, bmax; visible[0].ModelBounds(out bmin, out bmax);
-                    cubeAt = (bmin + bmax) / 2.0;
-                }
-                NativeProbe.Begin(cam, cubeAt, view.Id.Value);
+                NativeProbe.Begin(cam, view.Id.Value);
                 try
                 {
                     // voce 194: con il disegno con shader acceso e la libreria pronta, i punti li disegna la libreria al
