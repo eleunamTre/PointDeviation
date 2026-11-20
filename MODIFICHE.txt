@@ -1151,3 +1151,13 @@ Ottava tornata (28/10/2026): octree
      vale per le viste in cui il modello e' gia' tutto disegnato al segnale e per quelle in cui Revit lo finisce dopo.
      Solo nei fotogrammi completi (nei fotogrammi interrotti la copia sarebbe di un'altra camera). Registro: «profondita'
      copiata al segnale N, copia non riuscita M».
+
+220) Trasparenza: tolta la copia della profondita' della 219 e aggiunta una diagnostica. Video del 20/11 11:03: con la
+     219 la nuvola spariva del tutto in molti fotogrammi in tutte le viste (la profondita' copiata al segnale non e'
+     quella del modello finito) e nella VistaIniziale passava ancora davanti ai muri. Dal registro: il segnale arriva
+     due volte per fotogramma completo e, dopo il cambio di stile della {3D} in ombreggiato, anche la {3D} usa il buffer
+     da 368 byte come la VistaIniziale: il problema dipende dallo stile ombreggiato, non dalla vista. Ora il resoconto
+     «[DirectX]», a shader acceso, riporta la «sequenza di un fotogramma»: destinazioni impostate T(r#colore d#profondita'),
+     pulizie C/Z, copie K, risoluzioni R, disegni dN, SEGNALE, PRESENT, con dimensioni e formato di ogni risorsa alla
+     prima comparsa. Serve a capire dove e quando c'e' la profondita' con il modello finito negli stili ombreggiati.
+     Comportamento della trasparenza come nella 218.
