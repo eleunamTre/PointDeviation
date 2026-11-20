@@ -177,9 +177,12 @@ static int g_mForce = 0;
 // voce 198: la disposizione del buffer di Revit cambia da vista a vista (la matrice era alla riga 15 nella vista con il
 // riquadro di sezione; in {3D} senza riquadro i punti e il cubo non comparivano): a ogni cambio di vista, o se cambia
 // la dimensione del buffer, la matrice si cerca di nuovo.
+// voce 215: cambiando vista l'elenco dei blocchi e la finestra restavano quelli della vista precedente finche' il plugin
+// non mandava il nuovo elenco: per un attimo si vedeva la nuvola della vista di prima, senza il riquadro di sezione.
+static void ClearForNewView();
 extern "C" __declspec(dllexport) void PdSetView(long long viewId)
 {
-    if (viewId != g_mView) { g_mView = viewId; g_mSlot = -1; g_mForce = 1; g_viewGen++; }
+    if (viewId != g_mView) { g_mView = viewId; g_mSlot = -1; g_mForce = 1; g_viewGen++; ClearForNewView(); }
 }
 extern "C" __declspec(dllexport) void PdSetCameraInfo(const float* e, const float* d, const float* r, float target, float halfW, int persp)
 {
@@ -826,6 +829,11 @@ static int BestCand() { int b = -1; for (int i = 0; i < g_nCand; i++) if (b < 0 
 // stessa scala di quella vera dell'ultimo fotogramma completo: proiezione dello stesso tipo, stesse proporzioni, assi
 // perpendicolari, scala tra 0,75 e 1,33 volte.
 static long g_camRejected = 0;
+// voce 215: il confronto si fa con l'ultima camera usata (fotogramma completo o interrotto accettato), non con quella
+// dell'ultimo fotogramma completo: con il modello impianti i completi sono rari (6 su 104) e durante zoom e orbite la
+// camera vera si allontana presto da quella vecchia, quindi la 214 scartava anche la camera giusta (scartate 110).
+static float g_chainRaw[32]; static long g_chainGen = -1;
+static IDXGISwapChain* g_fbSwap = nullptr;   // finestra della vista (solo confronto, senza riferimento)
 static void ColForm(const float* raw, float* C)
 {
     float A[16], B[16];
@@ -837,7 +845,7 @@ static void ColForm(const float* raw, float* C)
 static float L3(const float* v) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
 static bool LikeRef(const float* raw)
 {
-    float C[16], R[16]; ColForm(raw, C); ColForm(g_refRaw, R);
+    float C[16], R[16]; ColForm(raw, C); ColForm(g_chainGen == g_viewGen ? g_chainRaw : g_refRaw, R);
     float c0 = L3(C), c1 = L3(C + 4), r0 = L3(R), r1 = L3(R + 4);
     if (!(c0 > 0 && c1 > 0 && r0 > 0 && r1 > 0)) return false;
     bool cPar = L3(C + 12) < 1e-6f * c0, rPar = L3(R + 12) < 1e-6f * r0;
@@ -851,14 +859,13 @@ static bool LikeRef(const float* raw)
     float pc[4], pr[4], q[4] = { g_cubePos[0], g_cubePos[1], g_cubePos[2], 1 };
     for (int r = 0; r < 4; r++) { pc[r] = C[r * 4] * q[0] + C[r * 4 + 1] * q[1] + C[r * 4 + 2] * q[2] + C[r * 4 + 3]; pr[r] = R[r * 4] * q[0] + R[r * 4 + 1] * q[1] + R[r * 4 + 2] * q[2] + R[r * 4 + 3]; }
     if (!(pc[3] > 1e-6f && pr[3] > 1e-6f)) return false;
-    return fabsf(pc[0] / pc[3] - pr[0] / pr[3]) < 0.66f && fabsf(pc[1] / pc[3] - pr[1] / pr[3]) < 0.66f;
+    return fabsf(pc[0] / pc[3] - pr[0] / pr[3]) < 0.5f && fabsf(pc[1] / pc[3] - pr[1] / pr[3]) < 0.5f;
 }
 static int BestValidCand()
 {
     int b = -1;
     for (int i = 0; i < g_nCand; i++)
     {
-        if (g_cand[i].n < 2) continue;
         if (!LikeRef(g_cand[i].m)) { g_camRejected++; continue; }
         if (b < 0 || g_cand[i].n > g_cand[b].n) b = i;
     }
@@ -873,7 +880,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         if (b) { g_capBuf = b; b->Release(); }
-        if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; g_refGen = g_viewGen; }
+        if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; g_refGen = g_viewGen; memcpy(g_chainRaw, g_lastCap, sizeof(g_chainRaw)); g_chainGen = g_viewGen; }
         ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
         c->OMGetRenderTargets(1, &rtv, &dsv);
         if (rtv) rtv->Release();
@@ -912,15 +919,18 @@ static void FallbackAtPresent(IDXGISwapChain* s)
     if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
     if (g_drawnThisFrame)
     {
-        g_fbNormal++; g_drawnThisFrame = false; LearnSearch();
+        g_fbNormal++; g_drawnThisFrame = false; g_fbSwap = s; LearnSearch();
         int b = BestCand();
         if (b >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[b].m, g_refRaw, (g_mOff2 >= 0 ? 32 : 16) * 4) == 0) g_fbAgree++; }
         g_nCand = 0; g_cmN = 0;
         return;
     }
+    if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
     g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
     int best = g_hasRef ? BestValidCand() : -1;
     const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
+    float camBuf[32];
+    if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; } }
     g_nCand = 0; g_cmN = 0;
     if (!g_shaderOn || g_ready.empty() || !g_svs || !g_fbDsv) return;
     if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; return; }
@@ -944,7 +954,7 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         if (SUCCEEDED(c->Map(g_fbMat, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
         {
             // voce 212: camera del modello di questo fotogramma se trovata, altrimenti quella dell'ultimo completo
-            memcpy(m.pData, camNow ? camNow : g_refRaw, 128);
+            memcpy(m.pData, camNow ? camNow : g_chainRaw, 128);
             if (camNow) g_camUsed++; else g_camStale++;
             c->Unmap(g_fbMat, 0);
             SavedState st; st.Save(c, true);
@@ -1017,6 +1027,14 @@ extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, floa
     g_shaderOn = on;
     g_shaderWanted = wanted;
     g_shFrames++;
+}
+static void ClearForNewView()
+{
+    g_ready.clear(); g_build.clear();
+    g_clipOn = 0;
+    g_hasRef = false; g_hasLastCap = false; g_chainGen = -1;
+    g_nCand = 0; g_cmN = 0;
+    g_fbSwap = nullptr; g_drawnThisFrame = false;
 }
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)

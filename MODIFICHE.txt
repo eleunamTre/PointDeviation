@@ -1112,3 +1112,15 @@ Ottava tornata (28/10/2026): octree
      - Una matrice dedotta dai buffer di Revit si scarta anche se sposta il centro della nuvola a schermo di oltre un
        terzo della finestra rispetto alla camera vera: erano tasselli con la stessa scala ma traslati, che passavano il
        controllo della 213 e disegnavano la nuvola in basso a sinistra.
+
+215) Disegno con shader: cambio vista pulito e camera dei fotogrammi interrotti meno spesso scartata.
+     - Cambiando vista si svuotano subito l'elenco dei blocchi, i piani del riquadro di sezione, la camera di riferimento
+       e la finestra della vista: prima, finche' il plugin non mandava il nuovo elenco, si vedeva la nuvola della vista
+       precedente, senza riquadro di sezione.
+     - I fotogrammi interrotti si ridisegnano solo nella finestra dell'ultimo fotogramma completo.
+     - La camera trovata nei buffer di Revit si confronta con l'ultima camera usata (completa o interrotta accettata),
+       non piu' con quella dell'ultimo fotogramma completo: con il modello impianti i completi sono rari e la 214
+       scartava anche la camera giusta durante zoom e orbite (registro: 110 scartate, nuvola slegata dal modello).
+       Il salto massimo del centro della nuvola tra due fotogrammi scende a un quarto della finestra.
+     - Accettata anche una matrice scritta una volta sola (nella VistaIniziale non ce n'erano scritte due volte e si
+       usava sempre la camera vecchia).
