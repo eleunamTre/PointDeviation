@@ -11,6 +11,7 @@
 #include <d3dcompiler.h>
 #include <atomic>
 #include <cstdio>
+#include <cstdarg>
 #include <cstring>
 #include <cmath>
 #include <unordered_map>
@@ -535,6 +536,101 @@ static float g_lastCap[32]; static bool g_hasLastCap = false;
 static float g_refRaw[32]; static bool g_hasRef = false;
 static ID3D11DepthStencilView* g_fbDsv = nullptr;   // con riferimento: va usata nei fotogrammi interrotti
 static D3D11_VIEWPORT g_fbVp = {};
+
+// =====================================================================================================================
+// Voce 224: diagnostica per la trasparenza nella VistaIniziale (nuvola davanti ai muri solo li'). Ogni 5 s si registra
+// la sequenza di un fotogramma (come nella 220): destinazioni impostate T(r#colore d#profondita'), pulizie C/Z, copie K,
+// risoluzioni R, disegni dN, SEGNALE, PRESENT. Con la trasparenza accesa, al segnale e al Present si legge anche il
+// buffer di profondita' (copia in memoria, una volta ogni 5 s) e si scrive quanta parte della finestra e' coperta da
+// qualcosa (profondita' sotto il valore di sfondo) e il valore medio: si vede se al Present il modello c'e' ancora.
+// =====================================================================================================================
+static bool g_trArm = false, g_trRec = false, g_trDone = false;
+static char g_trBuf[3500] = ""; static int g_trLen = 0; static long g_trDraws = 0;
+static void* g_trRes[32] = {}; static int g_trN = 0;
+static void TrPut(const char* f, ...)
+{
+    if (!g_trRec || g_trLen >= (int)sizeof(g_trBuf) - 80) return;
+    va_list a; va_start(a, f);
+    int k = _vsnprintf_s(g_trBuf + g_trLen, sizeof(g_trBuf) - g_trLen, _TRUNCATE, f, a);
+    va_end(a);
+    if (k > 0) g_trLen += k; else g_trLen = (int)strlen(g_trBuf);
+}
+static void TrFlush() { if (g_trRec && g_trDraws > 0) { TrPut(" d%ld", g_trDraws); g_trDraws = 0; } }
+static int TrId(ID3D11Resource* r)
+{
+    if (!r) return 0;
+    for (int i = 0; i < g_trN; i++) if (g_trRes[i] == r) return i + 1;
+    if (g_trN >= 32) return 99;
+    g_trRes[g_trN++] = r;
+    D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
+    if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+        TrPut(" [#%d=%ux%u f%d c%u]", g_trN, d.Width, d.Height, (int)d.Format, d.SampleDesc.Count);
+    }
+    return g_trN;
+}
+static int TrView(ID3D11View* v)
+{
+    if (!v) return 0;
+    ID3D11Resource* r = nullptr; v->GetResource(&r);
+    int id = TrId(r);
+    if (r) r->Release();
+    return id;
+}
+// copertura del buffer di profondita' (solo formati a 24 bit + stencil o float a 32 bit, un campione)
+static void TrDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const char* what)
+{
+    if (!g_trRec || !dsv || !g_realDev) return;
+    ID3D11Resource* r = nullptr; dsv->GetResource(&r);
+    if (!r) return;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+    int id = TrId(r);
+    bool d24 = d.Format == DXGI_FORMAT_R24G8_TYPELESS || d.Format == DXGI_FORMAT_D24_UNORM_S8_UINT;
+    bool f32 = d.Format == DXGI_FORMAT_R32_TYPELESS || d.Format == DXGI_FORMAT_D32_FLOAT;
+    if ((!d24 && !f32) || d.SampleDesc.Count != 1) { TrPut(" %s(#%d formato non letto)", what, id); r->Release(); return; }
+    D3D11_TEXTURE2D_DESC sd = d; sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ; sd.MiscFlags = 0;
+    sd.MipLevels = 1; sd.ArraySize = 1;
+    ID3D11Texture2D* st = nullptr;
+    if (FAILED(g_realDev->CreateTexture2D(&sd, nullptr, &st)) || !st) { r->Release(); return; }
+    c->CopyResource(st, r);
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (SUCCEEDED(c->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+    {
+        long n = 0, cov = 0; double sum = 0, mn = 1e9, mx = -1e9;
+        for (UINT y = 0; y < d.Height; y += 8)
+        {
+            const unsigned char* row = (const unsigned char*)m.pData + (size_t)y * m.RowPitch;
+            for (UINT x = 0; x < d.Width; x += 8)
+            {
+                double z = d24 ? (double)(((const unsigned int*)row)[x] & 0xFFFFFF) / 16777215.0 : (double)((const float*)row)[x];
+                n++;
+                if (z < 0.99999 && z > 0.00001) { cov++; sum += z; if (z < mn) mn = z; if (z > mx) mx = z; }
+            }
+        }
+        if (cov > 0) TrPut(" %s(#%d coperto %.0f%%, z %.4f-%.4f media %.4f)", what, id, 100.0 * cov / n, mn, mx, sum / cov);
+        else TrPut(" %s(#%d vuoto)", what, id);
+        c->Unmap(st, 0);
+    }
+    st->Release(); r->Release();
+}
+static void TrPresent(IDXGISwapChain* s, bool full, ID3D11DepthStencilView* fbDsv)
+{
+    if (g_trRec)
+    {
+        TrFlush();
+        if (full && fbDsv)
+        {
+            ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
+            if (c) { TrDepth(c, fbDsv, "profondita' usata al Present"); c->Release(); }
+        }
+        ID3D11Texture2D* bb = nullptr; int id = 0;
+        if (SUCCEEDED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) && bb) { id = TrId(bb); bb->Release(); }
+        TrPut(" PRESENT(#%d, %s)", id, full ? "completo" : "interrotto");
+        g_trRec = false; g_trDone = true;
+    }
+    else if (g_trArm && !g_trDone) { g_trArm = false; g_trRec = true; g_trLen = 0; g_trBuf[0] = 0; g_trN = 0; g_trDraws = 0; }
+}
 static UINT g_fbW = 0, g_fbH = 0;
 static bool g_drawnThisFrame = false;
 static ID3D11Buffer* g_fbMat = nullptr;
@@ -833,6 +929,7 @@ static void KeepDepth()
 }
 static void FallbackAtPresent(IDXGISwapChain* s)
 {
+    TrPresent(s, g_drawnThisFrame, g_fbDsv);
     if (!g_realDev || g_fbVp.Width < 1) return;
     DXGI_SWAP_CHAIN_DESC sd = {};
     if (FAILED(s->GetDesc(&sd))) return;
@@ -953,6 +1050,12 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+    if (g_trDone && g_trBuf[0])
+    {
+        size_t L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; sequenza di un fotogramma:%s", g_trBuf);
+    }
+    g_trDone = false; g_trArm = g_shaderOn != 0;
     g_keepCopies = 0;
     g_fbNormal = g_fbAlpha = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
     g_camUsed = g_camStale = g_camRejected = 0;
@@ -979,6 +1082,14 @@ static void Marker(ID3D11DeviceContext* c, UINT count)
     g_lastCount.store(count, std::memory_order_relaxed);
     if (count != MarkerIndices) return;
     long n = ++g_markers;
+    if (g_trRec)
+    {
+        TrFlush();
+        ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr; c->OMGetRenderTargets(1, &rtv, &dsv);
+        TrPut(" SEGNALE(r#%d d#%d)", TrView(rtv), TrView(dsv));
+        TrDepth(c, dsv, "profondita' al segnale");
+        if (rtv) rtv->Release(); if (dsv) dsv->Release();
+    }
     if (g_shaderWanted && !g_inTest.exchange(1)) { ShaderDraw(c); g_inTest = 0; }
     g_markerThread = GetCurrentThreadId();
     if (n % 30 == 1) DescribeState(c, g_markerInfo, sizeof(g_markerInfo));
@@ -1040,10 +1151,10 @@ static DrawIndexed_t g_rdefDI = nullptr;
 static DrawIndexedInst_t g_rdefDII = nullptr;
 static std::atomic<int> g_realDone{ 0 };
 static char g_realInfo[700] = "";
-static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { Marker(c, a); Capture(c); g_realD(c, a, b); }
-static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
 
@@ -1060,9 +1171,14 @@ static Clear_t g_rClear = nullptr; static Copy_t g_rCopy = nullptr; static CopyR
 static Update_t g_rUpdate = nullptr; static Map_t g_rMap = nullptr; static ExecCmd_t g_rExec = nullptr;
 static Indirect_t g_rIndI = nullptr;
 static std::atomic<long> g_cClear{ 0 }, g_cCopy{ 0 }, g_cUpdate{ 0 }, g_cMap{ 0 }, g_cExec{ 0 }, g_cIndI{ 0 };
-static void STDMETHODCALLTYPE HookRClear(ID3D11DeviceContext* c, ID3D11RenderTargetView* v, const FLOAT col[4]) { g_cClear++; g_rClear(c, v, col); }
-static void STDMETHODCALLTYPE HookRCopy(ID3D11DeviceContext* c, ID3D11Resource* d, ID3D11Resource* s) { g_cCopy++; g_rCopy(c, d, s); }
-static void STDMETHODCALLTYPE HookRCopyReg(ID3D11DeviceContext* c, ID3D11Resource* d, UINT a, UINT x, UINT y, UINT z, ID3D11Resource* s, UINT b, const D3D11_BOX* bx) { g_cCopy++; g_rCopyReg(c, d, a, x, y, z, s, b, bx); }
+static void STDMETHODCALLTYPE HookRClear(ID3D11DeviceContext* c, ID3D11RenderTargetView* v, const FLOAT col[4]) { g_cClear++; if (g_trRec) { TrFlush(); TrPut(" C#%d", TrView(v)); } g_rClear(c, v, col); }
+static void STDMETHODCALLTYPE HookRCopy(ID3D11DeviceContext* c, ID3D11Resource* d, ID3D11Resource* s) { g_cCopy++; if (g_trRec) { TrFlush(); TrPut(" K#%d<#%d", TrId(d), TrId(s)); } g_rCopy(c, d, s); }
+static void STDMETHODCALLTYPE HookRCopyReg(ID3D11DeviceContext* c, ID3D11Resource* d, UINT a, UINT x, UINT y, UINT z, ID3D11Resource* s, UINT b, const D3D11_BOX* bx) { g_cCopy++; if (g_trRec) { TrFlush(); TrPut(" K#%d<#%d", TrId(d), TrId(s)); } g_rCopyReg(c, d, a, x, y, z, s, b, bx); }
+typedef void (STDMETHODCALLTYPE* ClearDS_t)(ID3D11DeviceContext*, ID3D11DepthStencilView*, UINT, FLOAT, UINT8);
+typedef void (STDMETHODCALLTYPE* Resolve_t)(ID3D11DeviceContext*, ID3D11Resource*, UINT, ID3D11Resource*, UINT, DXGI_FORMAT);
+static ClearDS_t g_rClearDS = nullptr; static Resolve_t g_rResolve = nullptr;
+static void STDMETHODCALLTYPE HookRClearDS(ID3D11DeviceContext* c, ID3D11DepthStencilView* v, UINT fl, FLOAT dp, UINT8 st) { if (g_trRec) { TrFlush(); TrPut(" Z#%d=%.2f", TrView(v), dp); } g_rClearDS(c, v, fl, dp, st); }
+static void STDMETHODCALLTYPE HookRResolve(ID3D11DeviceContext* c, ID3D11Resource* d, UINT a, ID3D11Resource* s, UINT b, DXGI_FORMAT f) { if (g_trRec) { TrFlush(); TrPut(" R#%d<#%d", TrId(d), TrId(s)); } g_rResolve(c, d, a, s, b, f); }
 static void STDMETHODCALLTYPE HookRUpdate(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, const D3D11_BOX* b, const void* d, UINT p, UINT q) { g_cUpdate++; g_rUpdate(c, r, a, b, d, p, q); }
 static HRESULT STDMETHODCALLTYPE HookRMap(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, D3D11_MAP t, UINT f, D3D11_MAPPED_SUBRESOURCE* m)
 {
@@ -1120,7 +1236,12 @@ static void STDMETHODCALLTYPE HookRDispatch(ID3D11DeviceContext* c, UINT x, UINT
 static void STDMETHODCALLTYPE HookRDispatchInd(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_cDispatch++; g_rDispatchInd(c, b, o); }
 static void STDMETHODCALLTYPE HookRDrawInstInd(ID3D11DeviceContext* c, ID3D11Buffer* b, UINT o) { g_cDrawOther++; g_rDrawInstInd(c, b, o); }
 static void STDMETHODCALLTYPE HookRDrawAuto(ID3D11DeviceContext* c) { g_cDrawOther++; g_rDrawAuto(c); }
-static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d) { g_cOMSet++; g_rOMSet(c, n, r, d); Rehook(c); }
+static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d)
+{
+    g_cOMSet++;
+    if (g_trRec) { TrFlush(); TrPut(" T(r#%d d#%d)", (n > 0 && r) ? TrView(r[0]) : 0, TrView(d)); }
+    g_rOMSet(c, n, r, d); Rehook(c);
+}
 static void STDMETHODCALLTYPE HookRVS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rVS(c, s, i, n); Rehook(c); }
 static void STDMETHODCALLTYPE HookRPS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rPS(c, s, i, n); Rehook(c); }
 static void STDMETHODCALLTYPE HookRSetVB(ID3D11DeviceContext* c, UINT a, UINT n, ID3D11Buffer* const* b, const UINT* s, const UINT* o) { g_cSetVB++; g_rSetVB(c, a, n, b, s, o); Rehook(c); }
@@ -1132,6 +1253,8 @@ static int HookExtra(ID3D11DeviceContext* imm, char* buf, int cap)
     g_rClear = (Clear_t)Patch(vt, 50, (void*)&HookRClear);
     g_rCopy = (Copy_t)Patch(vt, 47, (void*)&HookRCopy);
     g_rCopyReg = (CopyRegion_t)Patch(vt, 46, (void*)&HookRCopyReg);
+    g_rClearDS = (ClearDS_t)Patch(vt, 53, (void*)&HookRClearDS);
+    g_rResolve = (Resolve_t)Patch(vt, 57, (void*)&HookRResolve);
     g_rUpdate = (Update_t)Patch(vt, 48, (void*)&HookRUpdate);
     g_rMap = (Map_t)Patch(vt, 14, (void*)&HookRMap);
     g_rUnmap = (Unmap_t)Patch(vt, 15, (void*)&HookRUnmap);

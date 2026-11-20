@@ -1188,3 +1188,11 @@ Ottava tornata (28/10/2026): octree
      ridisegnare l'ultimo nei fotogrammi senza il plugin. Ora, quando il plugin decide di non disegnare in una vista
      aperta (`HybridServer.CanExecute` falso: nuvola spenta, nascosta, nessuna nuvola visibile), lo dice alla libreria
      (`PdViewOff`), che svuota l'elenco se la vista e' quella in cui stava disegnando.
+
+224) Diagnostica per la trasparenza nella VistaIniziale (la nuvola trasparente passa ancora davanti ai muri solo li';
+     la 222 e la 223 sono confermate dall'utente: selezione a posto, nuvola spenta che sparisce). Torna la «sequenza di un
+     fotogramma» della 220 nel resoconto «[DirectX] disegno con shader» (ogni 5 s, con lo shader acceso), e in piu' al
+     segnale e al Present del fotogramma completo si legge il buffer di profondita' (una volta ogni 5 s) e si scrive
+     quanta parte della finestra e' coperta e i valori di profondita' («profondita' al segnale», «profondita' usata al
+     Present»). Serve a vedere se nella VistaIniziale, al momento in cui disegniamo la nuvola trasparente, il modello nel
+     buffer c'e' ancora. Nessun cambio al disegno.
