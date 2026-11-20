@@ -1602,6 +1602,7 @@ namespace PointDeviation
             int argb = LayerArgb(st);
             bool hl = Highlighted;
             int nodes = 0, notLoaded = 0, notBuilt = 0; long pts = 0;
+            StatUploadPts = 0; StatUploadBlocks = 0;
             for (int i = 0; i < n; i++)
             {
                 TileCpu cpu = Volatile.Read(ref Cpu[i]);
@@ -1631,6 +1632,7 @@ namespace PointDeviation
                         int up = ShaderUpload(i, cpu, st, argb, hl);
                         if (up < 0) { notBuilt++; _nMissing.Add(i); continue; }
                         uploadBudget -= cpu.Count;
+                        StatUploadPts += up; StatUploadBlocks++;
                         _nUpTotal += up - _nUpPts[i];
                         _nUp[i] = cpu; _nUpCount[i] = cpu.Count; _nUpKey[i] = key; _nUpPts[i] = up;
                     }
@@ -1920,6 +1922,8 @@ namespace PointDeviation
         // diagnostica (pannello Gestisci visibilità): ultimo fotogramma disegnato
         public long StatPoints;
         public int StatNodes, StatWanted, StatMissing, StatNotLoaded, StatNotBuilt;
+        public long StatUploadPts;   // voce 234: punti caricati nella scheda video in questo fotogramma (disegno con shader)
+        public int StatUploadBlocks;
         private long _lastStatLog;
         public long StatTick;
 

@@ -1288,3 +1288,18 @@ Ottava tornata (28/10/2026): octree
        registro «tenuta perche' la ricerca non ne trovava altre»);
      - se la ricerca normale non trova niente (anche al cambio di dimensione del buffer) si riprova senza il controllo
        della profondita'.
+
+234) Diario dei fotogrammi e analisi che compare a pezzi (video e registro del 20/11 15:54).
+     - Nuovo file PointDeviation-frames.log nella cartella del registro, scritto con il disegno con shader acceso. Una
+       riga per ogni fotogramma del plugin (C: in movimento o no, limite, punti chiesti e disegnati, frazione, blocchi,
+       blocchi non letti o da preparare, punti caricati nella scheda video, tempi di scelta/preparazione/disegno,
+       intervallo dal fotogramma prima), per ogni evento della libreria nativa (M segnale con blocchi, punti e
+       rettangolo parziale; P Present completo o interrotto con profondita' usata, camera, forbici o il motivo del salto;
+       G tempo della scheda video; X controllo e ricerca della matrice di Revit), per i cambi di vista e di stile (E) e
+       ogni 2 s lo stato del sistema (S: processore usato da Revit, memoria privata, heap .NET, raccolte, memoria della
+       scheda video di Revit e disponibile, thread, code di lettura e di preparazione). Tutte le righe con lo stesso
+       orologio in ms. Oltre 40 MB il file ricomincia (il precedente resta come PointDeviation-frames.old.log). La
+       sequenza del registro della 224 resta spenta.
+     - Accendendo o spegnendo l'analisi ogni blocco si ricarica con i colori nuovi, 1,5-3 M punti per fotogramma: la
+       nuvola cambiava colore a pezzi per qualche secondo. Per 3 s dopo un cambio di stile il limite di caricamento sale
+       a 12 M punti per fotogramma.

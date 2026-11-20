@@ -88,6 +88,7 @@ namespace PointDeviation
                 }
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
                 // Revit ci richiama subito invece che dopo una lunga pausa
+                FrameDiary.Pump();   // voce 234: righe della libreria nativa anche quando il plugin non disegna
                 if (_zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
             catch { }
@@ -97,6 +98,8 @@ namespace PointDeviation
         private static readonly Dictionary<long, long> _camTick = new Dictionary<long, long>();
         private static long _settleAt;
         private static double _scaleEma = -1;
+        private static int _lastStyleVer;
+        private static long _styleBoostUntil;
         // voce 232: con il disegno con shader la camera conta come ferma dopo 700 ms senza cambiamenti (prima 300). Con la
         // rotella gli scatti arrivano a qualche centinaio di ms l'uno dall'altro: tra uno scatto e l'altro si passava al
         // dettaglio da fermi (piu' punti, tutti i blocchi) e allo scatto dopo si tornava indietro, e la densita' pulsava.
@@ -273,6 +276,12 @@ namespace PointDeviation
                         // voce 207: da fermi 3 M punti per fotogramma (erano 6 M): dopo un cambio di vista i caricamenti si
                         // spalmano su piu' fotogrammi invece di bloccarne uno
                         long uploadBudget = budget.Moving ? 1500000 : 3000000;
+                        // voce 234: accendendo o spegnendo l'analisi (o cambiando colori, profilo, modalita') ogni blocco si
+                        // ricarica con i colori nuovi, 1,5-3 M punti per fotogramma: la nuvola cambiava colore a pezzi per
+                        // qualche secondo (video del 20/11 15:54). Per 3 s dopo un cambio di stile il limite sale a 12 M.
+                        long nowTick = Environment.TickCount;
+                        if (st.Version != _lastStyleVer) { _lastStyleVer = st.Version; _styleBoostUntil = nowTick + 3000; }
+                        if (nowTick - _styleBoostUntil < 0) uploadBudget = 12000000;
                         long drawBudget = shaderCap;
                         // voce 229: in movimento il livello di dettaglio resta quello di fermo (CloudLayer.DesiredOctree) e i
                         // punti chiesti superano il limite: si riducono tutti i blocchi in proporzione
@@ -287,6 +296,15 @@ namespace PointDeviation
                         for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget, scale);
                         NativeProbe.SetClip(cam.ClipPlanes());
                         NativeProbe.EndFrame(st, true);
+                        // voce 234: riga del diario dei fotogrammi
+                        {
+                            long dp = 0, up = 0; int db = 0, nl = 0, nb = 0, ub = 0;
+                            foreach (CloudLayer l in visible) { dp += l.StatPoints; db += l.StatNodes; nl += l.StatNotLoaded; nb += l.StatNotBuilt; up += l.StatUploadPts; ub += l.StatUploadBlocks; }
+                            double tk = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                            long f3 = System.Diagnostics.Stopwatch.GetTimestamp();
+                            FrameDiary.Frame(view.Id.Value, view.Name, st, budget.Moving, shaderCap, wantAll, scale, dp, db, nl, nb, up, ub,
+                                (f1 - f0) * tk, (f2 - f1) * tk, (f3 - f2) * tk);
+                        }
                         if (uploadBudget <= 0) Redraw.Request();
                     }
                     else

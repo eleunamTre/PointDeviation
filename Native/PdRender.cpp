@@ -16,10 +16,73 @@
 #include <cmath>
 #include <unordered_map>
 #include <vector>
+#include <string>
+#include <mutex>
+#include <dxgi1_4.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "d3dcompiler.lib")
+
+// =====================================================================================================================
+// voce 234: diario dei fotogrammi. Ogni evento del disegno (segnale, Present completo o interrotto, fotogramma saltato
+// con il motivo, controllo della matrice, tempo della scheda video) diventa una riga «ms;tipo;campi». Il plugin le
+// preleva a ogni fotogramma (PdTraceTake) e le scrive nel file del diario insieme alle sue, con lo stesso orologio
+// (QueryPerformanceCounter, come Stopwatch in .NET), cosi' un difetto visto in un video si ritrova riga per riga.
+// =====================================================================================================================
+static std::mutex g_ftMx;
+static std::string g_ft;
+static volatile bool g_ftOn = false;
+static double QpcMs()
+{
+    static double inv = 0;
+    LARGE_INTEGER c; QueryPerformanceCounter(&c);
+    if (inv == 0) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); inv = 1000.0 / (double)f.QuadPart; }
+    return (double)c.QuadPart * inv;
+}
+static void FT(const char* fmt, ...)
+{
+    if (!g_ftOn) return;
+    char b[320];
+    int n = _snprintf_s(b, sizeof(b), _TRUNCATE, "%.1f;", QpcMs());
+    va_list a; va_start(a, fmt);
+    if (n > 0) _vsnprintf_s(b + n, sizeof(b) - n, _TRUNCATE, fmt, a);
+    va_end(a);
+    std::lock_guard<std::mutex> l(g_ftMx);
+    if (g_ft.size() < (2u << 20)) { g_ft += b; g_ft += '\n'; }
+}
+// voce 234: memoria della scheda video usata dal processo (Revit intero) e disponibile, in MB; 0 se non si legge
+static ID3D11Device* g_realDevFwd();
+extern "C" __declspec(dllexport) int PdVideoMem(double* usedMB, double* budgetMB)
+{
+    if (usedMB) *usedMB = 0; if (budgetMB) *budgetMB = 0;
+    ID3D11Device* dev = g_realDevFwd(); if (!dev) return 0;
+    IDXGIDevice* dd = nullptr; if (FAILED(dev->QueryInterface(__uuidof(IDXGIDevice), (void**)&dd)) || !dd) return 0;
+    IDXGIAdapter* ad = nullptr; dd->GetAdapter(&ad); dd->Release(); if (!ad) return 0;
+    IDXGIAdapter3* a3 = nullptr; int ok = 0;
+    if (SUCCEEDED(ad->QueryInterface(__uuidof(IDXGIAdapter3), (void**)&a3)) && a3)
+    {
+        DXGI_QUERY_VIDEO_MEMORY_INFO mi = {};
+        if (SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mi)))
+        { if (usedMB) *usedMB = mi.CurrentUsage / 1048576.0; if (budgetMB) *budgetMB = mi.Budget / 1048576.0; ok = 1; }
+        a3->Release();
+    }
+    ad->Release();
+    return ok;
+}
+extern "C" __declspec(dllexport) void PdTraceOn(int on) { g_ftOn = on != 0; if (!on) { std::lock_guard<std::mutex> l(g_ftMx); g_ft.clear(); } }
+// Copia in buf al massimo cap-1 caratteri del diario (righe intere) e li toglie; restituisce quanti.
+extern "C" __declspec(dllexport) int PdTraceTake(char* buf, int cap)
+{
+    if (!buf || cap < 2) return 0;
+    std::lock_guard<std::mutex> l(g_ftMx);
+    if (g_ft.empty()) { buf[0] = 0; return 0; }
+    size_t n = g_ft.size() < (size_t)(cap - 1) ? g_ft.size() : (size_t)(cap - 1);
+    if (n < g_ft.size()) { size_t k = g_ft.rfind('\n', n - 1); if (k != std::string::npos) n = k + 1; }
+    memcpy(buf, g_ft.data(), n); buf[n] = 0;
+    g_ft.erase(0, n);
+    return (int)n;
+}
 
 typedef void (STDMETHODCALLTYPE* DrawIndexed_t)(ID3D11DeviceContext*, UINT, UINT, INT);
 typedef void (STDMETHODCALLTYPE* Draw_t)(ID3D11DeviceContext*, UINT, UINT);
@@ -259,7 +322,7 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         UINT w = 0; if (b) { D3D11_BUFFER_DESC d; b->GetDesc(&d); w = d.ByteWidth; b->Release(); }
-        if (w != g_mWidth) { g_mSlot = -1; g_mForce = 1; g_viewGen++; }
+        if (w != g_mWidth) { FT("X;buffer_cambiato=%u->%u", g_mWidth, w); g_mSlot = -1; g_mForce = 1; g_viewGen++; }
         else if ((g_markers.load() % 30) == 0 && !CheckMatrix(c))
         {
             // voce 233 (registro 20/11 14:58): un controllo fallito toglieva la matrice e, se la ricerca non trovava
@@ -267,10 +330,12 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
             // posizione. Ora si cerca subito e, se non si trova niente, si tiene quella di prima.
             int os = g_mSlot, oo = g_mOff, ot = g_mT, oo2 = g_mOff2; UINT ow = g_mWidth;
             g_mSlot = -1; FindRevitMatrix(c);
+            bool found = g_mSlot >= 0;
             if (g_mSlot < 0) { g_mSlot = os; g_mOff = oo; g_mT = ot; g_mOff2 = oo2; g_mWidth = ow; g_mKept++; }
+            FT("X;controllo_matrice=fallito;ricerca=%s;b%d_riga=%d", found ? "trovata" : "niente_tenuta_precedente", g_mSlot, g_mOff);
         }
     }
-    if (g_mSlot < 0 && (g_mForce || (g_markers.load() % 30) == 1)) { g_mForce = 0; FindRevitMatrix(c); }
+    if (g_mSlot < 0 && (g_mForce || (g_markers.load() % 30) == 1)) { g_mForce = 0; FindRevitMatrix(c); FT("X;ricerca_matrice=%s;b%d_riga=%d", g_mSlot >= 0 ? "trovata" : "NON_trovata", g_mSlot, g_mOff); }
     return g_mSlot >= 0;
 }
 
@@ -287,6 +352,7 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
 //  (prime 6 righe del suo buffer) tagliano i punti come fa Revit.
 // =====================================================================================================================
 static ID3D11Device* g_realDev = nullptr;
+static ID3D11Device* g_realDevFwd() { return g_realDev; }
 struct PdNode { ID3D11Buffer* vb; ID3D11ShaderResourceView* srv; int count; };
 struct PdItem { ID3D11ShaderResourceView* srv; int count; float spacing; };
 static ID3D11Buffer* g_quadIb = nullptr;
@@ -416,6 +482,7 @@ static void GpuCollect(ID3D11DeviceContext* c)
         if (dj.Disjoint || dj.Frequency == 0 || e < b) continue;
         double ms = (double)(e - b) * 1000.0 / (double)dj.Frequency;
         g_gpuEma = g_gpuEma < 0 ? ms : g_gpuEma * 0.7 + ms * 0.3;
+        FT("G;gpu_ms=%.2f", ms);
         g_gpuSum += ms; g_gpuN++; if (ms > g_gpuMax) g_gpuMax = ms;
     }
 }
@@ -853,7 +920,7 @@ static int BestValidCand()
 static void ShaderDraw(ID3D11DeviceContext* c)
 {
     // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
-    if (!EnsureMatrix(c)) { g_skipMatrix++; return; }
+    if (!EnsureMatrix(c)) { g_skipMatrix++; FT("M;salto=matrice_non_pronta"); return; }
     // voce 209: buffer della matrice, destinazione e profondita' di questo fotogramma normale, per i fotogrammi interrotti
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
@@ -875,6 +942,11 @@ static void ShaderDraw(ID3D11DeviceContext* c)
             UINT ns = 1; D3D11_RECT sr = {}; c->RSGetScissorRects(&ns, &sr);
             if (ns > 0 && PartialRect(sr, g_fbVp, g_partRect)) { g_partial = true; g_partMarker++; g_partLast = g_partRect; }
         }
+    }
+    {
+        long long pts = 0; for (const PdItem& it : g_ready) pts += it.count;
+        FT("M;blocchi=%zu;punti=%lld;parziale=%d;rett=%ldx%ld;vp=%.0fx%.0f", g_ready.size(), pts, g_partial ? 1 : 0,
+           g_partial ? (long)(g_partRect.right - g_partRect.left) : 0L, g_partial ? (long)(g_partRect.bottom - g_partRect.top) : 0L, g_fbVp.Width, g_fbVp.Height);
     }
     if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
     if (Transparent()) return;   // voce 217: con la trasparenza si disegna al Present (DrawAtPresent)
@@ -1007,7 +1079,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     if (!g_realDev || g_fbVp.Width < 1) return;
     DXGI_SWAP_CHAIN_DESC sd = {};
     if (FAILED(s->GetDesc(&sd))) return;
-    if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
+    if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; FT("P;altra_finestra=%ux%u", sd.BufferDesc.Width, sd.BufferDesc.Height); return; }
     // voce 229: rettangolo ridisegnato in questo fotogramma (forbici al segnale, altrimenti rettangoli di Present1)
     const D3D11_RECT* sc = nullptr; D3D11_RECT dirty = {};
     // voce 230 (video del 20/11 14:26): fuori dal rettangolo Revit ricompone l'immagine dal modello senza nuvola (con la
@@ -1051,21 +1123,27 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         if (!(g_keepThisFrame && g_keepOk) && !KeepStillGood() && g_shaderOn && !g_ready.empty()) KeepDepth();
         if (g_partial && KeepStillGood()) g_keptOld = true;
         ID3D11DepthStencilView* dz = g_keepOk ? g_keepDsv : g_fbDsv;
-        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) g_fbAlpha++;
+        bool tr = Transparent(), drew = false;
+        if (tr && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) { g_fbAlpha++; drew = true; }
+        FT("P;completo;trasparente=%d;disegnato_al_present=%d;opacita=%.2f;profondita=%s;parziale=%d;forbici=%d;blocchi=%zu",
+           tr ? 1 : 0, drew ? 1 : 0, g_alpha, g_keptOld ? "tenuta_precedente" : (g_keepOk ? "copia" : "revit"), g_partial ? 1 : 0, sc ? 1 : 0, g_ready.size());
         g_keepThisFrame = false; g_dzArm = false; g_partial = false; g_keptOld = false;
         return;
     }
-    if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
+    if (s != g_fbSwap) { g_fbOther++; FT("P;interrotto;salto=altra_swapchain"); return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
     g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
     int best = g_hasRef ? BestValidCand() : -1;
     const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
     float camBuf[32];
     if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; } }
     g_nCand = 0; g_cmN = 0;
-    if (!g_shaderOn || g_ready.empty() || !g_fbDsv) return;
-    if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; return; }
+    if (!g_shaderOn || g_ready.empty() || !g_fbDsv) { FT("P;interrotto;salto=%s", !g_shaderOn ? "spento" : (g_ready.empty() ? "elenco_vuoto" : "niente_profondita")); return; }
+    if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; FT("P;interrotto;salto=camera_di_un'altra_vista"); return; }
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
-    if (DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc)) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
+    bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc);
+    if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
+    FT("P;interrotto;disegnato=%d;camera=%s;profondita=%s;forbici=%d;blocchi=%zu", drew ? 1 : 0, camNow ? "del_fotogramma" : "precedente",
+       g_keepOk ? "copia" : "revit", sc ? 1 : 0, g_ready.size());
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }

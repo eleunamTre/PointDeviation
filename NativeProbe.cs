@@ -44,6 +44,12 @@ namespace PointDeviation
         private static extern void PdShaderAdd(int layer, int node, int count, float spacing);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdTraceOn(int on);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int PdTraceTake(byte[] buf, int cap);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int PdVideoMem(out double usedMB, out double budgetMB);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         private static extern int PdShaderReport(StringBuilder msg, int cap);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -92,6 +98,16 @@ namespace PointDeviation
             // l'antenato, piu' rado) e si vedeva la nuvola rada che poi «andava a fuoco»; con la trasparenza, dove il
             // limite in movimento e' piu' basso, il salto era piu' evidente.
             return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 1.5);
+        }
+        // voce 234: diario dei fotogrammi (vedi FrameDiary)
+        public static bool Loaded { get { return _state > 0; } }
+        public static void TraceOn(bool on) { if (_state > 0) try { PdTraceOn(on ? 1 : 0); } catch { } }
+        public static int TraceTake(byte[] buf) { if (_state <= 0) return 0; try { return PdTraceTake(buf, buf.Length); } catch { return 0; } }
+        public static bool VideoMem(out double used, out double budget)
+        {
+            used = budget = 0;
+            if (_state <= 0) return false;
+            try { return PdVideoMem(out used, out budget) != 0; } catch { return false; }
         }
         /// <summary>Voce 229: frazione dei punti chiesti disegnata nell'ultimo fotogramma (1 = tutti).</summary>
         public static double LastScale = 1;
