@@ -1219,3 +1219,12 @@ Ottava tornata (28/10/2026): octree
        nascoste (elemento nascosto, categoria spenta, spunta in V/G), «Nascondi» se almeno una si vede. Si aggiorna
        dopo il pulsante, al cambio di vista e a ogni modifica del documento (es. Nascondi elemento di Revit). Prima il
        testo seguiva un'impostazione che il pulsante non cambiava.
+
+227) Trasparenza nella VistaIniziale (nuvola davanti ai muri). La sequenza registrata con la 224 (20/11 13:20-13:21)
+     lo spiega: nella VistaIniziale, dopo il segnale, Revit fa un secondo giro di passaggi e alla fine svuota il buffer
+     di profondita' della scena (al segnale «coperto 10-38%», al Present «vuoto»); nella {3D} al Present il buffer e'
+     ancora pieno (35-96%). Ora, dopo il segnale, la prima volta che Revit lascia quel buffer (imposta un'altra
+     profondita') se ne fa una copia: li' il modello c'e'. La copia si usa per la nuvola trasparente del fotogramma
+     completo e per i fotogrammi interrotti; se in un fotogramma la copia non c'e' stata si copia al Present come nella
+     222. Nella sequenza del registro compare «COPIA-PROF» e «profondita' copiata all'uscita dalla scena» con la sua
+     copertura. Vale anche per la nuvola opaca nei fotogrammi interrotti della VistaIniziale.

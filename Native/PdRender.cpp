@@ -536,6 +536,9 @@ static float g_lastCap[32]; static bool g_hasLastCap = false;
 static float g_refRaw[32]; static bool g_hasRef = false;
 static ID3D11DepthStencilView* g_fbDsv = nullptr;   // con riferimento: va usata nei fotogrammi interrotti
 static D3D11_VIEWPORT g_fbVp = {};
+// voce 227: copia della profondita' del modello presa quando Revit smette di usarla dopo il segnale (vedi HookROMSet)
+static bool g_dzArm = false, g_keepThisFrame = false;
+static void KeepDepthFrom(ID3D11DeviceContext* c);
 
 // =====================================================================================================================
 // Voce 224: diagnostica per la trasparenza nella VistaIniziale (nuvola davanti ai muri solo li'). Ogni 5 s si registra
@@ -823,6 +826,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         if (g_fbDsv != dsv) { if (g_fbDsv) g_fbDsv->Release(); g_fbDsv = dsv; } else if (dsv) dsv->Release();
         UINT nv = 1; c->RSGetViewports(&nv, &g_fbVp);
         g_drawnThisFrame = true;
+        g_dzArm = true;
     }
     if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
     if (Transparent()) return;   // voce 217: con la trasparenza si disegna al Present (DrawAtPresent)
@@ -902,6 +906,11 @@ static bool g_keepOk = false;
 static long g_keepCopies = 0;
 static void KeepDepth()
 {
+    ID3D11DeviceContext* c = nullptr; if (g_realDev) g_realDev->GetImmediateContext(&c);
+    if (c) { KeepDepthFrom(c); c->Release(); }
+}
+static void KeepDepthFrom(ID3D11DeviceContext* ctx)
+{
     g_keepOk = false;
     if (!g_fbDsv || !g_realDev) return;
     ID3D11Resource* r = nullptr; g_fbDsv->GetResource(&r);
@@ -920,15 +929,16 @@ static void KeepDepth()
         if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_keepTex)) && g_keepTex)
             if (FAILED(g_realDev->CreateDepthStencilView(g_keepTex, &vd, &g_keepDsv))) { g_keepTex->Release(); g_keepTex = nullptr; g_keepDsv = nullptr; }
     }
-    if (g_keepTex && g_keepDsv && d.MipLevels == 1 && d.ArraySize == 1)
-    {
-        ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
-        if (c) { c->CopyResource(g_keepTex, r); c->Release(); g_keepOk = true; g_keepCopies++; }
-    }
+    if (g_keepTex && g_keepDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_keepTex, r); g_keepOk = true; g_keepCopies++; }
     r->Release();
 }
 static void FallbackAtPresent(IDXGISwapChain* s)
 {
+    if (g_trRec && g_drawnThisFrame && g_keepThisFrame && g_keepOk && g_realDev)
+    {
+        ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
+        if (c) { TrDepth(c, g_keepDsv, "profondita' copiata all'uscita dalla scena"); c->Release(); }
+    }
     TrPresent(s, g_drawnThisFrame, g_fbDsv);
     if (!g_realDev || g_fbVp.Width < 1) return;
     DXGI_SWAP_CHAIN_DESC sd = {};
@@ -942,8 +952,12 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         g_nCand = 0; g_cmN = 0;
         // voce 217: con la trasparenza la nuvola del fotogramma completo si disegna qui, sopra il modello finito, con la
         // camera vera di questo fotogramma (al segnale si e' solo presa la matrice)
-        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, g_fbDsv)) g_fbAlpha++;
-        if (g_shaderOn && !g_ready.empty()) KeepDepth();
+        // voce 227: profondita' copiata quando Revit ha lasciato il buffer della scena (nella VistaIniziale al Present
+        // quel buffer e' gia' stato svuotato); se la copia non c'e' stata, si copia ora come nella 222
+        if (!(g_keepThisFrame && g_keepOk) && g_shaderOn && !g_ready.empty()) KeepDepth();
+        ID3D11DepthStencilView* dz = g_keepOk ? g_keepDsv : g_fbDsv;
+        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz)) g_fbAlpha++;
+        g_keepThisFrame = false; g_dzArm = false;
         return;
     }
     if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
@@ -1035,7 +1049,7 @@ static void ClearForNewView()
     g_clipOn = 0;
     g_hasRef = false; g_hasLastCap = false; g_chainGen = -1;
     g_nCand = 0; g_cmN = 0;
-    g_fbSwap = nullptr; g_drawnThisFrame = false; g_keepOk = false;
+    g_fbSwap = nullptr; g_drawnThisFrame = false; g_keepOk = false; g_keepThisFrame = false; g_dzArm = false;
 }
 // voce 223: il plugin non disegna piu' nella vista (nuvola spenta o nascosta): niente da ridisegnare nei fotogrammi
 // senza il plugin, altrimenti restava a schermo l'ultima nuvola
@@ -1240,7 +1254,24 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
 {
     g_cOMSet++;
     if (g_trRec) { TrFlush(); TrPut(" T(r#%d d#%d)", (n > 0 && r) ? TrView(r[0]) : 0, TrView(d)); }
-    g_rOMSet(c, n, r, d); Rehook(c);
+    // voce 227: dopo il segnale, la prima volta che Revit lascia il buffer di profondita' della scena se ne fa una copia:
+    // li' c'e' il modello finito, anche se poi Revit riusa o svuota quel buffer prima del Present (VistaIniziale)
+    bool leave = false;
+    if (g_dzArm && g_fbDsv)
+    {
+        ID3D11DepthStencilView* cur = nullptr; c->OMGetRenderTargets(0, nullptr, &cur);
+        if (cur)
+        {
+            ID3D11Resource *rc = nullptr, *rf = nullptr, *rn = nullptr;
+            cur->GetResource(&rc); g_fbDsv->GetResource(&rf); if (d) d->GetResource(&rn);
+            leave = rc && rc == rf && rn != rf;
+            if (rc) rc->Release(); if (rf) rf->Release(); if (rn) rn->Release();
+            cur->Release();
+        }
+    }
+    g_rOMSet(c, n, r, d);
+    if (leave) { g_dzArm = false; KeepDepthFrom(c); g_keepThisFrame = g_keepOk; if (g_trRec) TrPut(" COPIA-PROF"); }
+    Rehook(c);
 }
 static void STDMETHODCALLTYPE HookRVS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rVS(c, s, i, n); Rehook(c); }
 static void STDMETHODCALLTYPE HookRPS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rPS(c, s, i, n); Rehook(c); }
