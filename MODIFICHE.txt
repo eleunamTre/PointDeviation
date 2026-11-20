@@ -1182,3 +1182,9 @@ Ottava tornata (28/10/2026): octree
      completo, quando il modello e' finito, la profondita' si copia in un buffer nostro e i fotogrammi interrotti usano
      quella copia. Registro: «profondita' tenuta per i fotogrammi interrotti N volte» (circa quanti i fotogrammi
      completi).
+
+223) Spegnendo la nuvola (o nascondendola nella vista) restava a schermo l'ultima nuvola disegnata (20/11 11:19). Revit
+     non chiama piu' il plugin in quella vista, quindi la libreria non riceveva nessun elenco nuovo e continuava a
+     ridisegnare l'ultimo nei fotogrammi senza il plugin. Ora, quando il plugin decide di non disegnare in una vista
+     aperta (`HybridServer.CanExecute` falso: nuvola spenta, nascosta, nessuna nuvola visibile), lo dice alla libreria
+     (`PdViewOff`), che svuota l'elenco se la vista e' quella in cui stava disegnando.

@@ -146,7 +146,9 @@ namespace PointDeviation
                 // anteprime (editor tipo, famiglie): vista del progetto non aperta in nessuna finestra
                 if (!ZoomCache.IsOpen(view)) return false;
                 DocumentData d = Data(view);
-                if (d == null || d.Style == null || !d.Style.Visible || d.Layers.Count == 0) return false;
+                // voce 223: vista aperta in cui il plugin non disegna piu' (nuvola spenta o nascosta): la libreria smette di
+                // ridisegnare l'ultimo elenco nei fotogrammi senza il plugin (restava a schermo l'ultima nuvola)
+                if (d == null || d.Style == null || !d.Style.Visible || d.Layers.Count == 0) { NativeProbe.ViewOff(view.Id.Value); return false; }
                 long now = Environment.TickCount;
                 if (now - _lastVisLog > 10000)
                 {
@@ -155,6 +157,7 @@ namespace PointDeviation
                 }
                 foreach (CloudLayer l in d.Layers) if (l.VisibleIn(view)) return true;
                 foreach (CloudLayer l in d.Layers) Log.Debug("Visibilità", "«" + l.Name + "» non disegnata in «" + view.Name + "»: " + l.HiddenReason(view));
+                NativeProbe.ViewOff(view.Id.Value);
                 return false;
             }
             catch { return false; }

@@ -940,6 +940,12 @@ static void ClearForNewView()
     g_nCand = 0; g_cmN = 0;
     g_fbSwap = nullptr; g_drawnThisFrame = false; g_keepOk = false;
 }
+// voce 223: il plugin non disegna piu' nella vista (nuvola spenta o nascosta): niente da ridisegnare nei fotogrammi
+// senza il plugin, altrimenti restava a schermo l'ultima nuvola
+extern "C" __declspec(dllexport) void PdViewOff(long long viewId)
+{
+    if (viewId == g_mView) { g_ready.clear(); g_build.clear(); }
+}
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
