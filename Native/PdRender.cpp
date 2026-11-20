@@ -1069,7 +1069,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         size_t L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; sequenza di un fotogramma:%s", g_trBuf);
     }
-    g_trDone = false; g_trArm = g_shaderOn != 0;
+    // voce 228: la sequenza di un fotogramma (224) non si registra piu' a ogni resoconto: la lettura della profondita'
+    // ferma la scheda video per un attimo. Il codice resta per una prova mirata.
+    g_trDone = false; g_trArm = false;
     g_keepCopies = 0;
     g_fbNormal = g_fbAlpha = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
     g_camUsed = g_camStale = g_camRejected = 0;

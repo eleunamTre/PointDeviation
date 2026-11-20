@@ -58,12 +58,12 @@ namespace PointDeviation
         // (199-200) il limite era fisso o seguiva il tempo misurato dal plugin, che non comprende il disegno: si arrivava a
         // 7-17 M punti per fotogramma, l'orbita era lenta e Revit saltava fotogrammi (nuvola che spariva e ricompariva).
         private const double GpuTargetMs = 8.0;
-        private static double _cap = 2500000;
+        private static double _cap = 4000000;
         private static long _capAdjust;
         private static double _intEma = -1;
         public static int NotReadyFrames;
         public static double GpuMs { get { try { return PdShaderGpuMs(); } catch { return -1; } } }
-        /// <summary>Punti da disegnare in questo fotogramma: in movimento il limite adattivo, da fermi il doppio.</summary>
+        /// <summary>Punti da disegnare in questo fotogramma: in movimento il limite adattivo, da fermi una volta e mezza.</summary>
         public static long ShaderCap(bool moving)
         {
             long now = Environment.TickCount;
@@ -80,11 +80,18 @@ namespace PointDeviation
                 // 20:19: senza riquadro i fotogrammi restavano a 120-380 ms anche con soli 0,4 M punti a 1,9 ms di scheda
                 // video, quindi la lentezza era tutta di Revit; intanto la nuvola restava bloccata a 0,4 M punti e da
                 // lontano quasi non si vedeva. Il limite segue solo il tempo dei nostri punti, con un minimo di 1 M.
-                if (g > GpuTargetMs * 1.3) _cap *= 0.85;
-                else if (g < GpuTargetMs * 0.7) _cap *= 1.08;
-                _cap = Math.Max(1000000, Math.Min(8000000, _cap));
+                // voce 228: passi piu' piccoli e fascia piu' larga. Registro del 20/11 (trasparenza 42%): con la regola di
+                // prima il limite saltava da 2,5 a 8 M in pochi secondi (scheda video 4-14 ms) e la densita' cambiava a
+                // ogni zoom. Minimo 3 M: sotto, da lontano la nuvola e' troppo rada.
+                if (g > GpuTargetMs * 1.5) _cap *= 0.9;
+                else if (g < GpuTargetMs * 0.75) _cap *= 1.05;
+                _cap = Math.Max(3000000, Math.Min(8000000, _cap));
             }
-            return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 2);
+            // voce 228: da fermi una volta e mezza il limite in movimento (era il doppio). Il livello di dettaglio si sceglie
+            // con questo limite: col doppio, a ogni pausa dello zoom si passava a blocchi piu' fini da caricare (intanto
+            // l'antenato, piu' rado) e si vedeva la nuvola rada che poi «andava a fuoco»; con la trasparenza, dove il
+            // limite in movimento e' piu' basso, il salto era piu' evidente.
+            return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 1.5);
         }
         public static string CapNote { get { return string.Format("limite punti in movimento {0:F1} M, scheda video {1:F1} ms per fotogramma (obiettivo {2:F0} ms), fotogramma intero in movimento {4:F0} ms; fotogrammi con la libreria non pronta {3}", _cap / 1e6, GpuMs, GpuTargetMs, NotReadyFrames, _intEma); } }
 

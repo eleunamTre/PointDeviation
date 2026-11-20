@@ -1228,3 +1228,15 @@ Ottava tornata (28/10/2026): octree
      completo e per i fotogrammi interrotti; se in un fotogramma la copia non c'e' stata si copia al Present come nella
      222. Nella sequenza del registro compare «COPIA-PROF» e «profondita' copiata all'uscita dalla scena» con la sua
      copertura. Vale anche per la nuvola opaca nei fotogrammi interrotti della VistaIniziale.
+
+228) Nuvola rada a ogni zoom che poi «va a fuoco» (registro della 227, 20/11, trasparenza 42%). Il limite di punti in
+     movimento seguiva il tempo della scheda video con passi grandi e oscillava tra 2,5 e 8 M (scheda video 4-14 ms;
+     con la trasparenza i punti costano di piu' per la fusione dei colori); da fermi il limite era il doppio. Il livello
+     di dettaglio si sceglie con quel limite, quindi a ogni inizio di zoom si scendeva a blocchi piu' radi e a ogni pausa
+     si saliva a blocchi piu' fini ancora da caricare (intanto si vedeva l'antenato): la nuvola si diradava e poi si
+     riempiva. Ora:
+     - da fermi una volta e mezza il limite in movimento (era il doppio, massimo sempre 12 M);
+     - il limite in movimento cambia a passi piu' piccoli (-10% sopra 12 ms, +5% sotto 6 ms; prima -15% sopra 10,4 ms e
+       +8% sotto 5,6 ms) e non scende sotto 3 M (era 1 M); parte da 4 M;
+     - la sequenza di un fotogramma (224) non si registra piu' a ogni resoconto: leggeva la profondita' dalla scheda
+       video e poteva dare un piccolo scatto ogni 5 s.
