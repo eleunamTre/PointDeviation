@@ -1317,3 +1317,16 @@ Ottava tornata (28/10/2026): octree
      Altro dal diario: memoria della scheda video stabile (400-700 MB), nessun salto per matrice, 50 Present di altre
      finestre; memoria privata di Revit da 2,2 a 4,5 GB in 3 minuti (heap .NET da 0,5 a 1,9 GB, soprattutto durante
      l'analisi): da tenere d'occhio.
+
+237) Riquadro attorno alla selezione tornato, e diario piu' dettagliato (video del 20/11 dalle 19:39:57).
+     - In VistaIniziale, con un elemento selezionato, la nuvola restava visibile solo nel rettangolo attorno
+       all'elemento. Nei fotogrammi parziali in cui si tiene la profondita' intera di prima (registro:
+       «tenuta_precedente;parziale=1;forbici=1») il disegno al Present ripiegava sui rettangoli modificati che Revit
+       passa a Present1. Ora, se la profondita' intera e' ancora buona, si disegna su tutta la finestra.
+     - Diario, righe C: nuovi campi ms_punti (preparazione dei punti in parallelo) e ms_buffer (creazione dei buffer
+       nella scheda video sul thread di Revit), per capire da quale delle due vengono i picchi di 60-97 ms rimasti.
+     - Diario, righe P;interrotto: numero di matrici trovate nel fotogramma e motivi per cui sono state scartate
+       (proiezione, proporzioni, assi, scala, fuoco, altro), con scala minima e massima rispetto al riferimento e
+       spostamento massimo del punto guardato. Nella sessione delle 19:40 i fotogrammi interrotti disegnati usavano
+       quasi sempre la camera precedente (572 contro 9): la nuvola resta indietro rispetto al modello durante il
+       movimento. Serve a capire quale controllo scarta le matrici buone.

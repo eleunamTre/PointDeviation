@@ -67,6 +67,10 @@ namespace PointDeviation
         }
 
         /// <summary>Un fotogramma del plugin con il disegno con shader.</summary>
+        // voce 237: tempo dei caricamenti di questo fotogramma diviso tra preparazione dei punti (thread di lavoro) e
+        // creazione dei buffer nella scheda video (thread di Revit); li somma CloudLayer.ShaderUploadAll
+        public static double UpPrepMs, UpGpuMs;
+
         public static void Frame(long viewId, string viewName, Style st, bool moving, long cap, long wanted, double scale,
                                  long points, int blocks, int notLoaded, int notBuilt, long upPts, int upBlocks,
                                  double msSelect, double msPrep, double msDraw)
@@ -83,9 +87,10 @@ namespace PointDeviation
             double interval = _lastFrame < 0 ? -1 : now - _lastFrame;
             _lastFrame = now;
             Line(string.Format(Inv,
-                "C;movimento={0};limite={1:F2}M;chiesti={2:F2}M;frazione={3:F2};disegnati={4:F2}M;blocchi={5};non_letti={6};da_preparare={7};caricati={8:F2}M/{9};ms_scelta={10:F1};ms_prep={11:F1};ms_disegno={12:F1};intervallo={13:F0}",
+                "C;movimento={0};limite={1:F2}M;chiesti={2:F2}M;frazione={3:F2};disegnati={4:F2}M;blocchi={5};non_letti={6};da_preparare={7};caricati={8:F2}M/{9};ms_scelta={10:F1};ms_prep={11:F1};ms_disegno={12:F1};intervallo={13:F0};ms_punti={14:F1};ms_buffer={15:F1}",
                 moving ? 1 : 0, cap / 1e6, wanted / 1e6, scale, points / 1e6, blocks, notLoaded, notBuilt, upPts / 1e6, upBlocks,
-                msSelect, msPrep, msDraw, interval));
+                msSelect, msPrep, msDraw, interval, UpPrepMs, UpGpuMs));
+            UpPrepMs = 0; UpGpuMs = 0;
             Pump();
         }
 

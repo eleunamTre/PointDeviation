@@ -1708,8 +1708,11 @@ namespace PointDeviation
                 while (_upBuf.Count < m) _upBuf.Add(new byte[0]);
                 for (int j = 0; j < m; j++) { int need = _upCpu[s0 + j].Count * 16; if (_upBuf[j].Length < need) _upBuf[j] = new byte[need]; }
                 int b0 = s0;
+                long tp0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 if (m == 1) _upW[0] = ShaderPrepare(_upIdx[b0], _upCpu[b0], st, argb, hl, _upBuf[0]);
                 else Parallel.For(0, m, j => { _upW[j] = ShaderPrepare(_upIdx[b0 + j], _upCpu[b0 + j], st, argb, hl, _upBuf[j]); });
+                long tp1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                FrameDiary.UpPrepMs += (tp1 - tp0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 for (int j = 0; j < m; j++)
                 {
                     int i = _upIdx[s0 + j], w = _upW[j];
@@ -1722,6 +1725,7 @@ namespace PointDeviation
                     _nUpTotal += up - _nUpPts[i];
                     _nUp[i] = cpu; _nUpCount[i] = cpu.Count; _nUpKey[i] = _upKey[s0 + j]; _nUpPts[i] = up;
                 }
+                FrameDiary.UpGpuMs += (System.Diagnostics.Stopwatch.GetTimestamp() - tp1) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 s0 = s1;
             }
             // memoria dei gruppi: oltre 64 MB si libera (dopo un caricamento grande, es. cambio di stile)

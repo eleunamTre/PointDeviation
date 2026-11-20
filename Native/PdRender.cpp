@@ -887,24 +887,31 @@ static void ColForm(const float* raw, float* C)
     for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = 0; for (int j = 0; j < 4; j++) v += B[r * 4 + j] * A[j * 4 + k]; C[r * 4 + k] = v; }
 }
 static float L3(const float* v) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+// voce 237: motivi per cui le matrici dei fotogrammi interrotti vengono scartate (diario: riga P;interrotto)
+static int g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther;
+static float g_rjKmin, g_rjKmax, g_rjShift;
 static bool LikeRef(const float* raw)
 {
     float C[16], R[16]; ColForm(raw, C); ColForm(g_chainGen == g_viewGen ? g_chainRaw : g_refRaw, R);
     float c0 = L3(C), c1 = L3(C + 4), r0 = L3(R), r1 = L3(R + 4);
-    if (!(c0 > 0 && c1 > 0 && r0 > 0 && r1 > 0)) return false;
+    if (!(c0 > 0 && c1 > 0 && r0 > 0 && r1 > 0)) { g_rjOther++; return false; }
     bool cPar = L3(C + 12) < 1e-6f * c0, rPar = L3(R + 12) < 1e-6f * r0;
-    if (cPar != rPar) return false;
-    if (fabsf((c0 / c1) / (r0 / r1) - 1) > 0.02f) return false;
-    if (fabsf(C[0] * C[4] + C[1] * C[5] + C[2] * C[6]) > 0.02f * c0 * c1) return false;
+    if (cPar != rPar) { g_rjProj++; return false; }
+    if (fabsf((c0 / c1) / (r0 / r1) - 1) > 0.02f) { g_rjAsp++; return false; }
+    if (fabsf(C[0] * C[4] + C[1] * C[5] + C[2] * C[6]) > 0.02f * c0 * c1) { g_rjOrtho++; return false; }
     float k = c0 / r0;
-    if (!(k > 0.75f && k < 1.33f)) return false;
+    if (k < g_rjKmin) g_rjKmin = k; if (k > g_rjKmax) g_rjKmax = k;
+    if (!(k > 0.75f && k < 1.33f)) { g_rjScale++; return false; }
     // voce 214: stessa scala ma spostata (tassello disegnato con la vista traslata: nuvola in basso a sinistra). Il punto
     // guardato a schermo non puo' saltare di oltre un quarto della finestra da un fotogramma all'altro (voce 216: prima il
     // centro della nuvola, che in prospettiva poteva stare dietro la camera).
     float pc[4], pr[4], q[4] = { g_focus[0], g_focus[1], g_focus[2], 1 };
     for (int r = 0; r < 4; r++) { pc[r] = C[r * 4] * q[0] + C[r * 4 + 1] * q[1] + C[r * 4 + 2] * q[2] + C[r * 4 + 3]; pr[r] = R[r * 4] * q[0] + R[r * 4 + 1] * q[1] + R[r * 4 + 2] * q[2] + R[r * 4 + 3]; }
-    if (!(pc[3] > 1e-6f && pr[3] > 1e-6f)) return false;
-    return fabsf(pc[0] / pc[3] - pr[0] / pr[3]) < 0.5f && fabsf(pc[1] / pc[3] - pr[1] / pr[3]) < 0.5f;
+    if (!(pc[3] > 1e-6f && pr[3] > 1e-6f)) { g_rjOther++; return false; }
+    float sh = fmaxf(fabsf(pc[0] / pc[3] - pr[0] / pr[3]), fabsf(pc[1] / pc[3] - pr[1] / pr[3]));
+    if (sh > g_rjShift) g_rjShift = sh;
+    if (!(sh < 0.5f)) { g_rjFocus++; return false; }
+    return true;
 }
 static int BestValidCand()
 {
@@ -1087,8 +1094,12 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // Se c'e' la profondita' intera del fotogramma precedente con la stessa camera, la nuvola si ridisegna ovunque con
     // quella; il rettangolo serve solo quando quella copia non c'e'.
     // (una copia presa in questo fotogramma parziale e' vuota fuori dal rettangolo: allora si resta nel rettangolo)
-    if (g_drawnThisFrame && g_partial && !(g_keptOld || (!g_keepThisFrame && KeepStillGood()))) sc = &g_partRect;
-    else if (pp && pp->DirtyRectsCount > 0 && pp->pDirtyRects)
+    // voce 237 (video del 20/11 19:40, VistaIniziale): con la profondita' intera di prima si disegna su tutta la finestra
+    // anche se Revit passa a Present1 i rettangoli modificati; prima si ripiegava su quei rettangoli e la nuvola restava
+    // solo nel riquadro attorno all'elemento selezionato (registro: «tenuta_precedente;parziale=1;forbici=1»).
+    bool fullOk = g_partial && (g_keptOld || (!g_keepThisFrame && KeepStillGood()));
+    if (g_drawnThisFrame && g_partial && !fullOk) sc = &g_partRect;
+    else if (!fullOk && pp && pp->DirtyRectsCount > 0 && pp->pDirtyRects)
     {
         RECT u = pp->pDirtyRects[0];
         for (UINT k = 1; k < pp->DirtyRectsCount; k++)
@@ -1132,6 +1143,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     }
     if (s != g_fbSwap) { g_fbOther++; FT("P;interrotto;salto=altra_swapchain"); return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
     g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
+    g_rjProj = g_rjAsp = g_rjOrtho = g_rjScale = g_rjFocus = g_rjOther = 0; g_rjKmin = 1e9f; g_rjKmax = 0; g_rjShift = 0;
+    int nCandHere = g_nCand;
     int best = g_hasRef ? BestValidCand() : -1;
     const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
     float camBuf[32];
@@ -1142,8 +1155,9 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc);
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
-    FT("P;interrotto;disegnato=%d;camera=%s;profondita=%s;forbici=%d;blocchi=%zu", drew ? 1 : 0, camNow ? "del_fotogramma" : "precedente",
-       g_keepOk ? "copia" : "revit", sc ? 1 : 0, g_ready.size());
+    FT("P;interrotto;disegnato=%d;camera=%s;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
+       drew ? 1 : 0, camNow ? "del_fotogramma" : "precedente", g_keepOk ? "copia" : "revit", sc ? 1 : 0, g_ready.size(),
+       nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
