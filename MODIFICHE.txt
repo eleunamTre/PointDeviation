@@ -1129,3 +1129,11 @@ Ottava tornata (28/10/2026): octree
      (voce 191, riga «buffer di Revit: …»). Il controllo dei tasselli (213-215) ora usa il punto guardato dalla camera
      invece del centro della nuvola: in prospettiva, con la camera dentro l'edificio, il centro poteva stare dietro la
      camera e la camera vera veniva scartata. Il resoconto «[DirectX]» non scrive piu' «cubo di prova disegnato».
+
+217) Disegno con shader: trasparenza e raggi X. Prima la nuvola dello shader era sempre opaca anche con la trasparenza
+     del profilo (nel registro «trasparenza del profilo 20%»). Ora l'opacita' e' la stessa del disegno di sempre
+     (cursore «Trasparenza», modalita' raggi X con il suo contrasto, stessa correzione per i punti sovrapposti).
+     Con la trasparenza i punti si mescolano con quello che c'e' dietro e non scrivono la profondita', quindi non si
+     possono disegnare al segnale (il modello disegnato dopo li coprirebbe): al segnale si prende solo la matrice e la
+     nuvola si disegna al Present, sopra il modello finito, con la camera vera di quel fotogramma e il buffer di
+     profondita' di Revit (come nei fotogrammi interrotti). Nel registro: «di cui trasparenti disegnati al Present».

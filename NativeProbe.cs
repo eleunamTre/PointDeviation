@@ -29,6 +29,8 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetFocus(float[] p);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetAlpha(float a);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetView(long viewId);
@@ -114,6 +116,8 @@ namespace PointDeviation
                 // voce 197: raggio massimo come il motore di sempre (100% = circa 5 px di diametro); con la 194 era 1,6 volte
                 // tanto e i punti risultavano piu' grandi del normale
                 float maxPx = (float)Math.Max(1.0, 2.5 * Math.Max(st.PointScale, 20) / 100.0);
+                // voce 217: trasparenza e X-ray come nel disegno di sempre (stessa correzione per i punti sovrapposti)
+                PdSetAlpha(st.NeedsTransparentPass ? (float)(1.0 - st.DrawTransparency) : 1f);
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }

@@ -275,6 +275,12 @@ static std::unordered_map<long long, PdNode> g_nodes;
 static std::vector<PdItem> g_build, g_ready;
 static std::atomic<int> g_shaderOn{ 0 };
 static float g_shMaxPx = 3.0f, g_shScale = 0.6f;
+// voce 217: opacita' dei punti (1 = opachi). Con la trasparenza i punti non scrivono la profondita' e si mescolano con
+// quello che c'e' dietro; si disegnano al Present, quando Revit ha finito tutto il modello (vedi DrawAtPresent).
+static float g_alpha = 1.0f;
+static ID3D11BlendState* g_bsAlpha = nullptr;
+static ID3D11DepthStencilState* g_sdssNoWrite = nullptr;
+static bool Transparent() { return g_alpha < 0.999f; }
 static long long g_shBytes = 0;
 static long g_shUploads = 0, g_shDrawn = 0, g_shFrames = 0;
 static long long g_shPoints = 0;
@@ -312,7 +318,7 @@ static const char* g_shHlsl =
 "  float2 cn = float2((cr & 1) != 0 ? 1.0 : -1.0, (cr & 2) != 0 ? 1.0 : -1.0);\n"
 "  cl.xy += cn * float2(rpx * 2.0 / P.y, rpx * 2.0 / P.z) * cl.w;\n"
 "  o.pos = cl; o.uv = rpx < 1.25 ? cn * 0.5 : cn;\n"
-"  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, 1);\n"
+"  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, asfloat(Info2.z));\n"
 "  float dd[6];\n"
 "  [unroll] for (int k = 0; k < 6; k++) dd[k] = Info.w != 0 ? dot(Pl[k].xyz, p) + Pl[k].w : 1.0;\n"
 "  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
@@ -350,7 +356,16 @@ static bool ShaderInit(ID3D11Device* dev)
     D3D11_RASTERIZER_DESC rd = {}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
     dev->CreateRasterizerState(&rd, &g_srs);
     if (!g_bs) { D3D11_BLEND_DESC bld = {}; bld.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL; dev->CreateBlendState(&bld, &g_bs); }
-    if (!g_svs || !g_sps || !g_quadIb || !g_scb || !g_sdss || !g_srs || !g_bs)
+    {
+        D3D11_BLEND_DESC bld = {}; D3D11_RENDER_TARGET_BLEND_DESC& rt = bld.RenderTarget[0];
+        rt.BlendEnable = TRUE; rt.SrcBlend = D3D11_BLEND_SRC_ALPHA; rt.DestBlend = D3D11_BLEND_INV_SRC_ALPHA; rt.BlendOp = D3D11_BLEND_OP_ADD;
+        rt.SrcBlendAlpha = D3D11_BLEND_ZERO; rt.DestBlendAlpha = D3D11_BLEND_ONE; rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        dev->CreateBlendState(&bld, &g_bsAlpha);
+        dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+        dev->CreateDepthStencilState(&dd, &g_sdssNoWrite);
+    }
+    if (!g_svs || !g_sps || !g_quadIb || !g_scb || !g_sdss || !g_srs || !g_bs || !g_bsAlpha || !g_sdssNoWrite)
     { _snprintf_s(g_shErr, sizeof(g_shErr), _TRUNCATE, "creazione delle risorse dello shader dei punti non riuscita"); g_shFailed = true; return false; }
     return true;
 }
@@ -465,10 +480,12 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     c->GSSetShader(nullptr, nullptr, 0);
     ID3D11Buffer* ours[2] = { g_scb, matBuf };
     c->VSSetConstantBuffers(0, 2, ours);
-    c->OMSetDepthStencilState(g_sdss, 0);
+    bool tr = Transparent();
+    c->OMSetDepthStencilState(tr ? g_sdssNoWrite : g_sdss, 0);
     c->RSSetState(g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
-    c->OMSetBlendState(g_bs, zero, 0xffffffff);
+    c->OMSetBlendState(tr ? g_bsAlpha : g_bs, zero, 0xffffffff);
+    float alpha = tr ? g_alpha : 1.0f;
     // voce 200: piani di ritaglio dal plugin (riquadro di sezione, intervallo di vista, campo della sezione letti
     // dalle API di Revit), non piu' dal buffer di Revit (voce 196: li' la loro posizione cambia da vista a vista)
     int planes = g_clipOn;
@@ -486,7 +503,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
                 f[4] = it.spacing * g_shScale; f[5] = vp.Width; f[6] = vp.Height; f[7] = g_shMaxPx;
                 memcpy(f + 8, g_clip, sizeof(g_clip));
                 // voce 205: seconda matrice (vista e proiezione separate nel buffer di Revit), come nel cubo di prova
-                in[32] = off2; in[33] = t2; in[34] = 0; in[35] = 0;
+                in[32] = off2; in[33] = t2; f[34] = alpha; in[35] = 0;
                 c->Unmap(g_scb, 0);
             }
             lastSp = it.spacing;
@@ -712,6 +729,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         g_drawnThisFrame = true;
     }
     if (!g_shaderOn || g_ready.empty()) { if (g_shaderOn) g_skipEmpty++; return; }
+    if (Transparent()) return;   // voce 217: con la trasparenza si disegna al Present (DrawAtPresent)
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
     if (!dev) return;
     bool ok = ShaderInit(dev);
@@ -734,36 +752,19 @@ static void ShaderDraw(ID3D11DeviceContext* c)
 // Ora: la finestra della vista e' quella con l'immagine grande quanto la nostra destinazione; nei fotogrammi interrotti
 // la nuvola si disegna direttamente nell'immagine della finestra, con il buffer di profondita' di Revit e la matrice
 // vera dell'ultimo fotogramma completo (la nuvola puo' restare indietro di qualche fotogramma rispetto al modello).
-static void FallbackAtPresent(IDXGISwapChain* s)
+// Disegno dei punti nell'immagine della finestra, con il buffer di profondita' di Revit e la camera cam (formato del
+// buffer di Revit). Restituisce true se ha disegnato.
+static bool DrawAtPresent(IDXGISwapChain* s, const float* cam)
 {
-    if (!g_realDev || g_fbVp.Width < 1) return;
-    DXGI_SWAP_CHAIN_DESC sd = {};
-    if (FAILED(s->GetDesc(&sd))) return;
-    if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
-    if (g_drawnThisFrame)
-    {
-        g_fbNormal++; g_drawnThisFrame = false; g_fbSwap = s; LearnSearch();
-        int b = BestCand();
-        if (b >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[b].m, g_refRaw, (g_mOff2 >= 0 ? 32 : 16) * 4) == 0) g_fbAgree++; }
-        g_nCand = 0; g_cmN = 0;
-        return;
-    }
-    if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
-    g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
-    int best = g_hasRef ? BestValidCand() : -1;
-    const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
-    float camBuf[32];
-    if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; } }
-    g_nCand = 0; g_cmN = 0;
-    if (!g_shaderOn || g_ready.empty() || !g_svs || !g_fbDsv) return;
-    if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; return; }
+    if (!g_fbDsv || !ShaderInit(g_realDev)) return false;
+    bool done = false;
     ID3D11Texture2D* bb = nullptr;
-    if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return;
+    if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return false;
     ID3D11Resource* dr = nullptr; g_fbDsv->GetResource(&dr);
     D3D11_TEXTURE2D_DESC bd2 = {}, dd2 = {};
     bb->GetDesc(&bd2);
     if (dr) { ((ID3D11Texture2D*)dr)->GetDesc(&dd2); dr->Release(); }
-    if (dd2.Width != bd2.Width || dd2.Height != bd2.Height || dd2.SampleDesc.Count != bd2.SampleDesc.Count) { g_fbRejected++; bb->Release(); return; }
+    if (dd2.Width != bd2.Width || dd2.Height != bd2.Height || dd2.SampleDesc.Count != bd2.SampleDesc.Count) { g_fbRejected++; bb->Release(); return false; }
     ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
     if (!g_fbMat)
     {
@@ -776,21 +777,51 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         D3D11_MAPPED_SUBRESOURCE m;
         if (SUCCEEDED(c->Map(g_fbMat, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
         {
-            // voce 212: camera del modello di questo fotogramma se trovata, altrimenti quella dell'ultimo completo
-            memcpy(m.pData, camNow ? camNow : g_chainRaw, 128);
-            if (camNow) g_camUsed++; else g_camStale++;
+            memcpy(m.pData, cam, 128);
             c->Unmap(g_fbMat, 0);
             SavedState st; st.Save(c, true);
             c->OMSetRenderTargets(1, &rtv, g_fbDsv);
             c->RSSetViewports(1, &g_fbVp);
             DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
             st.Restore(c);
-            g_fbDrawn++;
+            done = true;
         }
         rtv->Release();
     }
     if (c) c->Release();
     bb->Release();
+    return done;
+}
+
+static long g_fbAlpha = 0;   // voce 217: fotogrammi completi disegnati al Present per la trasparenza
+static void FallbackAtPresent(IDXGISwapChain* s)
+{
+    if (!g_realDev || g_fbVp.Width < 1) return;
+    DXGI_SWAP_CHAIN_DESC sd = {};
+    if (FAILED(s->GetDesc(&sd))) return;
+    if (sd.BufferDesc.Width != (UINT)g_fbVp.Width || sd.BufferDesc.Height != (UINT)g_fbVp.Height) { g_fbOther++; return; }
+    if (g_drawnThisFrame)
+    {
+        g_fbNormal++; g_drawnThisFrame = false; g_fbSwap = s; LearnSearch();
+        int b = BestCand();
+        if (b >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[b].m, g_refRaw, (g_mOff2 >= 0 ? 32 : 16) * 4) == 0) g_fbAgree++; }
+        g_nCand = 0; g_cmN = 0;
+        // voce 217: con la trasparenza la nuvola del fotogramma completo si disegna qui, sopra il modello finito, con la
+        // camera vera di questo fotogramma (al segnale si e' solo presa la matrice)
+        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw)) g_fbAlpha++;
+        return;
+    }
+    if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
+    g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
+    int best = g_hasRef ? BestValidCand() : -1;
+    const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
+    float camBuf[32];
+    if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; } }
+    g_nCand = 0; g_cmN = 0;
+    if (!g_shaderOn || g_ready.empty() || !g_fbDsv) return;
+    if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; return; }
+    // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
+    if (DrawAtPresent(s, camNow ? camNow : g_chainRaw)) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -862,11 +893,11 @@ static void ClearForNewView()
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld, interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, matrici scartate (tasselli) %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld (di cui trasparenti disegnati al Present %ld, opacita' %.2f), interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, matrici scartate (tasselli) %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
-        g_fbNormal, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
-    g_fbNormal = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
+        g_fbNormal, g_fbAlpha, g_alpha, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+    g_fbNormal = g_fbAlpha = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
     g_camUsed = g_camStale = g_camRejected = 0;
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0; g_skipMatrix = 0; g_skipEmpty = 0;
@@ -875,6 +906,10 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 
 static std::atomic<int> g_inTest{ 0 };
 
+extern "C" __declspec(dllexport) void PdSetAlpha(float a)
+{
+    g_alpha = a < 0.02f ? 0.02f : (a > 1.0f ? 1.0f : a);
+}
 extern "C" __declspec(dllexport) void PdSetFocus(const float* p)
 {
     g_focus[0] = p[0]; g_focus[1] = p[1]; g_focus[2] = p[2];
