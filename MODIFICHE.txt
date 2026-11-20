@@ -1161,3 +1161,14 @@ Ottava tornata (28/10/2026): octree
      pulizie C/Z, copie K, risoluzioni R, disegni dN, SEGNALE, PRESENT, con dimensioni e formato di ogni risorsa alla
      prima comparsa. Serve a capire dove e quando c'e' la profondita' con il modello finito negli stili ombreggiati.
      Comportamento della trasparenza come nella 218.
+
+221) Ritorno alla 218 per la libreria nativa e NativeProbe.cs (richiesta dell'utente, 20/11 11:09: con la 219 la nuvola
+     restava invisibile a vista ferma e compariva solo orbitando, zoomando o passando col mouse, cioe' nei fotogrammi
+     interrotti, dove la copia della profondita' non si usava). Restano tolte la copia della profondita' (219) e la
+     sequenza del fotogramma (220). Dalla sequenza registrata con la 220 (11:10), per riprendere la trasparenza negli
+     stili ombreggiati: nel fotogramma completo Revit disegna il modello in #1 (colore 1093x794, formato 27) con la
+     profondita' #2 (formato 44), il segnale arriva due volte dentro questo passaggio, poi un passaggio in un'immagine
+     a 16 bit per canale (formato 10) con un'altra profondita' (#3), altri disegni in #1 con #2, e infine circa 150
+     disegni nell'immagine della finestra (#5) con la sua profondita' (#6) prima del Present. Nei fotogrammi interrotti
+     ci sono solo i circa 150 disegni nell'immagine della finestra con la sua profondita'. Stessa sequenza in Linee
+     nascoste e in Ombreggiato.
