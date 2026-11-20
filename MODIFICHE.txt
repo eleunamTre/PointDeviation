@@ -1172,3 +1172,13 @@ Ottava tornata (28/10/2026): octree
      disegni nell'immagine della finestra (#5) con la sua profondita' (#6) prima del Present. Nei fotogrammi interrotti
      ci sono solo i circa 150 disegni nell'immagine della finestra con la sua profondita'. Stessa sequenza in Linee
      nascoste e in Ombreggiato.
+
+222) Nuvola davanti al modello dopo aver selezionato un elemento (20/11 11:16, con la trasparenza). Dalla sequenza
+     registrata con la 220 (11:12:51, con un elemento selezionato) Revit scambia i suoi buffer di profondita' tra un
+     fotogramma e l'altro: quello usato per la scena in un fotogramma diventa quello dell'immagine della finestra nel
+     successivo. Nei fotogrammi in cui Revit ricompone l'immagine senza ridisegnare il modello (passaggio del mouse,
+     evidenziazione della selezione: sono fotogrammi «interrotti» per noi) il buffer tenuto dal segnale poteva quindi
+     contenere altro, e la nuvola ridisegnata da noi finiva davanti al modello. Ora al Present di ogni fotogramma
+     completo, quando il modello e' finito, la profondita' si copia in un buffer nostro e i fotogrammi interrotti usano
+     quella copia. Registro: «profondita' tenuta per i fotogrammi interrotti N volte» (circa quanti i fotogrammi
+     completi).

@@ -754,13 +754,13 @@ static void ShaderDraw(ID3D11DeviceContext* c)
 // vera dell'ultimo fotogramma completo (la nuvola puo' restare indietro di qualche fotogramma rispetto al modello).
 // Disegno dei punti nell'immagine della finestra, con il buffer di profondita' di Revit e la camera cam (formato del
 // buffer di Revit). Restituisce true se ha disegnato.
-static bool DrawAtPresent(IDXGISwapChain* s, const float* cam)
+static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStencilView* dsv)
 {
-    if (!g_fbDsv || !ShaderInit(g_realDev)) return false;
+    if (!dsv || !ShaderInit(g_realDev)) return false;
     bool done = false;
     ID3D11Texture2D* bb = nullptr;
     if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return false;
-    ID3D11Resource* dr = nullptr; g_fbDsv->GetResource(&dr);
+    ID3D11Resource* dr = nullptr; dsv->GetResource(&dr);
     D3D11_TEXTURE2D_DESC bd2 = {}, dd2 = {};
     bb->GetDesc(&bd2);
     if (dr) { ((ID3D11Texture2D*)dr)->GetDesc(&dd2); dr->Release(); }
@@ -780,7 +780,7 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam)
             memcpy(m.pData, cam, 128);
             c->Unmap(g_fbMat, 0);
             SavedState st; st.Save(c, true);
-            c->OMSetRenderTargets(1, &rtv, g_fbDsv);
+            c->OMSetRenderTargets(1, &rtv, dsv);
             c->RSSetViewports(1, &g_fbVp);
             DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
             st.Restore(c);
@@ -794,6 +794,43 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam)
 }
 
 static long g_fbAlpha = 0;   // voce 217: fotogrammi completi disegnati al Present per la trasparenza
+
+// voce 222: copia della profondita' del modello presa al Present di ogni fotogramma completo, usata nei fotogrammi
+// interrotti. Revit scambia i suoi buffer di profondita' tra un fotogramma e l'altro (sequenza della 220, con un elemento
+// selezionato: quello della scena diventa quello della finestra), quindi nei fotogrammi in cui ricompone l'immagine
+// (passaggio del mouse, selezione) il buffer tenuto dal segnale poteva contenere altro e la nuvola finiva davanti al
+// modello. Al Present il fotogramma completo e' finito: la copia contiene tutto il modello visto da quella camera.
+static ID3D11Texture2D* g_keepTex = nullptr;
+static ID3D11DepthStencilView* g_keepDsv = nullptr;
+static bool g_keepOk = false;
+static long g_keepCopies = 0;
+static void KeepDepth()
+{
+    g_keepOk = false;
+    if (!g_fbDsv || !g_realDev) return;
+    ID3D11Resource* r = nullptr; g_fbDsv->GetResource(&r);
+    if (!r) return;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+    D3D11_TEXTURE2D_DESC k = {};
+    if (g_keepTex) g_keepTex->GetDesc(&k);
+    if (!g_keepTex || k.Width != d.Width || k.Height != d.Height || k.Format != d.Format || k.SampleDesc.Count != d.SampleDesc.Count)
+    {
+        if (g_keepDsv) { g_keepDsv->Release(); g_keepDsv = nullptr; }
+        if (g_keepTex) { g_keepTex->Release(); g_keepTex = nullptr; }
+        D3D11_TEXTURE2D_DESC nd = d;
+        nd.Usage = D3D11_USAGE_DEFAULT; nd.BindFlags = D3D11_BIND_DEPTH_STENCIL; nd.CPUAccessFlags = 0; nd.MiscFlags = 0;
+        nd.MipLevels = 1; nd.ArraySize = 1;
+        D3D11_DEPTH_STENCIL_VIEW_DESC vd = {}; g_fbDsv->GetDesc(&vd);
+        if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_keepTex)) && g_keepTex)
+            if (FAILED(g_realDev->CreateDepthStencilView(g_keepTex, &vd, &g_keepDsv))) { g_keepTex->Release(); g_keepTex = nullptr; g_keepDsv = nullptr; }
+    }
+    if (g_keepTex && g_keepDsv && d.MipLevels == 1 && d.ArraySize == 1)
+    {
+        ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
+        if (c) { c->CopyResource(g_keepTex, r); c->Release(); g_keepOk = true; g_keepCopies++; }
+    }
+    r->Release();
+}
 static void FallbackAtPresent(IDXGISwapChain* s)
 {
     if (!g_realDev || g_fbVp.Width < 1) return;
@@ -808,7 +845,8 @@ static void FallbackAtPresent(IDXGISwapChain* s)
         g_nCand = 0; g_cmN = 0;
         // voce 217: con la trasparenza la nuvola del fotogramma completo si disegna qui, sopra il modello finito, con la
         // camera vera di questo fotogramma (al segnale si e' solo presa la matrice)
-        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw)) g_fbAlpha++;
+        if (Transparent() && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, g_fbDsv)) g_fbAlpha++;
+        if (g_shaderOn && !g_ready.empty()) KeepDepth();
         return;
     }
     if (s != g_fbSwap) { g_fbOther++; return; }   // voce 215: solo la finestra dell'ultimo fotogramma completo
@@ -821,7 +859,7 @@ static void FallbackAtPresent(IDXGISwapChain* s)
     if (!g_shaderOn || g_ready.empty() || !g_fbDsv) return;
     if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; return; }
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
-    if (DrawAtPresent(s, camNow ? camNow : g_chainRaw)) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
+    if (DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv)) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -900,15 +938,16 @@ static void ClearForNewView()
     g_clipOn = 0;
     g_hasRef = false; g_hasLastCap = false; g_chainGen = -1;
     g_nCand = 0; g_cmN = 0;
-    g_fbSwap = nullptr; g_drawnThisFrame = false;
+    g_fbSwap = nullptr; g_drawnThisFrame = false; g_keepOk = false;
 }
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
 {
-    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld (di cui trasparenti disegnati al Present %ld, opacita' %.2f), interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, matrici scartate (tasselli) %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
+    _snprintf_s(msg, cap, _TRUNCATE, "disegno con shader: %ld fotogrammi, %ld blocchi disegnati (%lld punti), %ld blocchi caricati nella scheda video, %zu blocchi pronti (%.0f MB); scheda video per i punti: media %.1f ms, massimo %.1f ms (%ld misure); segnali senza disegno: matrice non pronta %ld, elenco vuoto %ld; finestra della vista: fotogrammi completi %ld (di cui trasparenti disegnati al Present %ld, opacita' %.2f; profondita' tenuta per i fotogrammi interrotti %ld volte), interrotti ridisegnati da noi %ld (con la camera del fotogramma %ld, con quella precedente %ld), camera dedotta uguale a quella vera %ld su %ld fotogrammi completi, matrici scartate (tasselli) %ld, interrotti senza matrice %ld, profondita' diversa %ld; Present di altre finestre %ld; scritture della matrice lette %ld; %s%s%s",
         g_shFrames, g_shDrawn, g_shPoints, g_shUploads, g_nodes.size(), g_shBytes / 1048576.0,
         g_gpuN > 0 ? g_gpuSum / g_gpuN : 0.0, g_gpuMax, g_gpuN, g_skipMatrix, g_skipEmpty,
-        g_fbNormal, g_fbAlpha, g_alpha, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+        g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
+    g_keepCopies = 0;
     g_fbNormal = g_fbAlpha = g_fbDrawn = g_fbNoMat = g_fbRejected = g_fbOther = g_fbAgree = g_fbCompared = g_capWrites = 0;
     g_camUsed = g_camStale = g_camRejected = 0;
     g_shFrames = 0; g_shDrawn = 0; g_shPoints = 0; g_shUploads = 0;
