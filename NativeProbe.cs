@@ -299,7 +299,7 @@ namespace PointDeviation
                 Log.Write("DirectX", string.Format("{0} fotogrammi nostri; segnale: {1}; dentro il nostro disegno: {2}", _frames, rb, sb));
                 if (AdvancedSettings.Current.NativeShader)
                 {
-                    var shb = new StringBuilder(1024);
+                    var shb = new StringBuilder(4096);
                     PdShaderReport(shb, shb.Capacity);
                     Log.Write("DirectX", shb.ToString() + "; " + PassNote + "; " + CapNote);
                     NotReadyFrames = 0;
