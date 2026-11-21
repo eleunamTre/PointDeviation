@@ -1222,6 +1222,17 @@ extern "C" __declspec(dllexport) void PdShaderAdd(int layer, int node, int count
 // a Revit aperto l'elenco si svuota: prima restava l'ultimo e si continuava a disegnarlo.
 extern "C" __declspec(dllexport) void PdShaderEndFrame(int on, float maxPx, float scale, int wanted)
 {
+    // voce 238 (diario del 21/11 17:05): nei fotogrammi parziali (elemento selezionato o sotto il mouse) Revit da' al
+    // plugin una camera ristretta al rettangolo ridisegnato, e l'elenco nuovo conteneva solo i blocchi li' dentro (es.
+    // 291 blocchi contro 2882): disegnato su tutta la finestra, la nuvola restava solo attorno all'elemento. In quei
+    // fotogrammi la camera non cambia, quindi si tiene l'elenco del fotogramma intero precedente.
+    if (on && g_partial && !g_ready.empty())
+    {
+        FT("E;elenco_tenuto_nel_fotogramma_parziale;nuovo=%zu;tenuto=%zu", g_build.size(), g_ready.size());
+        g_build.clear();
+        g_shMaxPx = maxPx; g_shScale = scale; g_shaderOn = on; g_shaderWanted = wanted; g_shFrames++;
+        return;
+    }
     g_ready.swap(g_build);
     g_build.clear();
     if (!on) g_ready.clear();

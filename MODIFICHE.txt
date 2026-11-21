@@ -1330,3 +1330,15 @@ Ottava tornata (28/10/2026): octree
        spostamento massimo del punto guardato. Nella sessione delle 19:40 i fotogrammi interrotti disegnati usavano
        quasi sempre la camera precedente (572 contro 9): la nuvola resta indietro rispetto al modello durante il
        movimento. Serve a capire quale controllo scarta le matrici buone.
+
+238) Riquadro attorno alla selezione e «due visualizzazioni» (video e diario del 21/11 dalle 17:05:21).
+     - Selezione: nei fotogrammi parziali Revit da' al plugin una camera ristretta al rettangolo ridisegnato e l'elenco
+       nuovo conteneva solo i blocchi li' dentro (diario: segnale con 2882 blocchi, Present con 291): disegnato su
+       tutta la finestra, la nuvola restava solo attorno all'elemento. Ora in quei fotogrammi (la camera non cambia) si
+       tiene l'elenco del fotogramma intero precedente (riga «E;elenco_tenuto_nel_fotogramma_parziale»).
+     - Movimento e pausa: con la 236 i caricamenti costano un quarto (33 ms per milione di punti invece di 120; 25
+       fotogrammi oltre 50 ms su 1116 invece di 156 su 881), ma la differenza restava: in movimento si disegnava il
+       45-49% dei punti chiesti (17 M chiesti con 8 M di limite) e da fermi tutti, con 12 M di limite. In movimento la
+       distanza tra i punti restava quella dell'ultima pausa anche se servivano il doppio dei punti. Ora, con lo shader,
+       la distanza si adatta al limite anche in movimento (al massimo del 25% per fotogramma, come da fermi) e il limite
+       e' lo stesso in movimento e da fermi.

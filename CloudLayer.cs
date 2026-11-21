@@ -774,7 +774,11 @@ namespace PointDeviation
             // ferma si avvicina a quella giusta al massimo del 25% per fotogramma.
             double baseTarget = target;
             long total;
-            if (Moving && _stableTarget > 0)
+            // voce 238: anche in movimento la distanza tra i punti si adatta al limite, come da fermi (al massimo del 25% per
+            // fotogramma). Prima in movimento restava quella dell'ultimo fotogramma fermo: zoomando i punti chiesti
+            // arrivavano al doppio del limite e se ne disegnava meta' (punti piu' grandi e radi), poi alla pausa tornavano
+            // tutti: la nuvola cambiava aspetto tra movimento e pausa. Il disegno di sempre (senza shader) resta com'era.
+            if (Moving && _stableTarget > 0 && !NativeProbe.ShaderMode)
             {
                 target = Math.Max(baseTarget, _stableTarget);
                 total = SelectOctree(cam, target, budget * 3, outWant, outPx);

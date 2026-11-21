@@ -69,7 +69,7 @@ namespace PointDeviation
         private static double _intEma = -1;
         public static int NotReadyFrames;
         public static double GpuMs { get { try { return PdShaderGpuMs(); } catch { return -1; } } }
-        /// <summary>Punti da disegnare in questo fotogramma: in movimento il limite adattivo, da fermi una volta e mezza.</summary>
+        /// <summary>Punti da disegnare in questo fotogramma: lo stesso limite adattivo in movimento e da fermi (voce 238).</summary>
         public static long ShaderCap(bool moving)
         {
             long now = Environment.TickCount;
@@ -97,7 +97,10 @@ namespace PointDeviation
             // con questo limite: col doppio, a ogni pausa dello zoom si passava a blocchi piu' fini da caricare (intanto
             // l'antenato, piu' rado) e si vedeva la nuvola rada che poi «andava a fuoco»; con la trasparenza, dove il
             // limite in movimento e' piu' basso, il salto era piu' evidente.
-            return moving ? (long)_cap : (long)Math.Min(12000000, _cap * 1.5);
+            // voce 238: stesso limite in movimento e da fermi. Con la 228 da fermi era una volta e mezza: diario del 21/11,
+            // in movimento si disegnava il 45-49% dei punti chiesti (17 M chiesti, 8 M di limite) e da fermi tutti, e la
+            // nuvola cambiava aspetto a ogni pausa («due visualizzazioni»).
+            return (long)_cap;
         }
         // voce 234: diario dei fotogrammi (vedi FrameDiary)
         public static bool Loaded { get { return _state > 0; } }
