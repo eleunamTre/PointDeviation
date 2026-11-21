@@ -1481,3 +1481,6 @@ Ottava tornata (28/10/2026): octree
      trasformazione dedotta con i 9 cm. Diario «E;faro_trasformazione_esatta»; resoconto DirectX «trasformazione della
      nuvola esatta (dalle API)» oppure «dedotta». Se la nuvola viene spostata la libreria ricomincia.
 
+252) Errore di compilazione della 251 (CS0103, «Dll» non esiste): la dichiarazione di PdSetCloudTransforms usava un nome
+     di costante che in NativeProbe non c'e'; ora «PdRender.dll» come le altre.
+

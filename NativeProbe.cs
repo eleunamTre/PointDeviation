@@ -46,7 +46,7 @@ namespace PointDeviation
         private static extern void PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetLinks(float[] m, int n);
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCloudTransforms(double[] m, int n);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdTraceOn(int on);
