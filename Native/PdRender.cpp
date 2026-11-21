@@ -935,7 +935,7 @@ static float L3(const float* v) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] 
 // voce 237: motivi per cui le matrici dei fotogrammi interrotti vengono scartate (diario: riga P;interrotto)
 static int g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther;
 static float g_rjKmin, g_rjKmax, g_rjShift;
-static bool LikeRef(const float* raw)
+static bool LikeRef(const float* raw, bool focus = true)
 {
     float C[16], R[16]; ColForm(raw, C); ColForm(g_chainGen == g_viewGen ? g_chainRaw : g_refRaw, R);
     float c0 = L3(C), c1 = L3(C + 4), r0 = L3(R), r1 = L3(R + 4);
@@ -950,6 +950,7 @@ static bool LikeRef(const float* raw)
     // voce 214: stessa scala ma spostata (tassello disegnato con la vista traslata: nuvola in basso a sinistra). Il punto
     // guardato a schermo non puo' saltare di oltre un quarto della finestra da un fotogramma all'altro (voce 216: prima il
     // centro della nuvola, che in prospettiva poteva stare dietro la camera).
+    if (!focus) return true;   // voce 245: solo la forma (camera riconosciuta per altra via)
     float pc[4], pr[4], q[4] = { g_focus[0], g_focus[1], g_focus[2], 1 };
     for (int r = 0; r < 4; r++) { pc[r] = C[r * 4] * q[0] + C[r * 4 + 1] * q[1] + C[r * 4 + 2] * q[2] + C[r * 4 + 3]; pr[r] = R[r * 4] * q[0] + R[r * 4 + 1] * q[1] + R[r * 4 + 2] * q[2] + R[r * 4 + 3]; }
     if (!(pc[3] > 1e-6f && pr[3] > 1e-6f)) { g_rjOther++; return false; }
@@ -979,6 +980,80 @@ static bool UnLink(const float* raw, int L, float* out)
     memcpy(out, raw, 32 * sizeof(float));
     for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { if (g_mT & 1) out[r * 4 + k] = D[r * 4 + k]; else out[k * 4 + r] = D[r * 4 + k]; }
     return true;
+}
+// voce 245 (video e diario del 21/11 18:07:24, a 6,7 s): con i collegamenti Revit fa un fotogramma completo ogni 200-800 ms
+// e in mezzo presenta 6-10 immagini in cui il modello si muove. In quelle immagini ci sono 16 matrici, ma venivano tutte
+// scartate perche' il punto guardato si era spostato di oltre un quarto di finestra rispetto all'ultima camera accettata:
+// ruotando in fretta la camera vera si allontana presto da quella vecchia e da li' in poi nessuna passa piu' fino al
+// fotogramma completo successivo (modello e nuvola staccati fino a 0,8 s). Ora la camera del progetto si riconosce
+// senza confronto con quella vecchia: e' la matrice M per cui un'altra matrice dello stesso fotogramma vale M x T, con T
+// la trasformazione di un collegamento (gli elementi dei collegamenti si disegnano con camera x trasformazione).
+static long g_hostHits = 0;
+static double g_candDumpAt = 0;
+static void Mul4(const float* A, const float* B, float* O)
+{
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = 0; for (int j = 0; j < 4; j++) v += A[r * 4 + j] * B[j * 4 + k]; O[r * 4 + k] = v; }
+}
+static bool NearMat(const float* A, const float* B)
+{
+    for (int r = 0; r < 4; r++)
+    {
+        float n = fabsf(A[r * 4]) + fabsf(A[r * 4 + 1]) + fabsf(A[r * 4 + 2]) + fabsf(A[r * 4 + 3]) + 1e-6f;
+        for (int k = 0; k < 4; k++) if (fabsf(A[r * 4 + k] - B[r * 4 + k]) > 1e-3f * n) return false;
+    }
+    return true;
+}
+static int HostByLinks()
+{
+    if (g_mOff2 >= 0 || g_nLinks <= 0 || g_nCand < 2) return -1;
+    static float Cf[16][16];
+    for (int i = 0; i < g_nCand; i++) ColForm(g_cand[i].m, Cf[i]);
+    for (int L = 0; L < g_nLinks; L++)
+    {
+        // inversa (dal progetto al collegamento), la sua inversa (rigida) e le trasposte: l'ordine con cui Revit compone
+        // camera e collegamento non e' documentato, si provano tutte
+        const float* Ti = g_linkInv[L];
+        float T[16] = {}, TiT[16], TT[16];
+        for (int r = 0; r < 3; r++) for (int k = 0; k < 3; k++) T[r * 4 + k] = Ti[k * 4 + r];
+        for (int r = 0; r < 3; r++) T[r * 4 + 3] = -(T[r * 4] * Ti[3] + T[r * 4 + 1] * Ti[7] + T[r * 4 + 2] * Ti[11]);
+        T[15] = 1;
+        for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { TiT[r * 4 + k] = Ti[k * 4 + r]; TT[r * 4 + k] = T[k * 4 + r]; }
+        const float* tr[4] = { Ti, T, TiT, TT };
+        for (int v = 0; v < 4; v++)
+            for (int j = 0; j < g_nCand; j++)
+            {
+                float D[16]; Mul4(Cf[j], tr[v], D);
+                for (int i = 0; i < g_nCand; i++)
+                    if (i != j && NearMat(Cf[i], D))
+                    {
+                        // D = Cf[j] x tr: se tr porta dal progetto al collegamento, Cf[j] e' la camera del progetto
+                        int host = (v == 0 || v == 2) ? i : j;
+                        int other = host == i ? j : i;
+                        if (LikeRef(g_cand[host].m, false)) { (void)other; return host; }
+                    }
+            }
+    }
+    return -1;
+}
+// voce 245: se nessuna matrice va bene, una volta al secondo il diario elenca le candidate (scala rispetto alla camera
+// precedente, spostamento del punto guardato, quante volte scritta) per capire com'e' fatta quella giusta
+static void DumpCands()
+{
+    double now = QpcMs();
+    if (now < g_candDumpAt) return;
+    g_candDumpAt = now + 1000;
+    float R[16]; ColForm(g_chainGen == g_viewGen ? g_chainRaw : g_refRaw, R);
+    float q[4] = { g_focus[0], g_focus[1], g_focus[2], 1 };
+    float pr[4]; for (int r = 0; r < 4; r++) pr[r] = R[r * 4] * q[0] + R[r * 4 + 1] * q[1] + R[r * 4 + 2] * q[2] + R[r * 4 + 3];
+    for (int i = 0; i < g_nCand; i++)
+    {
+        float C[16]; ColForm(g_cand[i].m, C);
+        float pc[4]; for (int r = 0; r < 4; r++) pc[r] = C[r * 4] * q[0] + C[r * 4 + 1] * q[1] + C[r * 4 + 2] * q[2] + C[r * 4 + 3];
+        float k = L3(R) > 0 ? L3(C) / L3(R) : 0;
+        float dot = (L3(C) > 0 && L3(R) > 0) ? (C[0] * R[0] + C[1] * R[1] + C[2] * R[2]) / (L3(C) * L3(R)) : 0;
+        FT("X;candidata;i=%d;scritta=%d;scala=%.3f;coseno_asse_x=%.4f;fuoco_x=%.3f;fuoco_y=%.3f;vecchio_x=%.3f;vecchio_y=%.3f",
+           i, g_cand[i].n, k, dot, pc[3] != 0 ? pc[0] / pc[3] : 0, pc[3] != 0 ? pc[1] / pc[3] : 0, pr[3] != 0 ? pr[0] / pr[3] : 0, pr[3] != 0 ? pr[1] / pr[3] : 0);
+    }
 }
 static int BestValidCand()
 {
@@ -1222,10 +1297,13 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
     g_rjProj = g_rjAsp = g_rjOrtho = g_rjScale = g_rjFocus = g_rjOther = 0; g_rjKmin = 1e9f; g_rjKmax = 0; g_rjShift = 0;
     int nCandHere = g_nCand;
-    int best = g_hasRef ? BestValidCand() : -1;
+    int host = g_hasRef ? HostByLinks() : -1;
+    if (host >= 0) g_hostHits++;
+    int best = host >= 0 ? host : (g_hasRef ? BestValidCand() : -1);
+    if (best < 0 && g_hasRef && nCandHere > 0) DumpCands();
     // voce 241: le camere dei fotogrammi interrotti hanno appena messo la nuvola fuori dalla finestra: per 1 s si usa
     // l'ultima camera di un fotogramma completo, e quella sbagliata non diventa la camera «precedente»
-    bool curBlocked = best >= 0 && QpcMs() < g_badCurUntil;
+    bool curBlocked = best >= 0 && host < 0 && QpcMs() < g_badCurUntil;
     if (curBlocked) { best = -1; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, g_refRaw, sizeof(g_chainRaw)); g_chainGen = g_viewGen; } }
     const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
     float camBuf[32];
@@ -1240,7 +1318,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     g_noDepth = false;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
     FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
-       drew ? 1 : 0, camNow ? "del_fotogramma" : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (g_keepOk ? "copia" : "revit"), sc ? 1 : 0, g_ready.size(),
+       drew ? 1 : 0, camNow ? (host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (g_keepOk ? "copia" : "revit"), sc ? 1 : 0, g_ready.size(),
        nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
 }
 
@@ -1357,8 +1435,8 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
             g_qVisible, g_qDepthBlock, g_qCamOut);
         g_qVisible = g_qDepthBlock = g_qCamOut = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld (trasformazioni ricevute %d)", g_linkHits, g_nLinks);
-        g_linkHits = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
+        g_linkHits = 0; g_hostHits = 0;
     }
     if (g_trDone && g_trBuf[0])
     {

@@ -1400,3 +1400,14 @@ Ottava tornata (28/10/2026): octree
      Con i collegamenti nella stessa prova: tutti i disegni misurati risultano visibili (0 coperti dalla profondita', 0
      con la nuvola fuori dalla finestra), nessuna sparizione.
 
+245) Con i collegamenti modello e nuvola ancora staccati in piu' punti (video del 21/11 dalle 18:07:24, es. a 6,7 s: il
+     modello in fil di ferro ruotato e la nuvola rimasta indietro). Diario: Revit fa un fotogramma completo ogni 200-800
+     ms e in mezzo presenta 6-10 immagini con 16 matrici ciascuna; nei tratti staccati erano tutte scartate per il punto
+     guardato spostato di oltre un quarto di finestra rispetto all'ultima camera accettata. Ruotando in fretta la camera
+     vera si allontana subito da quella vecchia e nessuna passa piu' fino al fotogramma completo successivo. Ora la camera
+     del progetto si riconosce dentro il fotogramma stesso, senza confronto con quella vecchia: e' la matrice M per cui
+     un'altra matrice dello stesso fotogramma vale M per la trasformazione di un collegamento (gli elementi dei
+     collegamenti si disegnano con camera x trasformazione). Diario: «camera=del_fotogramma_riconosciuta_dai_collegamenti»;
+     nel resoconto DirectX il conteggio. Se nessuna matrice va bene, una volta al secondo righe X;candidata con scala,
+     asse, spostamento e scritture di ogni matrice, per capire com'e' fatta quella giusta.
+
