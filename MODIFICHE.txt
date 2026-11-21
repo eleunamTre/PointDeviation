@@ -1507,3 +1507,11 @@ Ottava tornata (28/10/2026): octree
      diventa un interruttore in Avanzate, «Prova: camera dal faro con i collegamenti», spento di serie, per confrontare
      le due cose nella stessa navigazione. Dopo il cambio la nuvola va ricaricata (Gestisci collegamenti).
 
+256) Prova con il faro acceso (video del 21/11 dalle 20:17:55): la posizione in rotazione segue, ma modello e linee passano
+     ancora sopra e sotto la nuvola. Diario: oltre alle immagini con il faro e a quelle con la camera precedente, molte
+     immagini usavano «camera=del_fotogramma», cioe' una camera indovinata tra le matrici scritte da Revit (metodo delle
+     voci 212-216). Con i collegamenti quelle matrici sono spesso degli elementi dei collegamenti (camera x trasformazione
+     del collegamento) e passano i controlli: la nuvola finiva spostata rispetto al modello (0,9-1,2 pixel visibili per
+     triangolo contro 0,35 dei fotogrammi completi). Con il faro attivo questa ricerca non si fa piu': un'immagine senza
+     faro usa la camera precedente (quando Revit ridisegna il modello con una camera nuova il faro c'e').
+

@@ -1631,10 +1631,17 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         if (bcnStill) { bcn = false; g_bcnStill++; }
     }
     if (bcn) g_bcnUsed++;
-    int host = !bcn && !bcnStill && g_hasRef ? HostByLinks() : -1;
+    // voce 256 (diario del 21/11 20:18, faro acceso): nelle immagini senza faro si cercava ancora la camera tra le matrici
+    // scritte (212-216, 245). Con i collegamenti quelle matrici sono spesso degli elementi dei collegamenti (camera x
+    // trasformazione del collegamento) e passano i controlli: la nuvola si disegnava spostata e il modello le passava
+    // sopra o sotto (in quelle immagini 0,9-1,2 pixel per triangolo contro 0,35 dei fotogrammi completi). Con il faro
+    // attivo, un'immagine senza faro usa la camera precedente: se Revit ha ridisegnato il modello con una camera nuova
+    // il faro c'e' (28 immagini su 29 nella prova delle 19:16).
+    bool noGuess = g_bcnLocked && !bcn;
+    int host = !bcn && !bcnStill && !noGuess && g_hasRef ? HostByLinks() : -1;
     if (host >= 0) g_hostHits++;
-    int best = (bcn || bcnStill) ? -1 : (host >= 0 ? host : (g_hasRef ? BestValidCand() : -1));
-    if (!bcn && !bcnStill && best < 0 && g_hasRef && nCandHere > 0) DumpCands();
+    int best = (bcn || bcnStill || noGuess) ? -1 : (host >= 0 ? host : (g_hasRef ? BestValidCand() : -1));
+    if (!bcn && !bcnStill && !noGuess && best < 0 && g_hasRef && nCandHere > 0) DumpCands();
     // voce 241: le camere dei fotogrammi interrotti hanno appena messo la nuvola fuori dalla finestra: per 1 s si usa
     // l'ultima camera di un fotogramma completo, e quella sbagliata non diventa la camera «precedente»
     bool curBlocked = !bcn && best >= 0 && host < 0 && QpcMs() < g_badCurUntil;
