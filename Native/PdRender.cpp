@@ -1225,8 +1225,42 @@ static void KeepDepthFrom(ID3D11DeviceContext* ctx)
     if (g_keepTex && g_keepDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_keepTex, r); g_keepOk = true; g_keepCopies++; memcpy(g_keepCam, g_refRaw, sizeof(g_keepCam)); g_keepCamOk = g_hasRef; }
     r->Release();
 }
+// voce 246: «faro». Il motore delle nuvole del plugin (quello che Revit disegna da se', come un RCP) consegna a Revit
+// BeaconPts punti tutti nello stesso punto al centro della nuvola, invece di nessuno. Revit disegna le sue nuvole anche
+// nelle immagini intermedie (con l'RCP la nuvola resta sempre attaccata al modello): se il disegno del faro compare anche
+// li', la matrice attiva in quel momento da' la camera vera. Questa prima prova solo registra i disegni con un numero
+// di punti compatibile (riga B, al massimo 10 al secondo) e, a ogni Present, quanti ce ne sono stati (riga F).
+static const UINT BeaconPts = 41;
+static long g_bcnPts = 0, g_bcnOther = 0, g_bcnFull = 0, g_bcnInt = 0, g_bcnPresFull = 0, g_bcnPresInt = 0;
+static double g_bcnLogAt = 0; static int g_bcnLogs = 0;
+static bool BeaconCount(UINT n) { if (n == 0 || n % BeaconPts != 0) return false; UINT k = n / BeaconPts; return k == 1 || k == 2 || k == 3 || k == 4 || k == 6; }
+static void BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char* kind)
+{
+    if (!g_shaderWanted) return;
+    if (!(BeaconCount(count) || (inst > 1 && BeaconCount(inst)))) return;
+    D3D11_PRIMITIVE_TOPOLOGY tp = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED; c->IAGetPrimitiveTopology(&tp);
+    bool pts = tp == D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    if (pts) g_bcnPts++; else g_bcnOther++;
+    double now = QpcMs();
+    if (now > g_bcnLogAt) { g_bcnLogAt = now + 1000; g_bcnLogs = 0; }
+    if (g_bcnLogs++ < 10)
+    {
+        ID3D11GeometryShader* gs = nullptr; c->GSGetShader(&gs, nullptr, nullptr);
+        ID3D11VertexShader* vs = nullptr; c->VSGetShader(&vs, nullptr, nullptr);
+        FT("B;faro;tipo=%s;conteggio=%u;istanze=%u;topologia=%d;gs=%d;vs=%p;segnale_gia_visto=%d", kind, count, inst, (int)tp, gs ? 1 : 0, (void*)vs, g_drawnThisFrame ? 1 : 0);
+        if (gs) gs->Release(); if (vs) vs->Release();
+    }
+}
+static void BeaconPresent(bool full)
+{
+    if (g_bcnPts == 0 && g_bcnOther == 0) return;
+    FT("F;faro;fotogramma=%s;disegni_a_punti=%ld;altri_disegni_compatibili=%ld", full ? "completo" : "intermedio", g_bcnPts, g_bcnOther);
+    if (g_bcnPts > 0) { if (full) g_bcnFull++; else g_bcnInt++; }
+    g_bcnPts = g_bcnOther = 0;
+}
 static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* pp)
 {
+    BeaconPresent(g_drawnThisFrame);
     if (g_trRec && g_drawnThisFrame && g_keepThisFrame && g_keepOk && g_realDev)
     {
         ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
@@ -1437,6 +1471,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;
+        L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld", g_bcnFull, g_bcnInt);
+        g_bcnFull = g_bcnInt = 0;
     }
     if (g_trDone && g_trBuf[0])
     {
@@ -1485,10 +1522,10 @@ static void Marker(ID3D11DeviceContext* c, UINT count)
     if (n % 30 == 1) DescribeState(c, g_markerInfo, sizeof(g_markerInfo));
 }
 
-static void STDMETHODCALLTYPE HookDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { Marker(c, a); Capture(c); g_origDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { Marker(c, a); Capture(c); g_origD(c, a, b); }
-static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { Marker(c, a); Capture(c); g_origDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { Marker(c, a); Capture(c); g_origDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_origDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { BeaconSeen(c, a, 0, "semplice"); Marker(c, a); Capture(c); g_origD(c, a, b); }
+static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_origDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_origDInst(c, a, b, d, e); }
 
 static void* Patch(void** vt, int index, void* hook)
 {
@@ -1541,10 +1578,10 @@ static DrawIndexed_t g_rdefDI = nullptr;
 static DrawIndexedInst_t g_rdefDII = nullptr;
 static std::atomic<int> g_realDone{ 0 };
 static char g_realInfo[700] = "";
-static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realD(c, a, b); }
-static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_trRec) g_trDraws++; Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, 0, "semplice"); Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
 

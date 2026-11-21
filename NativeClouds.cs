@@ -243,11 +243,13 @@ namespace PointDeviation
         /// </summary>
         internal sealed class PdAccess : IPointCloudAccess
         {
+            // voce 246: punti del faro consegnati a Revit con lo shader attivo (la libreria li riconosce dal numero)
+            private const int BeaconPts = 41;
             private readonly string _name, _folder;
             private readonly Outline _extent;
             private readonly TileEntry[] _tiles;
             private readonly CloudInfo _info;
-            private readonly CloudPoint[] _outline;
+            private readonly CloudPoint[] _outline, _beacon;
             private bool _freed;
 
             public PdAccess(string identifier)
@@ -272,6 +274,11 @@ namespace PointDeviation
 
                 // nessun punto per Revit: i punti li disegna il plugin (niente contorno tratteggiato)
                 _outline = new CloudPoint[0];
+                // voce 246: «faro» per la libreria (vedi BeaconIterator)
+                var c = (_extent.MinimumPoint + _extent.MaximumPoint) / 2.0;
+                _beacon = new CloudPoint[BeaconPts];
+                for (int k = 0; k < BeaconPts; k++)
+                    _beacon[k] = new CloudPoint((float)(c.X + 0.0005 * (k % 3)), (float)(c.Y + 0.0005 * (k / 3 % 3)), (float)(c.Z + 0.0005 * (k / 9)), unchecked((int)0xFF808080));
                 Loaded(_folder, +1);
             }
 
@@ -294,13 +301,22 @@ namespace PointDeviation
             public IPointSetIterator CreatePointSetIterator(PointCloudFilter rFilter, ElementId viewId)
             {
                 if (AdvancedSettings.Current.NativeDisplay) return new TileIterator(_folder, _info, _tiles, rFilter, 0);
+                if (NativeProbe.ShaderWanted) return Beacon();
                 return new OutlineIterator(_outline, rFilter);
             }
 
             public IPointSetIterator CreatePointSetIterator(PointCloudFilter rFilter, double density, ElementId viewId)
             {
                 if (AdvancedSettings.Current.NativeDisplay) return new TileIterator(_folder, _info, _tiles, rFilter, density);
+                if (NativeProbe.ShaderWanted) return Beacon();
                 return new OutlineIterator(_outline, rFilter);
+            }
+
+            private static bool _beaconLogged;
+            private IPointSetIterator Beacon()
+            {
+                if (!_beaconLogged) { _beaconLogged = true; Log.Write("Motore", "faro consegnato a Revit: " + BeaconPts + " punti al centro della nuvola (voce 246)"); }
+                return new OutlineIterator(_beacon, null);   // senza filtro: sempre tutti i punti, stesso conteggio
             }
 
             public int ReadPoints(PointCloudFilter rFilter, ElementId viewId, IntPtr buffer, int nBufferSize)
@@ -312,7 +328,7 @@ namespace PointDeviation
                         var it = new TileIterator(_folder, _info, _tiles, rFilter, 0);
                         try { return it.ReadPoints(buffer, nBufferSize); } finally { it.Free(); }
                     }
-                    return new OutlineIterator(_outline, rFilter).ReadPoints(buffer, nBufferSize);
+                    return new OutlineIterator(NativeProbe.ShaderWanted ? _beacon : _outline, NativeProbe.ShaderWanted ? null : rFilter).ReadPoints(buffer, nBufferSize);
                 }
                 catch { return 0; }
             }

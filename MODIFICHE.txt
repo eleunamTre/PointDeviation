@@ -1411,3 +1411,14 @@ Ottava tornata (28/10/2026): octree
      nel resoconto DirectX il conteggio. Se nessuna matrice va bene, una volta al secondo righe X;candidata con scala,
      asse, spostamento e scritture di ogni matrice, per capire com'e' fatta quella giusta.
 
+246) Prova del «faro» (idea dell'utente). Fino a qualche versione fa la nuvola si disegnava due volte: con lo shader e
+     con il motore delle nuvole di Revit (quello di Avanzate › disegno fatto da Revit, lo stesso renderer dell'RCP).
+     Revit disegna le sue nuvole anche nelle immagini intermedie: con l'RCP caricato nel video del 21/11 18:07 la nuvola
+     resta attaccata al modello anche quando il modello salta. Ora, con lo shader attivo, il motore del plugin consegna
+     a Revit 41 punti tutti al centro della nuvola (prima nessuno), senza aggiungere elementi al modello: e' la stessa
+     istanza di nuvola gia' presente. Questa prima prova solo registra se e come Revit li disegna: righe B (tipo di
+     disegno, conteggio, topologia, shader) e F (per ogni Present, completo o intermedio, quanti disegni del faro),
+     nel resoconto DirectX quanti fotogrammi completi e intermedi contenevano il disegno a punti. In questa prova il
+     faro puo' vedersi come un puntino di pochi pixel al centro della nuvola; al passo successivo il suo disegno si
+     riconosce, se ne prende la matrice come camera e non lo si fa piu' arrivare allo schermo.
+

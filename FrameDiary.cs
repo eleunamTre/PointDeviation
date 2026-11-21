@@ -42,7 +42,7 @@ namespace PointDeviation
                 _w = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false), 1 << 16);
                 _w.WriteLine();
                 _w.WriteLine(string.Format(Inv, "{0:F1};E;inizio diario;modifica={1};{2:yyyy-MM-dd HH:mm:ss}", NowMs, BuildInfo.Change, DateTime.Now));
-                _w.WriteLine("# righe: ms;tipo;campi. C=fotogramma del plugin, M=segnale nel disegno di Revit, P=Present (completo/interrotto), G=tempo della scheda video per i punti, V=blocchi dentro l'inquadratura, X=matrice di Revit, E=evento, S=sistema");
+                _w.WriteLine("# righe: ms;tipo;campi. C=fotogramma del plugin, M=segnale nel disegno di Revit, P=Present (completo/interrotto), G=tempo della scheda video per i punti, V=blocchi dentro l'inquadratura, B/F=faro (disegni e conteggio per Present), X=matrice di Revit, E=evento, S=sistema");
                 NativeProbe.TraceOn(true);
                 return true;
             }
