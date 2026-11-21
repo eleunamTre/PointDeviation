@@ -1422,3 +1422,18 @@ Ottava tornata (28/10/2026): octree
      faro puo' vedersi come un puntino di pochi pixel al centro della nuvola; al passo successivo il suo disegno si
      riconosce, se ne prende la matrice come camera e non lo si fa piu' arrivare allo schermo.
 
+247) Il faro funziona (diario del 21/11 dalle 19:16, video dalle 19:18:05): Revit lo disegna come un Draw di 41 punti
+     (topologia a punti), uno per fotogramma completo, ed e' presente in 28 delle 29 immagini intermedie con 16 matrici,
+     cioe' proprio quelle in cui il modello si muove e la nuvola restava indietro; manca solo nelle immagini senza
+     matrici, dove Revit ripresenta l'immagine di prima (li' la camera precedente e' quella giusta). Ora:
+     - la libreria tiene una copia dell'ultimo contenuto scritto di ogni buffer di costanti piccolo di Revit;
+     - al disegno del faro fotografa i buffer di costanti del suo vertex shader e il disegno non arriva allo schermo
+       (il faro non si vede piu');
+     - nei fotogrammi completi, dove la camera vera e' nota, cerca in quella fotografia la matrice del faro: e' la
+       posizione per cui camera^-1 x matrice (la trasformazione della nuvola) resta uguale mentre la camera cambia
+       (3 fotogrammi in movimento coerenti bastano);
+     - nelle immagini intermedie con il faro la nuvola si disegna con la camera ricavata dal faro.
+     Diario: «E;faro_appreso», «camera=dal_faro» nelle righe P; due righe X con camera vera e buffer fotografati per
+     l'analisi se l'apprendimento non riuscisse. Resoconto DirectX: disegni del faro nascosti, posizione appresa o no,
+     camera dal faro uguale alla vera su N fotogrammi completi, immagini intermedie disegnate con il faro.
+

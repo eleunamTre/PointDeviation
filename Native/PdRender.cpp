@@ -1133,7 +1133,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
 // vera dell'ultimo fotogramma completo (la nuvola puo' restare indietro di qualche fotogramma rispetto al modello).
 // Disegno dei punti nell'immagine della finestra, con il buffer di profondita' di Revit e la camera cam (formato del
 // buffer di Revit). Restituisce true se ha disegnato.
-static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStencilView* dsv, const D3D11_RECT* sc)
+static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStencilView* dsv, const D3D11_RECT* sc, bool whole = false)
 {
     if (!dsv || !ShaderInit(g_realDev)) return false;
     bool done = false;
@@ -1168,7 +1168,8 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStenci
                 nOld = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE; c->RSGetScissorRects(&nOld, oldSc);
                 c->RSSetScissorRects(1, sc); g_useScissor = true;
             }
-            DrawPointsCore(c, g_fbMat, 0, g_mT & 1, g_mOff2 >= 0 ? 4 : -1, (g_mT >> 1) & 1, g_fbVp);
+            // voce 247: camera dal faro = matrice intera nella prima, identita' nella seconda (usata solo se serve)
+            DrawPointsCore(c, g_fbMat, 0, g_mT & 1, whole ? 4 : (g_mOff2 >= 0 ? 4 : -1), whole ? 1 : (g_mT >> 1) & 1, g_fbVp);
             if (sc) { g_useScissor = false; c->RSSetScissorRects(nOld, nOld ? oldSc : nullptr); }
             st.Restore(c);
             done = true;
@@ -1234,22 +1235,188 @@ static const UINT BeaconPts = 41;
 static long g_bcnPts = 0, g_bcnOther = 0, g_bcnFull = 0, g_bcnInt = 0, g_bcnPresFull = 0, g_bcnPresInt = 0;
 static double g_bcnLogAt = 0; static int g_bcnLogs = 0;
 static bool BeaconCount(UINT n) { if (n == 0 || n % BeaconPts != 0) return false; UINT k = n / BeaconPts; return k == 1 || k == 2 || k == 3 || k == 4 || k == 6; }
-static void BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char* kind)
+// voce 247 (diario del 21/11 19:16): il faro si vede come Draw(41) a punti (topologia 1), uno per fotogramma completo, e
+// c'e' in 28 su 29 delle immagini intermedie con 16 matrici (quelle in cui il modello si muove e la nuvola restava
+// indietro); manca solo in quelle senza nessuna matrice, dove Revit ripresenta l'immagine di prima. Ora:
+// - si tiene una copia dell'ultimo contenuto scritto di ogni buffer di costanti piccolo (Map/Unmap);
+// - al disegno del faro si fotografano i buffer di costanti del suo vertex shader e il disegno non arriva allo schermo;
+// - nei fotogrammi completi, dove la camera vera e' nota, si cerca in quella fotografia la matrice M del faro: per la
+//   posizione giusta K = camera^-1 x M (trasformazione della nuvola) resta uguale anche quando la camera cambia;
+// - nelle immagini intermedie con il faro, camera = M x K^-1.
+struct ShadowBuf { std::vector<float> f; };
+static std::unordered_map<ID3D11Resource*, ShadowBuf> g_shadow;
+static ID3D11Resource* g_shPendRes[32] = {}; static void* g_shPendPtr[32] = {}; static UINT g_shPendLen[32] = {}; static int g_shPendN = 0;
+static void ShadowMap(ID3D11Resource* r, void* p)
 {
-    if (!g_shaderWanted) return;
-    if (!(BeaconCount(count) || (inst > 1 && BeaconCount(inst)))) return;
+    if (!g_shaderWanted || !r || !p) return;
+    D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
+    if (dim != D3D11_RESOURCE_DIMENSION_BUFFER) return;
+    D3D11_BUFFER_DESC d; ((ID3D11Buffer*)r)->GetDesc(&d);
+    if (!(d.BindFlags & D3D11_BIND_CONSTANT_BUFFER) || d.ByteWidth > 4096) return;
+    int k = g_shPendN < 32 ? g_shPendN++ : 31;
+    g_shPendRes[k] = r; g_shPendPtr[k] = p; g_shPendLen[k] = d.ByteWidth;
+}
+static void ShadowUnmap(ID3D11Resource* r)
+{
+    for (int k = g_shPendN - 1; k >= 0; k--)
+        if (g_shPendRes[k] == r)
+        {
+            if (g_shadow.size() > 4096) g_shadow.clear();
+            ShadowBuf& b = g_shadow[r];
+            b.f.resize(g_shPendLen[k] / 4);
+            memcpy(b.f.data(), g_shPendPtr[k], (g_shPendLen[k] / 4) * 4);
+            g_shPendRes[k] = g_shPendRes[g_shPendN - 1]; g_shPendPtr[k] = g_shPendPtr[g_shPendN - 1]; g_shPendLen[k] = g_shPendLen[g_shPendN - 1]; g_shPendN--;
+            return;
+        }
+}
+static const int BcnSlots = 4;
+static std::vector<float> g_bcnSnap[BcnSlots];   // buffer di costanti del vertex shader al disegno del faro
+static bool g_bcnSnapOk = false;                // fotografia presa in questo fotogramma
+static long g_bcnHidden = 0;
+static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char* kind)
+{
+    if (!g_shaderWanted) return false;
+    if (!(BeaconCount(count) || (inst > 1 && BeaconCount(inst)))) return false;
     D3D11_PRIMITIVE_TOPOLOGY tp = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED; c->IAGetPrimitiveTopology(&tp);
     bool pts = tp == D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
     if (pts) g_bcnPts++; else g_bcnOther++;
+    bool beacon = pts && count == BeaconPts && inst == 0;
+    if (beacon && !g_bcnSnapOk)
+    {
+        ID3D11Buffer* cb[BcnSlots] = {}; c->VSGetConstantBuffers(0, BcnSlots, cb);
+        for (int k = 0; k < BcnSlots; k++)
+        {
+            g_bcnSnap[k].clear();
+            if (cb[k]) { auto f = g_shadow.find(cb[k]); if (f != g_shadow.end()) g_bcnSnap[k] = f->second.f; cb[k]->Release(); }
+        }
+        g_bcnSnapOk = true;
+    }
     double now = QpcMs();
     if (now > g_bcnLogAt) { g_bcnLogAt = now + 1000; g_bcnLogs = 0; }
-    if (g_bcnLogs++ < 10)
+    if (g_bcnLogs++ < 4 && !beacon)
     {
-        ID3D11GeometryShader* gs = nullptr; c->GSGetShader(&gs, nullptr, nullptr);
         ID3D11VertexShader* vs = nullptr; c->VSGetShader(&vs, nullptr, nullptr);
-        FT("B;faro;tipo=%s;conteggio=%u;istanze=%u;topologia=%d;gs=%d;vs=%p;segnale_gia_visto=%d", kind, count, inst, (int)tp, gs ? 1 : 0, (void*)vs, g_drawnThisFrame ? 1 : 0);
-        if (gs) gs->Release(); if (vs) vs->Release();
+        FT("B;faro;tipo=%s;conteggio=%u;istanze=%u;topologia=%d;vs=%p;segnale_gia_visto=%d", kind, count, inst, (int)tp, (void*)vs, g_drawnThisFrame ? 1 : 0);
+        if (vs) vs->Release();
     }
+    if (beacon) g_bcnHidden++;
+    return beacon;   // il disegno del faro non arriva allo schermo
+}
+
+static bool Inv4(const double* a, double* o)
+{
+    double m[4][8];
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 8; k++) m[r][k] = k < 4 ? a[r * 4 + k] : (k - 4 == r ? 1 : 0);
+    for (int col = 0; col < 4; col++)
+    {
+        int p = col; for (int r = col + 1; r < 4; r++) if (fabs(m[r][col]) > fabs(m[p][col])) p = r;
+        if (fabs(m[p][col]) < 1e-12) return false;
+        if (p != col) for (int k = 0; k < 8; k++) { double t = m[p][k]; m[p][k] = m[col][k]; m[col][k] = t; }
+        double d = m[col][col]; for (int k = 0; k < 8; k++) m[col][k] /= d;
+        for (int r = 0; r < 4; r++) if (r != col) { double f = m[r][col]; if (f != 0) for (int k = 0; k < 8; k++) m[r][k] -= f * m[col][k]; }
+    }
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) o[r * 4 + k] = m[r][k + 4];
+    return true;
+}
+static void MulD(const double* A, const double* B, double* O)
+{
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { double v = 0; for (int j = 0; j < 4; j++) v += A[r * 4 + j] * B[j * 4 + k]; O[r * 4 + k] = v; }
+}
+static bool NearD(const double* A, const double* B, double tol)
+{
+    for (int r = 0; r < 4; r++)
+    {
+        double n = fabs(A[r * 4]) + fabs(A[r * 4 + 1]) + fabs(A[r * 4 + 2]) + fabs(A[r * 4 + 3]) + 1e-9;
+        for (int k = 0; k < 4; k++) if (fabs(A[r * 4 + k] - B[r * 4 + k]) > tol * n) return false;
+    }
+    return true;
+}
+static bool ReadM(int slot, int off, int t, double* M)
+{
+    const std::vector<float>& v = g_bcnSnap[slot];
+    if (off + 16 > (int)v.size()) return false;
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) M[r * 4 + k] = t ? v[off + k * 4 + r] : v[off + r * 4 + k];
+    for (int i = 0; i < 16; i++) if (!std::isfinite(M[i])) return false;
+    return true;
+}
+// apprendimento della posizione della matrice del faro
+struct BcnTry { int slot, off, t; double K[16]; int hits; };
+static std::vector<BcnTry> g_bcnTry;
+static double g_bcnLastCam[16]; static bool g_bcnHasLast = false;
+static int g_bcnSlot = -1, g_bcnOff = -1, g_bcnT = 0; static double g_bcnKinv[16]; static bool g_bcnLocked = false;
+static long g_bcnAgree = 0, g_bcnCompared = 0, g_bcnUsed = 0, g_bcnDumped = 0;
+static void ColFormD(const float* raw, double* C) { float Cf[16]; ColForm(raw, Cf); for (int i = 0; i < 16; i++) C[i] = Cf[i]; }
+static void BeaconLearn(const float* refRaw)
+{
+    double C[16], Ci[16]; ColFormD(refRaw, C);
+    if (!Inv4(C, Ci)) return;
+    if (g_bcnLocked)
+    {   // verifica continua: camera ricavata dal faro contro quella vera
+        double M[16], P[16];
+        if (ReadM(g_bcnSlot, g_bcnOff, g_bcnT, M)) { MulD(M, g_bcnKinv, P); g_bcnCompared++; if (NearD(C, P, 2e-3)) g_bcnAgree++; }
+        return;
+    }
+    // una volta: fotografia e camera vera nel diario, per l'analisi se l'apprendimento non riesce
+    if (g_bcnDumped < 2)
+    {
+        g_bcnDumped++;
+        FT("X;faro_camera_vera;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g;%.6g", C[0], C[1], C[2], C[3], C[4], C[5], C[6], C[7], C[8], C[9], C[10], C[11], C[12], C[13], C[14], C[15]);
+        for (int sl = 0; sl < BcnSlots; sl++)
+        {
+            const std::vector<float>& v = g_bcnSnap[sl];
+            std::string line;
+            char b[32];
+            for (size_t i = 0; i < v.size() && i < 160; i++) { _snprintf_s(b, sizeof(b), _TRUNCATE, ";%.6g", v[i]); line += b; }
+            FT("X;faro_buffer;slot=%d;float=%zu%s", sl, v.size(), line.c_str());
+        }
+    }
+    bool moved = !g_bcnHasLast || !NearD(C, g_bcnLastCam, 1e-3);
+    memcpy(g_bcnLastCam, C, sizeof(C)); g_bcnHasLast = true;
+    if (g_bcnTry.empty())
+    {
+        for (int sl = 0; sl < BcnSlots; sl++)
+            for (int off = 0; off + 16 <= (int)g_bcnSnap[sl].size(); off += 4)
+                for (int t = 0; t < 2; t++)
+                {
+                    BcnTry bt = { sl, off, t, {}, 0 }; double M[16];
+                    if (!ReadM(sl, off, t, M)) continue;
+                    MulD(Ci, M, bt.K);
+                    g_bcnTry.push_back(bt);
+                }
+        return;
+    }
+    if (!moved) return;   // con la stessa camera ogni posizione sembra coerente: serve un movimento
+    for (BcnTry& bt : g_bcnTry)
+    {
+        double M[16], K[16];
+        if (bt.hits < 0 || !ReadM(bt.slot, bt.off, bt.t, M)) { bt.hits = -1; continue; }
+        MulD(Ci, M, K);
+        if (NearD(bt.K, K, 2e-3)) bt.hits++; else bt.hits = -1;
+        if (bt.hits >= 3)
+        {
+            double Ki[16];
+            if (Inv4(bt.K, Ki))
+            {
+                g_bcnSlot = bt.slot; g_bcnOff = bt.off; g_bcnT = bt.t; memcpy(g_bcnKinv, Ki, sizeof(Ki)); g_bcnLocked = true;
+                FT("E;faro_appreso;slot=%d;riga=%d;trasposta=%d", bt.slot, bt.off / 4, bt.t);
+                g_bcnTry.clear();
+                return;
+            }
+        }
+    }
+    bool any = false; for (BcnTry& bt : g_bcnTry) if (bt.hits >= 0) { any = true; break; }
+    if (!any) { FT("E;faro_nessuna_posizione_coerente;si_ricomincia"); g_bcnTry.clear(); }
+}
+// camera di un'immagine intermedia dal faro, nel formato del buffer di Revit (matrice intera nella prima, identita' nella seconda)
+static bool BeaconCamera(float* raw)
+{
+    if (!g_bcnLocked) return false;
+    double M[16], C[16];
+    if (!ReadM(g_bcnSlot, g_bcnOff, g_bcnT, M)) return false;
+    MulD(M, g_bcnKinv, C);
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = (float)C[r * 4 + k]; if (g_mT & 1) raw[r * 4 + k] = v; else raw[k * 4 + r] = v; }
+    for (int i = 0; i < 16; i++) raw[16 + i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    return true;
 }
 static void BeaconPresent(bool full)
 {
@@ -1261,6 +1428,7 @@ static void BeaconPresent(bool full)
 static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* pp)
 {
     BeaconPresent(g_drawnThisFrame);
+    bool bcnSnap = g_bcnSnapOk; g_bcnSnapOk = false;   // voce 247: fotografia del faro di questa immagine
     if (g_trRec && g_drawnThisFrame && g_keepThisFrame && g_keepOk && g_realDev)
     {
         ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
@@ -1310,6 +1478,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         g_fbNormal++; g_drawnThisFrame = false; g_fbSwap = s; LearnSearch();
         int b = BestCand();
         if (b >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[b].m, g_refRaw, (g_mOff2 >= 0 ? 32 : 16) * 4) == 0) g_fbAgree++; }
+        if (bcnSnap && g_hasRef && g_refGen == g_viewGen && !g_partial) BeaconLearn(g_refRaw);   // voce 247
         g_nCand = 0; g_cmN = 0;
         // voce 217: con la trasparenza la nuvola del fotogramma completo si disegna qui, sopra il modello finito, con la
         // camera vera di questo fotogramma (al segnale si e' solo presa la matrice)
@@ -1331,15 +1500,18 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     g_learn.clear(); g_lmN = 0;   // fotogramma interrotto: niente matrice vera con cui confrontare
     g_rjProj = g_rjAsp = g_rjOrtho = g_rjScale = g_rjFocus = g_rjOther = 0; g_rjKmin = 1e9f; g_rjKmax = 0; g_rjShift = 0;
     int nCandHere = g_nCand;
-    int host = g_hasRef ? HostByLinks() : -1;
+    // voce 247: camera dal faro, se Revit l'ha disegnato in questa immagine
+    float bcnRaw[32]; bool bcn = bcnSnap && g_hasRef && g_refGen == g_viewGen && BeaconCamera(bcnRaw);
+    if (bcn) g_bcnUsed++;
+    int host = !bcn && g_hasRef ? HostByLinks() : -1;
     if (host >= 0) g_hostHits++;
-    int best = host >= 0 ? host : (g_hasRef ? BestValidCand() : -1);
-    if (best < 0 && g_hasRef && nCandHere > 0) DumpCands();
+    int best = bcn ? -1 : (host >= 0 ? host : (g_hasRef ? BestValidCand() : -1));
+    if (!bcn && best < 0 && g_hasRef && nCandHere > 0) DumpCands();
     // voce 241: le camere dei fotogrammi interrotti hanno appena messo la nuvola fuori dalla finestra: per 1 s si usa
     // l'ultima camera di un fotogramma completo, e quella sbagliata non diventa la camera «precedente»
-    bool curBlocked = best >= 0 && host < 0 && QpcMs() < g_badCurUntil;
+    bool curBlocked = !bcn && best >= 0 && host < 0 && QpcMs() < g_badCurUntil;
     if (curBlocked) { best = -1; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, g_refRaw, sizeof(g_chainRaw)); g_chainGen = g_viewGen; } }
-    const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
+    const float* camNow = bcn ? bcnRaw : (best >= 0 ? g_cand[best].m : nullptr);
     float camBuf[32];
     if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; } }
     g_nCand = 0; g_cmN = 0;
@@ -1348,11 +1520,11 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
     g_drawSrc = camNow ? 2 : 3; g_noDepth = QpcMs() < g_depthOffUntil;
     bool depthOff = g_noDepth;
-    bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc);
+    bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc, bcn);
     g_noDepth = false;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
     FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
-       drew ? 1 : 0, camNow ? (host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (g_keepOk ? "copia" : "revit"), sc ? 1 : 0, g_ready.size(),
+       drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (g_keepOk ? "copia" : "revit"), sc ? 1 : 0, g_ready.size(),
        nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
 }
 
@@ -1472,8 +1644,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld", g_bcnFull, g_bcnInt);
-        g_bcnFull = g_bcnInt = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld",
+            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnLocked ? "posizione della matrice appresa" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed);
+        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0;
     }
     if (g_trDone && g_trBuf[0])
     {
@@ -1523,7 +1696,7 @@ static void Marker(ID3D11DeviceContext* c, UINT count)
 }
 
 static void STDMETHODCALLTYPE HookDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_origDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { BeaconSeen(c, a, 0, "semplice"); Marker(c, a); Capture(c); g_origD(c, a, b); }
+static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_origD(c, a, b); }
 static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_origDII(c, a, b, d, e, f); }
 static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_origDInst(c, a, b, d, e); }
 
@@ -1579,7 +1752,7 @@ static DrawIndexedInst_t g_rdefDII = nullptr;
 static std::atomic<int> g_realDone{ 0 };
 static char g_realInfo[700] = "";
 static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, 0, "semplice"); Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_trRec) g_trDraws++; if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
 static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
 static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
@@ -1611,7 +1784,7 @@ static HRESULT STDMETHODCALLTYPE HookRMap(ID3D11DeviceContext* c, ID3D11Resource
 {
     g_cMap++; HRESULT h = g_rMap(c, r, a, t, f, m);
     if (r && r == g_capBuf && SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE || t == D3D11_MAP_WRITE)) g_capPtr = m->pData;
-    if (SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE)) { LearnMap(r, m->pData); CamMap(r, m->pData); }
+    if (SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE)) { LearnMap(r, m->pData); CamMap(r, m->pData); ShadowMap(r, m->pData); }
     Rehook(c); return h;
 }
 // voce 209: alla chiusura della scrittura del buffer della matrice si legge la matrice appena scritta
@@ -1622,6 +1795,7 @@ static void STDMETHODCALLTYPE HookRUnmap(ID3D11DeviceContext* c, ID3D11Resource*
     if (r && r == g_capBuf && g_capPtr) { CaptureWrite(g_capPtr); g_capPtr = nullptr; }
     LearnUnmap(r);
     CamUnmap(r);
+    ShadowUnmap(r);
     g_rUnmap(c, r, a);
 }
 static void STDMETHODCALLTYPE HookRExec(ID3D11DeviceContext* c, ID3D11CommandList* l, BOOL r) { g_cExec++; g_rExec(c, l, r); }
