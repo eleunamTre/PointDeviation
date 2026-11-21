@@ -1386,3 +1386,7 @@ Ottava tornata (28/10/2026): octree
      fotogramma prima (arriva per il dettaglio in piu' avvicinandosi); un blocco che entra nell'inquadratura compare
      subito intero.
 
+243) Ribbon: nel pannello «Nuvole e rilievo» un separatore tra la libreria delle nuvole e i pulsanti Coordinate di
+     rilievo e Misura punti, come nel pannello Ritaglio e visibilità. In inglese «Fence» diventa «Clipping region» nel
+     pulsante, nei suggerimenti e nei messaggi (anche al plurale).
+

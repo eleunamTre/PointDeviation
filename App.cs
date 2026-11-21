@@ -170,6 +170,7 @@ namespace PointDeviation
             RibbonPanel pCloud = app.CreateRibbonPanel(tabName, L.T("Nuvole e rilievo"));
             pCloud.AddItem(Push("LoadCloud", "Libreria\nnuvole", asm, typeof(LoadCloudCommand), "library",
                 "Libreria delle nuvole convertite: converte LAS, RCP e RCS una sola volta e le inserisce nel progetto con le opzioni di coordinate."));
+            pCloud.AddSeparator();   // voce 243: libreria separata da coordinate di rilievo e misura, come in Ritaglio e visibilità
             pCloud.AddItem(Push("Survey", "Coordinate\ndi rilievo", asm, typeof(SurveyCommand), "survey",
                 "Imposta le coordinate condivise del progetto su quelle originali della nuvola selezionata."));
             pCloud.AddItem(Push("Measure", "Misura\npunti", asm, typeof(MeasureCommand), "measure",
