@@ -1363,3 +1363,20 @@ Ottava tornata (28/10/2026): octree
      visibili non cambiano. Diario del 21/11 dalle 17:33:35 (collegamenti): nessuna camera recuperata dalle trasformazioni
      dei collegamenti (0 su 434 fotogrammi interrotti con la camera precedente); in 252 di questi Revit non scrive alcuna
      matrice, negli altri le matrici sono scartate per proiezione e fuoco anche dopo l'inversa del collegamento.
+
+241) Con i collegamenti la nuvola a volte spariva per secondi (video del 21/11 dalle 17:45:32, da 17:45:38 a 17:45:41:
+     Revit mostra il modello solo in fil di ferro e della nuvola non c'e' traccia), anche se il diario dava ogni Present
+     come «disegnato». In quel tratto Revit presenta due immagini ogni ~120 ms: una con 16 matrici (la nuvola si
+     disegnava con la camera trovata li') e una subito dopo senza nessuna matrice (camera precedente, che pero' era gia'
+     stata sostituita da quella trovata). Le cause possibili sono due e il diario non le distingueva: profondita' copiata
+     che copre tutto, oppure camera trovata sbagliata che porta la nuvola fuori dalla finestra e «avvelena» anche la
+     camera precedente. Ora ogni disegno misura nella scheda video quanti triangoli dei punti cadono nella finestra
+     (statistiche della pipeline) e quanti pixel passano il confronto di profondita' (occlusione):
+     - punti nella finestra ma zero pixel: per 400 ms i disegni al Present ignorano la profondita' copiata
+       (diario «E;profondita_copre_tutto», «profondita=ignorata»);
+     - nessun punto nella finestra con la camera di un fotogramma interrotto: per 1 s quelle camere si scartano e si
+       torna all'ultima camera di un fotogramma completo («E;camera_interrotto_fuori_finestra»,
+       «camera=precedente_sua_scartata»).
+     Righe G del diario con fonte del disegno, punti, triangoli in finestra e pixel visibili; nel resoconto DirectX i
+     disegni visibili, coperti dalla profondita' e fuori dalla finestra.
+

@@ -366,6 +366,7 @@ static float g_shMaxPx = 3.0f, g_shScale = 0.6f;
 static float g_alpha = 1.0f;
 static ID3D11BlendState* g_bsAlpha = nullptr;
 static ID3D11DepthStencilState* g_sdssNoWrite = nullptr;
+static ID3D11DepthStencilState* g_sdssOff = nullptr;   // voce 241: senza confronto di profondita'
 static bool Transparent() { return g_alpha < 0.999f; }
 static long long g_shBytes = 0;
 static long g_shUploads = 0, g_shDrawn = 0, g_shFrames = 0;
@@ -454,6 +455,8 @@ static bool ShaderInit(ID3D11Device* dev)
         dev->CreateBlendState(&bld, &g_bsAlpha);
         dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
         dev->CreateDepthStencilState(&dd, &g_sdssNoWrite);
+        dd.DepthEnable = FALSE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+        dev->CreateDepthStencilState(&dd, &g_sdssOff);
     }
     if (!g_svs || !g_sps || !g_quadIb || !g_scb || !g_sdss || !g_srs || !g_bs || !g_bsAlpha || !g_sdssNoWrite)
     { _snprintf_s(g_shErr, sizeof(g_shErr), _TRUNCATE, "creazione delle risorse dello shader dei punti non riuscita"); g_shFailed = true; return false; }
@@ -466,6 +469,19 @@ static std::atomic<int> g_shaderWanted{ 0 };
 static const int QN = 6;
 static ID3D11Query* g_qDisj[QN] = {}; static ID3D11Query* g_qBeg[QN] = {}; static ID3D11Query* g_qEnd[QN] = {};
 static bool g_qPend[QN] = {};
+// voce 241 (video e diario del 21/11 17:45:32, con i collegamenti): per secondi la nuvola non si vedeva affatto mentre
+// Revit mostrava il modello in fil di ferro, anche se ogni Present risultava «disegnato». Per ogni disegno ora si misura
+// quanti triangoli dei punti cadono nella finestra (statistiche della pipeline, CPrimitives) e quanti pixel superano il
+// confronto di profondita' (occlusione). Triangoli in finestra ma zero pixel = la profondita' copiata copre tutto;
+// zero triangoli in finestra = camera sbagliata. Nel diario: G;...;fonte=...;in_finestra=...;pixel=...
+static ID3D11Query* g_qOcc[QN] = {}; static ID3D11Query* g_qStat[QN] = {};
+static int g_qSrc[QN] = {}; static long long g_qPts[QN] = {}; static bool g_qNoDepth[QN] = {};
+static int g_drawSrc = 0;          // 0 segnale, 1 Present di un fotogramma completo, 2 interrotto con la sua camera, 3 interrotto con la precedente
+static bool g_noDepth = false;     // disegno senza confronto di profondita' (vedi g_depthOffUntil)
+static double g_depthOffUntil = 0; // fino a quando i disegni al Present ignorano la profondita' copiata
+static double g_badCurUntil = 0;   // fino a quando non si usano le camere trovate nei fotogrammi interrotti
+static long g_qDepthBlock = 0, g_qCamOut = 0, g_qVisible = 0;
+static const char* SrcName(int k) { return k == 0 ? "segnale" : k == 1 ? "present_completo" : k == 2 ? "interrotto_sua_camera" : "interrotto_precedente"; }
 static int g_qIdx = 0;
 static double g_gpuEma = -1, g_gpuSum = 0, g_gpuMax = 0; static long g_gpuN = 0;
 static long g_skipMatrix = 0, g_skipEmpty = 0;
@@ -479,11 +495,31 @@ static void GpuCollect(ID3D11DeviceContext* c)
         UINT64 b = 0, e = 0;
         if (c->GetData(g_qBeg[k], &b, sizeof(b), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) continue;
         if (c->GetData(g_qEnd[k], &e, sizeof(e), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) continue;
+        UINT64 occ = 0; D3D11_QUERY_DATA_PIPELINE_STATISTICS ps = {};
+        bool hasOcc = g_qOcc[k] && c->GetData(g_qOcc[k], &occ, sizeof(occ), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+        bool hasSt = g_qStat[k] && c->GetData(g_qStat[k], &ps, sizeof(ps), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+        if ((g_qOcc[k] && !hasOcc) || (g_qStat[k] && !hasSt)) continue;
         g_qPend[k] = false;
+        if (hasOcc && hasSt && g_qPts[k] > 20000)
+        {
+            double now = QpcMs();
+            if (ps.CPrimitives > 2000 && occ == 0 && !g_qNoDepth[k])
+            {   // punti nella finestra ma nessun pixel oltre la profondita': per 400 ms al Present si disegna senza
+                g_qDepthBlock++;
+                if (g_qSrc[k] != 0) { if (now > g_depthOffUntil) FT("E;profondita_copre_tutto;fonte=%s;in_finestra=%llu", SrcName(g_qSrc[k]), ps.CPrimitives); g_depthOffUntil = now + 400; }
+            }
+            else if (ps.CPrimitives == 0)
+            {   // nessun punto nella finestra: con una camera presa da un fotogramma interrotto, la si scarta per 1 s
+                g_qCamOut++;
+                if (g_qSrc[k] == 2) { if (now > g_badCurUntil) FT("E;camera_interrotto_fuori_finestra"); g_badCurUntil = now + 1000; }
+            }
+            else g_qVisible++;
+        }
         if (dj.Disjoint || dj.Frequency == 0 || e < b) continue;
         double ms = (double)(e - b) * 1000.0 / (double)dj.Frequency;
         g_gpuEma = g_gpuEma < 0 ? ms : g_gpuEma * 0.7 + ms * 0.3;
-        FT("G;gpu_ms=%.2f", ms);
+        if (hasOcc && hasSt) FT("G;gpu_ms=%.2f;fonte=%s;punti=%lld;in_finestra=%llu;pixel=%llu;senza_profondita=%d", ms, SrcName(g_qSrc[k]), g_qPts[k], ps.CPrimitives, occ, g_qNoDepth[k] ? 1 : 0);
+        else FT("G;gpu_ms=%.2f", ms);
         g_gpuSum += ms; g_gpuN++; if (ms > g_gpuMax) g_gpuMax = ms;
     }
 }
@@ -501,16 +537,23 @@ static int GpuBegin(ID3D11DeviceContext* c)
         qd.Query = D3D11_QUERY_TIMESTAMP;
         if (!g_qBeg[k]) dev->CreateQuery(&qd, &g_qBeg[k]);
         if (!g_qEnd[k]) dev->CreateQuery(&qd, &g_qEnd[k]);
+        qd.Query = D3D11_QUERY_OCCLUSION; if (!g_qOcc[k]) dev->CreateQuery(&qd, &g_qOcc[k]);
+        qd.Query = D3D11_QUERY_PIPELINE_STATISTICS; if (!g_qStat[k]) dev->CreateQuery(&qd, &g_qStat[k]);
         dev->Release();
         if (!g_qDisj[k] || !g_qBeg[k] || !g_qEnd[k]) return -1;
     }
     c->Begin(g_qDisj[k]);
     c->End(g_qBeg[k]);
+    if (g_qOcc[k]) c->Begin(g_qOcc[k]);
+    if (g_qStat[k]) c->Begin(g_qStat[k]);
+    g_qSrc[k] = g_drawSrc; g_qNoDepth[k] = g_noDepth; g_qPts[k] = 0;
     return k;
 }
 static void GpuEnd(ID3D11DeviceContext* c, int k)
 {
     if (k < 0) return;
+    if (g_qStat[k]) c->End(g_qStat[k]);
+    if (g_qOcc[k]) c->End(g_qOcc[k]);
     c->End(g_qEnd[k]);
     c->End(g_qDisj[k]);
     g_qPend[k] = true;
@@ -572,7 +615,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     ID3D11Buffer* ours[2] = { g_scb, matBuf };
     c->VSSetConstantBuffers(0, 2, ours);
     bool tr = Transparent();
-    c->OMSetDepthStencilState(tr ? g_sdssNoWrite : g_sdss, 0);
+    c->OMSetDepthStencilState(g_noDepth && g_sdssOff ? g_sdssOff : (tr ? g_sdssNoWrite : g_sdss), 0);
     c->RSSetState(g_useScissor && g_srsSc ? g_srsSc : g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(tr ? g_bsAlpha : g_bs, zero, 0xffffffff);
@@ -606,6 +649,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
             c->DrawIndexed((UINT)nq * 6, 0, st0 * 4);   // l'indice di vertice parte da st0*4: punto st0
         }
         g_shDrawn++; g_shPoints += it.count;
+        if (qk >= 0) g_qPts[qk] += it.count;
     }
     GpuEnd(c, qk);
 }
@@ -998,6 +1042,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
     SavedState st; st.Save(c, false);
     g_useScissor = g_partial;   // voce 229: le forbici di Revit sono gia' impostate, basta rispettarle
+    g_drawSrc = 0; g_noDepth = false;
     DrawPointsCore(c, rcb, g_mOff, g_mT & 1, g_mOff2, (g_mT >> 1) & 1, vp);
     g_useScissor = false;
     st.Restore(c);
@@ -1165,9 +1210,11 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         if (g_partial && KeepStillGood()) g_keptOld = true;
         ID3D11DepthStencilView* dz = g_keepOk ? g_keepDsv : g_fbDsv;
         bool tr = Transparent(), drew = false;
+        g_drawSrc = 1; g_noDepth = QpcMs() < g_depthOffUntil;
         if (tr && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) { g_fbAlpha++; drew = true; }
+        g_noDepth = false;
         FT("P;completo;trasparente=%d;disegnato_al_present=%d;opacita=%.2f;profondita=%s;parziale=%d;forbici=%d;blocchi=%zu",
-           tr ? 1 : 0, drew ? 1 : 0, g_alpha, g_keptOld ? "tenuta_precedente" : (g_keepOk ? "copia" : "revit"), g_partial ? 1 : 0, sc ? 1 : 0, g_ready.size());
+           tr ? 1 : 0, drew ? 1 : 0, g_alpha, QpcMs() < g_depthOffUntil ? "ignorata" : (g_keptOld ? "tenuta_precedente" : (g_keepOk ? "copia" : "revit")), g_partial ? 1 : 0, sc ? 1 : 0, g_ready.size());
         g_keepThisFrame = false; g_dzArm = false; g_partial = false; g_keptOld = false;
         return;
     }
@@ -1176,6 +1223,10 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     g_rjProj = g_rjAsp = g_rjOrtho = g_rjScale = g_rjFocus = g_rjOther = 0; g_rjKmin = 1e9f; g_rjKmax = 0; g_rjShift = 0;
     int nCandHere = g_nCand;
     int best = g_hasRef ? BestValidCand() : -1;
+    // voce 241: le camere dei fotogrammi interrotti hanno appena messo la nuvola fuori dalla finestra: per 1 s si usa
+    // l'ultima camera di un fotogramma completo, e quella sbagliata non diventa la camera «precedente»
+    bool curBlocked = best >= 0 && QpcMs() < g_badCurUntil;
+    if (curBlocked) { best = -1; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, g_refRaw, sizeof(g_chainRaw)); g_chainGen = g_viewGen; } }
     const float* camNow = best >= 0 ? g_cand[best].m : nullptr;
     float camBuf[32];
     if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; } }
@@ -1183,10 +1234,13 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     if (!g_shaderOn || g_ready.empty() || !g_fbDsv) { FT("P;interrotto;salto=%s", !g_shaderOn ? "spento" : (g_ready.empty() ? "elenco_vuoto" : "niente_profondita")); return; }
     if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; FT("P;interrotto;salto=camera_di_un'altra_vista"); return; }
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
+    g_drawSrc = camNow ? 2 : 3; g_noDepth = QpcMs() < g_depthOffUntil;
+    bool depthOff = g_noDepth;
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc);
+    g_noDepth = false;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
     FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
-       drew ? 1 : 0, camNow ? "del_fotogramma" : "precedente", camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, g_keepOk ? "copia" : "revit", sc ? 1 : 0, g_ready.size(),
+       drew ? 1 : 0, camNow ? "del_fotogramma" : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (g_keepOk ? "copia" : "revit"), sc ? 1 : 0, g_ready.size(),
        nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
 }
 
@@ -1298,6 +1352,10 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld",
             g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top);
         g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0;
+        L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld",
+            g_qVisible, g_qDepthBlock, g_qCamOut);
+        g_qVisible = g_qDepthBlock = g_qCamOut = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld (trasformazioni ricevute %d)", g_linkHits, g_nLinks);
         g_linkHits = 0;
