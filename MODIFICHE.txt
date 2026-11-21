@@ -1492,3 +1492,10 @@ Ottava tornata (28/10/2026): octree
      invisibile, e le immagini intermedie riusavano quell'elenco. Comparsa graduale tolta: i blocchi compaiono subito
      interi (la «cascata» della 240 era gia' stata giudicata poco utile).
 
+254) Faro spento (video del 21/11 dalle 20:07:12): a ogni piccolo movimento il modello e le sue linee passavano sopra e
+     sotto la nuvola, anche dove prima andava bene; inutilizzabile. Il motore delle nuvole torna a consegnare a Revit
+     nessun punto, quindi non c'e' piu' il disegno del faro e la libreria segue la strada di prima per le immagini
+     intermedie (camera precedente, camere riconosciute come nella 245); senza faro niente copie dei buffer di costanti.
+     Restano: comparsa graduale tolta (253), misure di visibilita' (241), diagnostica dello zoom (244). Il codice del faro
+     resta (NativeClouds.BeaconOn) per una prova mirata, non piu' sull'uso normale.
+

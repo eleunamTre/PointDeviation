@@ -313,8 +313,13 @@ namespace PointDeviation
             }
 
             private static bool _beaconLogged;
+            // voce 254: faro spento. Nelle prove del 21/11 sera (20:07) con il faro attivo il modello e le sue linee passavano
+            // sopra e sotto la nuvola a ogni piccolo movimento, anche senza collegamenti: si torna al comportamento di prima
+            // (problemi solo con i collegamenti in movimento). Il codice resta per prove mirate.
+            internal const bool BeaconOn = false;
             private IPointSetIterator Beacon()
             {
+                if (!BeaconOn) return new OutlineIterator(_outline, null);
                 if (!_beaconLogged) { _beaconLogged = true; Log.Write("Motore", "faro consegnato a Revit: " + BeaconPts + " punti al centro della nuvola (voce 246)"); }
                 return new OutlineIterator(_beacon, null);   // senza filtro: sempre tutti i punti, stesso conteggio
             }
@@ -328,7 +333,8 @@ namespace PointDeviation
                         var it = new TileIterator(_folder, _info, _tiles, rFilter, 0);
                         try { return it.ReadPoints(buffer, nBufferSize); } finally { it.Free(); }
                     }
-                    return new OutlineIterator(NativeProbe.ShaderWanted ? _beacon : _outline, NativeProbe.ShaderWanted ? null : rFilter).ReadPoints(buffer, nBufferSize);
+                    bool b = BeaconOn && NativeProbe.ShaderWanted;
+                    return new OutlineIterator(b ? _beacon : _outline, b ? null : rFilter).ReadPoints(buffer, nBufferSize);
                 }
                 catch { return 0; }
             }

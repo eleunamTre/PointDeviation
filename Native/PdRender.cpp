@@ -1252,9 +1252,10 @@ static bool BeaconCount(UINT n) { if (n == 0 || n % BeaconPts != 0) return false
 struct ShadowBuf { std::vector<float> f; };
 static std::unordered_map<ID3D11Resource*, ShadowBuf> g_shadow;
 static ID3D11Resource* g_shPendRes[32] = {}; static void* g_shPendPtr[32] = {}; static UINT g_shPendLen[32] = {}; static int g_shPendN = 0;
+static bool g_bcnEverSeen = false;   // voce 254: copie dei buffer solo se il faro e' attivo
 static void ShadowMap(ID3D11Resource* r, void* p)
 {
-    if (!g_shaderWanted || !r || !p) return;
+    if (!g_shaderWanted || !g_bcnEverSeen || !r || !p) return;
     D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
     if (dim != D3D11_RESOURCE_DIMENSION_BUFFER) return;
     D3D11_BUFFER_DESC d; ((ID3D11Buffer*)r)->GetDesc(&d);
@@ -1327,6 +1328,7 @@ static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char
     bool pts = tp == D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
     if (pts) g_bcnPts++; else g_bcnOther++;
     bool beacon = pts && count == BeaconPts && inst == 0;
+    if (beacon) g_bcnEverSeen = true;
     if (beacon && !g_bcnSnapOk)
     {
         ID3D11Buffer* cb[BcnSlots] = {}; c->VSGetConstantBuffers(0, BcnSlots, cb);
