@@ -1499,3 +1499,11 @@ Ottava tornata (28/10/2026): octree
      Restano: comparsa graduale tolta (253), misure di visibilita' (241), diagnostica dello zoom (244). Il codice del faro
      resta (NativeClouds.BeaconOn) per una prova mirata, non piu' sull'uso normale.
 
+255) Con la 254 (faro spento) il problema c'e' ancora: con i collegamenti, in movimento, modello e linee passano sopra e
+     sotto la nuvola. Non era quindi il faro: con i collegamenti Revit presenta tra un fotogramma completo e l'altro
+     molte immagini (fino a 47 ogni 5 s contro 12-44 complete) in cui ridisegna il modello con la camera nuova senza
+     chiamare il plugin; la nuvola li' resta disegnata con la camera e la profondita' dell'ultimo fotogramma completo.
+     Il faro (camera giusta in quelle immagini, verificata uguale alla vera in ogni fotogramma completo controllato)
+     diventa un interruttore in Avanzate, «Prova: camera dal faro con i collegamenti», spento di serie, per confrontare
+     le due cose nella stessa navigazione. Dopo il cambio la nuvola va ricaricata (Gestisci collegamenti).
+

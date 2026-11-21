@@ -316,7 +316,7 @@ namespace PointDeviation
             // voce 254: faro spento. Nelle prove del 21/11 sera (20:07) con il faro attivo il modello e le sue linee passavano
             // sopra e sotto la nuvola a ogni piccolo movimento, anche senza collegamenti: si torna al comportamento di prima
             // (problemi solo con i collegamenti in movimento). Il codice resta per prove mirate.
-            internal const bool BeaconOn = false;
+            internal static bool BeaconOn { get { return AdvancedSettings.Current.BeaconCamera; } }   // voce 255
             private IPointSetIterator Beacon()
             {
                 if (!BeaconOn) return new OutlineIterator(_outline, null);

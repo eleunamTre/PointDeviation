@@ -208,6 +208,9 @@ namespace PointDeviation
         [DataMember] public bool NativeProbe;
         /// <summary>Disegno della nuvola con shader propri dentro DirectX 11 di Revit (voce 194, sperimentale).</summary>
         [DataMember] public bool NativeShader;
+        /// <summary>Prova (voce 255): con lo shader, camera delle immagini intermedie ricavata dal «faro» (pochi punti
+        /// consegnati al motore delle nuvole di Revit). Spento (predefinito): come prima della 246.</summary>
+        [DataMember] public bool BeaconCamera;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 
@@ -275,7 +278,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 254;
+        public const int Change = 255;
 
         public static string Describe()
         {

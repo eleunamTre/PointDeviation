@@ -31,6 +31,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _shader = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _probe = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _native = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _beacon = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -192,6 +193,9 @@ namespace PointDeviation
             _shader.Text = L.T("Disegno con shader (sperimentale)");
             p.Controls.Add(_shader);
             p.Controls.Add(Note(L.T("Acceso: la nuvola la disegna la libreria PdRender.dll direttamente nella scheda video, con punti tondi la cui grandezza segue lo zoom senza ricostruire nulla. Serve PdRender.dll accanto al plugin e Revit riavviato. Finché la libreria non è pronta si usa il disegno di sempre. Salva il progetto prima di provarlo.")));
+            _beacon.Text = L.T("Prova: camera dal faro con i collegamenti");
+            p.Controls.Add(_beacon);
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Spento (consigliato): come sempre. Acceso: con i collegamenti accesi, nelle immagini che Revit ridisegna in movimento senza chiamare il plugin la nuvola usa la camera ricavata da pochi punti invisibili consegnati a Revit. Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica.")));
             _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
@@ -240,6 +244,7 @@ namespace PointDeviation
             _uniform.Checked = a.UniformDetail;
             _fixedBudget.Checked = a.FixedBudget;
             _native.Checked = a.NativeDisplay;
+            _beacon.Checked = a.BeaconCamera;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -260,6 +265,7 @@ namespace PointDeviation
             a.UniformDetail = _uniform.Checked;
             a.FixedBudget = _fixedBudget.Checked;
             a.NativeDisplay = _native.Checked;
+            a.BeaconCamera = _beacon.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();
