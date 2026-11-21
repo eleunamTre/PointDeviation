@@ -922,6 +922,7 @@ static long g_camRejected = 0;
 // dell'ultimo fotogramma completo: con il modello impianti i completi sono rari (6 su 104) e durante zoom e orbite la
 // camera vera si allontana presto da quella vecchia, quindi la 214 scartava anche la camera giusta (scartate 110).
 static float g_chainRaw[32]; static long g_chainGen = -1;
+static bool g_chainFromBeacon = false;   // voce 249: la camera precedente viene dal faro (profondita' non affidabile)
 static IDXGISwapChain* g_fbSwap = nullptr;   // finestra della vista (solo confronto, senza riferimento)
 static void ColForm(const float* raw, float* C)
 {
@@ -1081,7 +1082,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         if (b) { g_capBuf = b; b->Release(); }
-        if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; g_refGen = g_viewGen; memcpy(g_chainRaw, g_lastCap, sizeof(g_chainRaw)); g_chainGen = g_viewGen; }
+        if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; g_refGen = g_viewGen; memcpy(g_chainRaw, g_lastCap, sizeof(g_chainRaw)); g_chainGen = g_viewGen; g_chainFromBeacon = false; }
         ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
         c->OMGetRenderTargets(1, &rtv, &dsv);
         if (rtv) rtv->Release();
@@ -1281,7 +1282,7 @@ static long g_bcnHidden = 0;
 static ID3D11Resource* g_bcnDzSrc = nullptr;   // solo confronto, senza riferimento
 static bool g_bcnDzArm = false, g_bcnDepthOk = false;
 static ID3D11Texture2D* g_bcnTex = nullptr; static ID3D11DepthStencilView* g_bcnDsv = nullptr;
-static long g_bcnDepthCopies = 0, g_bcnDepthMissing = 0;
+static long g_bcnDepthCopies = 0, g_bcnDepthMissing = 0, g_bcnStill = 0;
 static bool g_bcnLocked = false;   // voce 247: posizione della matrice del faro appresa
 static void BeaconDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* src)
 {
@@ -1319,7 +1320,7 @@ static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char
             if (cb[k]) { auto f = g_shadow.find(cb[k]); if (f != g_shadow.end()) g_bcnSnap[k] = f->second.f; cb[k]->Release(); }
         }
         g_bcnSnapOk = true;
-        if (g_bcnLocked)
+        if (false && g_bcnLocked)   // voce 249: copia della profondita' del faro non piu' usata
         {
             ID3D11DepthStencilView* cur = nullptr; c->OMGetRenderTargets(0, nullptr, &cur);
             if (cur) { ID3D11Resource* rr = nullptr; cur->GetResource(&rr); g_bcnDzSrc = rr; if (rr) rr->Release(); cur->Release(); g_bcnDzArm = g_bcnDzSrc != nullptr; }
@@ -1557,18 +1558,43 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     int nCandHere = g_nCand;
     // voce 247: camera dal faro, se Revit l'ha disegnato in questa immagine
     float bcnRaw[32]; bool bcn = bcnSnap && g_hasRef && g_refGen == g_viewGen && BeaconCamera(bcnRaw);
+    // voce 249 (video del 21/11 19:35:40): passando col mouse sul modello (camera ferma) la nuvola spariva sopra l'edificio.
+    // La camera ricavata dal faro ha x e y giuste ma la profondita' solo approssimata; diventata camera «precedente», le
+    // immagini successive confrontavano la nuvola con la profondita' vera del modello e la perdevano (pixel visibili da
+    // 9,8 a 6,1 milioni). Ora: se x, y e w del faro coincidono con la camera precedente (camera ferma) si usa quella
+    // esatta; in movimento la camera del faro si usa ma la profondita' si ignora, finche' arriva un fotogramma completo.
+    bool bcnStill = false;
+    if (bcn)
+    {
+        auto sameXY = [&](const float* raw) -> bool {
+            double B[16], R[16]; ColFormD(bcnRaw, B); ColFormD(raw, R);
+            for (int r = 0; r < 4; r++)
+            {
+                if (r == 2) continue;
+                double nn = fabs(R[r * 4]) + fabs(R[r * 4 + 1]) + fabs(R[r * 4 + 2]) + fabs(R[r * 4 + 3]) + 1e-9;
+                for (int k = 0; k < 4; k++) if (fabs(B[r * 4 + k] - R[r * 4 + k]) > 1e-3 * nn) return false;
+            }
+            return true;
+        };
+        if (sameXY(g_refRaw))
+        {   // camera dell'ultimo fotogramma completo, esatta anche nella profondita'
+            bcnStill = true; memcpy(g_chainRaw, g_refRaw, sizeof(g_chainRaw)); g_chainGen = g_viewGen; g_chainFromBeacon = false;
+        }
+        else if (g_chainGen == g_viewGen && sameXY(g_chainRaw)) bcnStill = true;
+        if (bcnStill) { bcn = false; g_bcnStill++; }
+    }
     if (bcn) g_bcnUsed++;
-    int host = !bcn && g_hasRef ? HostByLinks() : -1;
+    int host = !bcn && !bcnStill && g_hasRef ? HostByLinks() : -1;
     if (host >= 0) g_hostHits++;
-    int best = bcn ? -1 : (host >= 0 ? host : (g_hasRef ? BestValidCand() : -1));
-    if (!bcn && best < 0 && g_hasRef && nCandHere > 0) DumpCands();
+    int best = (bcn || bcnStill) ? -1 : (host >= 0 ? host : (g_hasRef ? BestValidCand() : -1));
+    if (!bcn && !bcnStill && best < 0 && g_hasRef && nCandHere > 0) DumpCands();
     // voce 241: le camere dei fotogrammi interrotti hanno appena messo la nuvola fuori dalla finestra: per 1 s si usa
     // l'ultima camera di un fotogramma completo, e quella sbagliata non diventa la camera «precedente»
     bool curBlocked = !bcn && best >= 0 && host < 0 && QpcMs() < g_badCurUntil;
-    if (curBlocked) { best = -1; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, g_refRaw, sizeof(g_chainRaw)); g_chainGen = g_viewGen; } }
+    if (curBlocked) { best = -1; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, g_refRaw, sizeof(g_chainRaw)); g_chainGen = g_viewGen; g_chainFromBeacon = false; } }
     const float* camNow = bcn ? bcnRaw : (best >= 0 ? g_cand[best].m : nullptr);
     float camBuf[32];
-    if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; } }
+    if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; g_chainFromBeacon = bcn; } }
     g_nCand = 0; g_cmN = 0;
     if (!g_shaderOn || g_ready.empty() || !g_fbDsv) { FT("P;interrotto;salto=%s", !g_shaderOn ? "spento" : (g_ready.empty() ? "elenco_vuoto" : "niente_profondita")); return; }
     if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; FT("P;interrotto;salto=camera_di_un'altra_vista"); return; }
@@ -1576,13 +1602,14 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     g_drawSrc = camNow ? 2 : 3; g_noDepth = QpcMs() < g_depthOffUntil;
     // voce 248: con la camera del faro, la profondita' della stessa immagine; senza, nessuna (quella vecchia apre buchi)
     ID3D11DepthStencilView* dzUse = g_keepOk ? g_keepDsv : g_fbDsv;
-    if (bcn) { if (bcnDepth && g_bcnDsv) dzUse = g_bcnDsv; else { g_noDepth = true; g_bcnDepthMissing++; } }
+    (void)bcnDepth;
+    if (bcn || (!camNow && g_chainFromBeacon)) g_noDepth = true;   // voce 249: camera dal faro, profondita' ignorata
     bool depthOff = g_noDepth;
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
     g_noDepth = false;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
     FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
-       drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (bcn ? "del_faro" : (g_keepOk ? "copia" : "revit")), sc ? 1 : 0, g_ready.size(),
+       drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (g_keepOk ? "copia" : "revit"), sc ? 1 : 0, g_ready.size(),
        nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
 }
 
@@ -1702,9 +1729,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld)",
-            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnLocked ? "posizione della matrice appresa" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing);
-        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' ignorata), con la camera esatta perche' ferma %ld",
+            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnLocked ? "posizione della matrice appresa" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnStill);
+        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0;
     }
     if (g_trDone && g_trBuf[0])
     {

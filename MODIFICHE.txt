@@ -1448,3 +1448,15 @@ Ottava tornata (28/10/2026): octree
      Verso la fine della prova (zoom ravvicinato) la camera dal faro coincideva con la vera solo 5 su 19 volte: nel
      diario «E;faro_diverso» ora dice quali righe della matrice non tornano (x, y, profondita', w).
 
+249) Peggio di prima: passando col mouse sul modello la nuvola spariva sopra l'edificio (video del 21/11 dalle 19:35:40,
+     20-32 s). Diario: nelle immagini del passaggio del mouse disegnate con la camera «precedente» passavano 6,1 milioni
+     di pixel contro i 9,8 dei fotogrammi completi con la stessa vista. Quella camera precedente era stata presa dal faro:
+     x e y giuste, ma la profondita' solo approssimata, e confrontata con la profondita' vera del modello perdeva la
+     nuvola dove coincide con l'edificio. Ora:
+     - se il faro dice che la camera e' ferma (x, y e w uguali all'ultimo fotogramma completo o alla camera precedente) si
+       usa la camera esatta, non quella del faro;
+     - con la camera del faro (in movimento), e nelle immagini che la riusano come precedente, la profondita' si ignora
+       finche' arriva un fotogramma completo: la nuvola puo' passare davanti al modello per un attimo ma non sparisce;
+     - la copia della profondita' dell'immagine del faro (248) non si usa piu'.
+     Resoconto DirectX: immagini con la camera del faro e con la camera esatta perche' ferma.
+
