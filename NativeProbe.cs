@@ -45,6 +45,8 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetLinks(float[] m, int n);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdTraceOn(int on);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern int PdTraceTake(byte[] buf, int cap);
@@ -102,6 +104,8 @@ namespace PointDeviation
             // nuvola cambiava aspetto a ogni pausa («due visualizzazioni»).
             return (long)_cap;
         }
+        // voce 239: trasformazioni inverse dei modelli collegati (dal progetto al collegamento), 16 float per riga ciascuna
+        public static void SetLinks(float[] m, int n) { if (_state > 0) try { PdSetLinks(m, n); } catch { } }
         // voce 234: diario dei fotogrammi (vedi FrameDiary)
         public static bool Loaded { get { return _state > 0; } }
         public static void TraceOn(bool on) { if (_state > 0) try { PdTraceOn(on ? 1 : 0); } catch { } }

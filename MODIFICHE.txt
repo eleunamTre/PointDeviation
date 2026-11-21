@@ -1342,3 +1342,15 @@ Ottava tornata (28/10/2026): octree
        distanza tra i punti restava quella dell'ultima pausa anche se servivano il doppio dei punti. Ora, con lo shader,
        la distanza si adatta al limite anche in movimento (al massimo del 25% per fotogramma, come da fermi) e il limite
        e' lo stesso in movimento e da fermi.
+
+239) Con i modelli collegati accesi modello e nuvola si staccano durante il movimento (video e diario del 21/11 dalle
+     17:21:56). Con i collegamenti Revit disegna piu' lentamente (un nostro fotogramma ogni 60-260 ms) e tra uno e
+     l'altro presenta molti fotogrammi interrotti: 557 su 602 disegnati con la camera precedente, cioe' con la nuvola
+     indietro rispetto al modello. Le matrici trovate in quei fotogrammi erano scartate soprattutto perche' il punto
+     guardato risultava spostato di migliaia di volte la finestra (1457 scarti «fuoco», spostamento fino a 4492): sono
+     le matrici degli elementi dei collegamenti, camera per trasformazione del collegamento. Ora il plugin passa alla
+     libreria, ogni 2 s se cambiano, le trasformazioni inverse dei collegamenti (RevitLinkInstance.GetTotalTransform);
+     una matrice scartata si riprova moltiplicata per ciascuna inversa e, se cosi' torna la camera del progetto, si
+     usa quella. Nel diario: «camera=del_fotogramma_da_collegamento» e «collegamenti=N» nelle righe P;interrotto,
+     «E;collegamenti=N»; nel resoconto DirectX il numero di camere ricavate dai collegamenti. Funziona con la matrice
+     unica (vista per proiezione), che e' il caso trovato finora.

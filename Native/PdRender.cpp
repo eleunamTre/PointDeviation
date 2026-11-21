@@ -913,12 +913,41 @@ static bool LikeRef(const float* raw)
     if (!(sh < 0.5f)) { g_rjFocus++; return false; }
     return true;
 }
+// voce 239 (diario del 21/11 17:21, modelli collegati accesi): nei fotogrammi interrotti Revit scrive soprattutto le
+// matrici degli elementi dei collegamenti, cioe' camera x trasformazione del collegamento. Scartate (punto guardato
+// spostato fino a 4500 volte la finestra), la nuvola si disegnava con la camera precedente e restava indietro rispetto
+// al modello. Il plugin passa le trasformazioni inverse dei collegamenti (dal progetto al collegamento): moltiplicando
+// la matrice per l'inversa si ritrova la camera del progetto.
+static float g_linkInv[16][16]; static int g_nLinks = 0; static long g_linkHits = 0; static bool g_candLink = false;
+extern "C" __declspec(dllexport) void PdSetLinks(const float* m, int n)
+{
+    if (n < 0) n = 0; if (n > 16) n = 16;
+    if (m && n > 0) memcpy(g_linkInv, m, (size_t)n * 64);
+    g_nLinks = n;
+}
+static bool UnLink(const float* raw, int L, float* out)
+{
+    if (g_mOff2 >= 0) return false;   // solo con la matrice unica (vista per proiezione)
+    float C[16], D[16]; ColForm(raw, C);
+    const float* R = g_linkInv[L];
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = 0; for (int j = 0; j < 4; j++) v += C[r * 4 + j] * R[j * 4 + k]; D[r * 4 + k] = v; }
+    memcpy(out, raw, 32 * sizeof(float));
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { if (g_mT & 1) out[r * 4 + k] = D[r * 4 + k]; else out[k * 4 + r] = D[r * 4 + k]; }
+    return true;
+}
 static int BestValidCand()
 {
-    int b = -1;
+    int b = -1; g_candLink = false;
     for (int i = 0; i < g_nCand; i++)
     {
-        if (!LikeRef(g_cand[i].m)) { g_camRejected++; continue; }
+        if (!LikeRef(g_cand[i].m))
+        {
+            bool ok = false;
+            float t[32];
+            for (int L = 0; L < g_nLinks && !ok; L++)
+                if (UnLink(g_cand[i].m, L, t) && LikeRef(t)) { memcpy(g_cand[i].m, t, sizeof(t)); ok = true; g_linkHits++; g_candLink = true; }
+            if (!ok) { g_camRejected++; continue; }
+        }
         if (b < 0 || g_cand[i].n > g_cand[b].n) b = i;
     }
     return b;
@@ -1155,8 +1184,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc);
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
-    FT("P;interrotto;disegnato=%d;camera=%s;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
-       drew ? 1 : 0, camNow ? "del_fotogramma" : "precedente", g_keepOk ? "copia" : "revit", sc ? 1 : 0, g_ready.size(),
+    FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
+       drew ? 1 : 0, camNow ? "del_fotogramma" : "precedente", camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, g_keepOk ? "copia" : "revit", sc ? 1 : 0, g_ready.size(),
        nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
 }
 
@@ -1268,6 +1297,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld",
             g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top);
         g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0;
+        L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld (trasformazioni ricevute %d)", g_linkHits, g_nLinks);
+        g_linkHits = 0;
     }
     if (g_trDone && g_trBuf[0])
     {

@@ -89,6 +89,7 @@ namespace PointDeviation
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
                 // Revit ci richiama subito invece che dopo una lunga pausa
                 FrameDiary.Pump();   // voce 234: righe della libreria nativa anche quando il plugin non disegna
+                if (NativeProbe.ShaderMode && now - _linksTick > 2000) { _linksTick = now; SendLinks(app.ActiveUIDocument.Document); }
                 if (_zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
             catch { }
@@ -97,6 +98,43 @@ namespace PointDeviation
         private static readonly Dictionary<long, double[]> _lastCam = new Dictionary<long, double[]>();
         private static readonly Dictionary<long, long> _camTick = new Dictionary<long, long>();
         private static long _settleAt;
+        private static long _linksTick;
+        private static string _linksKey = "";
+        /// <summary>
+        /// Voce 239: trasformazioni dei modelli collegati per la libreria nativa. Nei fotogrammi interrotti Revit scrive le
+        /// matrici dei collegamenti (camera x trasformazione): con l'inversa la libreria ritrova la camera del progetto.
+        /// </summary>
+        private static void SendLinks(Document doc)
+        {
+            try
+            {
+                var m = new List<float>();
+                var key = new System.Text.StringBuilder();
+                int n = 0;
+                foreach (Element e in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)))
+                {
+                    if (n >= 16) break;
+                    Transform t = ((RevitLinkInstance)e).GetTotalTransform();
+                    if (t == null || t.IsIdentity) continue;
+                    Transform v = t.Inverse;
+                    XYZ bx = v.BasisX, by = v.BasisY, bz = v.BasisZ, o = v.Origin;
+                    // riga per riga, per vettori colonna: x_collegamento = R * x_progetto
+                    m.AddRange(new float[] {
+                        (float)bx.X, (float)by.X, (float)bz.X, (float)o.X,
+                        (float)bx.Y, (float)by.Y, (float)bz.Y, (float)o.Y,
+                        (float)bx.Z, (float)by.Z, (float)bz.Z, (float)o.Z,
+                        0, 0, 0, 1 });
+                    key.Append(e.Id.Value).Append(':').Append(o.X.ToString("F3")).Append(o.Y.ToString("F3")).Append(o.Z.ToString("F3")).Append(bx.X.ToString("F4")).Append(';');
+                    n++;
+                }
+                string k = key.ToString();
+                if (k == _linksKey) return;
+                _linksKey = k;
+                NativeProbe.SetLinks(m.ToArray(), n);
+                FrameDiary.Line("E;collegamenti=" + n);
+            }
+            catch (Exception ex) { Log.Error("Collegamenti", ex); }
+        }
         private static double _scaleEma = -1;
         private static int _lastStyleVer;
         private static long _styleBoostUntil;
