@@ -1289,6 +1289,17 @@ static bool g_bcnDzArm = false, g_bcnDepthOk = false;
 static ID3D11Texture2D* g_bcnTex = nullptr; static ID3D11DepthStencilView* g_bcnDsv = nullptr;
 static long g_bcnDepthCopies = 0, g_bcnDepthMissing = 0, g_bcnStill = 0;
 static bool g_bcnLocked = false;   // voce 247: posizione della matrice del faro appresa
+// voce 251: trasformazioni esatte delle istanze delle nostre nuvole (dal plugin, doppia precisione)
+static double g_cloudT[8][16]; static int g_nCloudT = 0; static long g_cloudTVer = 0;
+static bool g_bcnExact = false; static long g_bcnExactVer = -1; static int g_bcnExactIdx = -1;
+extern "C" __declspec(dllexport) void PdSetCloudTransforms(const double* m, int n)
+{
+    if (n < 0) n = 0; if (n > 8) n = 8;
+    bool ch = n != g_nCloudT || (m && n > 0 && memcmp(g_cloudT, m, (size_t)n * 128) != 0);
+    if (m && n > 0) memcpy(g_cloudT, m, (size_t)n * 128);
+    g_nCloudT = n;
+    if (ch) g_cloudTVer++;
+}
 static D3D11_DEPTH_STENCIL_VIEW_DESC g_bcnDzDesc = {};
 static ID3D11Resource* g_bcnDzRef = nullptr;   // voce 250: con riferimento, per la copia al Present se Revit non lo lascia prima
 static bool g_bcnDepthChain = false;            // la copia vale anche per le immagini che riusano la camera del faro
@@ -1391,6 +1402,27 @@ static void BeaconLearn(const float* refRaw)
 {
     double C[16], Ci[16]; ColFormD(refRaw, C);
     if (!Inv4(C, Ci)) return;
+    // voce 251: con la trasformazione esatta della nuvola la matrice attesa del faro e' camera x T; la si cerca nella
+    // fotografia e, trovata, la camera delle immagini intermedie e' matrice del faro x T^-1, senza approssimazioni
+    if (g_bcnExact && g_bcnExactVer != g_cloudTVer) { g_bcnExact = false; g_bcnLocked = false; g_bcnTry.clear(); FT("E;faro_trasformazione_cambiata;si_ricomincia"); }
+    if (g_nCloudT > 0 && !g_bcnExact)
+    {
+        for (int L = 0; L < g_nCloudT && !g_bcnExact; L++)
+        {
+            double Mexp[16], Ti[16]; MulD(C, g_cloudT[L], Mexp);
+            if (!Inv4(g_cloudT[L], Ti)) continue;
+            for (int sl = 0; sl < BcnSlots && !g_bcnExact; sl++)
+                for (int off = 0; off + 16 <= (int)g_bcnSnap[sl].size() && !g_bcnExact; off += 4)
+                    for (int t = 0; t < 2 && !g_bcnExact; t++)
+                    {
+                        double M[16];
+                        if (!ReadM(sl, off, t, M) || !NearD(Mexp, M, 1e-4)) continue;
+                        g_bcnSlot = sl; g_bcnOff = off; g_bcnT = t; memcpy(g_bcnKinv, Ti, sizeof(Ti));
+                        g_bcnLocked = true; g_bcnExact = true; g_bcnExactVer = g_cloudTVer; g_bcnExactIdx = L; g_bcnTry.clear();
+                        FT("E;faro_trasformazione_esatta;nuvola=%d;slot=%d;riga=%d;trasposta=%d", L, sl, off / 4, t);
+                    }
+        }
+    }
     if (g_bcnLocked)
     {   // verifica continua: camera ricavata dal faro contro quella vera
         double M[16], P[16];
@@ -1628,7 +1660,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
             dzUse = g_bcnDsv;
             double Cb[16]; ColFormD(camNow ? camNow : g_chainRaw, Cb);
             double a = sqrt(Cb[8] * Cb[8] + Cb[9] * Cb[9] + Cb[10] * Cb[10]);
-            g_depthBias = (float)(0.3 * a);
+            g_depthBias = (float)((g_bcnExact ? 0.0 : 0.3) * a);   // voce 251: con la trasformazione esatta nessuno spostamento
         }
         else { g_noDepth = true; g_bcnDepthMissing++; }
     }
@@ -1758,7 +1790,7 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_linkHits = 0; g_hostHits = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld",
-            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnLocked ? "posizione della matrice appresa" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill);
+            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill);
         g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0;
     }
     if (g_trDone && g_trBuf[0])

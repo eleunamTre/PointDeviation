@@ -1471,3 +1471,13 @@ Ottava tornata (28/10/2026): octree
      Le immagini senza disegni che riusano la camera del faro usano la stessa copia. Se la copia manca, la profondita'
      si ignora solo in quell'immagine (diario «profondita=ignorata», resoconto «mancante»).
 
+251) Trasformazione esatta della nuvola per il faro. Il faro e' disegnato da Revit nelle coordinate della nuvola (rispetto
+     a dove e' stata inserita), i nostri punti sono in coordinate del progetto: per passare dall'una all'altra la libreria
+     deduceva la trasformazione dai numeri della scheda video (circa 7 cifre), con un errore di qualche centimetro in
+     profondita' che la 250 compensava avvicinando la nuvola di 9 cm. Ora il plugin manda alla libreria, ogni 2 s se
+     cambia, la posizione esatta delle istanze delle nostre nuvole (PointCloudInstance.GetTransform, doppia precisione);
+     nei fotogrammi completi la libreria cerca la matrice del faro attesa (camera x trasformazione) e, trovata, ricava la
+     camera delle immagini intermedie con la trasformazione esatta, senza spostamento. Se non la trova resta la
+     trasformazione dedotta con i 9 cm. Diario «E;faro_trasformazione_esatta»; resoconto DirectX «trasformazione della
+     nuvola esatta (dalle API)» oppure «dedotta». Se la nuvola viene spostata la libreria ricomincia.
+

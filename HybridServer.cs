@@ -89,7 +89,7 @@ namespace PointDeviation
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
                 // Revit ci richiama subito invece che dopo una lunga pausa
                 FrameDiary.Pump();   // voce 234: righe della libreria nativa anche quando il plugin non disegna
-                if (NativeProbe.ShaderMode && now - _linksTick > 2000) { _linksTick = now; SendLinks(app.ActiveUIDocument.Document); }
+                if (NativeProbe.ShaderMode && now - _linksTick > 2000) { _linksTick = now; SendLinks(app.ActiveUIDocument.Document); SendCloudTransforms(app.ActiveUIDocument.Document); }
                 if (_zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
             catch { }
@@ -104,6 +104,41 @@ namespace PointDeviation
         /// Voce 239: trasformazioni dei modelli collegati per la libreria nativa. Nei fotogrammi interrotti Revit scrive le
         /// matrici dei collegamenti (camera x trasformazione): con l'inversa la libreria ritrova la camera del progetto.
         /// </summary>
+        // voce 251: posizione esatta (dalle API, in doppia precisione) delle istanze delle nostre nuvole. Il faro e' disegnato
+        // da Revit nelle coordinate della nuvola: con questa trasformazione la libreria ricava la camera del progetto senza
+        // doverla dedurre dai numeri della scheda video (approssimati di qualche centimetro in profondita').
+        private static string _cloudTKey = "";
+        private static void SendCloudTransforms(Document doc)
+        {
+            try
+            {
+                var m = new List<double>();
+                var key = new System.Text.StringBuilder();
+                int n = 0;
+                foreach (PointCloudInstance inst in NativeClouds.FindInstances(doc))
+                {
+                    if (n >= 8) break;
+                    Transform t = inst.GetTransform();
+                    if (t == null) continue;
+                    XYZ bx = t.BasisX, by = t.BasisY, bz = t.BasisZ, o = t.Origin;
+                    // riga per riga, per vettori colonna: x_progetto = T * x_nuvola
+                    m.AddRange(new double[] {
+                        bx.X, by.X, bz.X, o.X,
+                        bx.Y, by.Y, bz.Y, o.Y,
+                        bx.Z, by.Z, bz.Z, o.Z,
+                        0, 0, 0, 1 });
+                    key.Append(inst.Id.Value).Append(':').Append(o.X.ToString("R")).Append(',').Append(o.Y.ToString("R")).Append(',').Append(o.Z.ToString("R")).Append(',').Append(bx.X.ToString("R")).Append(';');
+                    n++;
+                }
+                string k = key.ToString();
+                if (k == _cloudTKey) return;
+                _cloudTKey = k;
+                NativeProbe.SetCloudTransforms(m.ToArray(), n);
+                FrameDiary.Line("E;trasformazioni_nuvole=" + n);
+            }
+            catch (Exception ex) { Log.Error("Faro", ex); }
+        }
+
         private static void SendLinks(Document doc)
         {
             try

@@ -46,6 +46,8 @@ namespace PointDeviation
         private static extern void PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetLinks(float[] m, int n);
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetCloudTransforms(double[] m, int n);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdTraceOn(int on);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -106,6 +108,8 @@ namespace PointDeviation
         }
         // voce 239: trasformazioni inverse dei modelli collegati (dal progetto al collegamento), 16 float per riga ciascuna
         public static void SetLinks(float[] m, int n) { if (_state > 0) try { PdSetLinks(m, n); } catch { } }
+        /// <summary>Voce 251: trasformazioni delle istanze delle nostre nuvole (dalla nuvola al progetto), per il faro.</summary>
+        public static void SetCloudTransforms(double[] m, int n) { if (_state > 0) try { PdSetCloudTransforms(m, n); } catch { } }
         // voce 234: diario dei fotogrammi (vedi FrameDiary)
         public static bool Loaded { get { return _state > 0; } }
         public static void TraceOn(bool on) { if (_state > 0) try { PdTraceOn(on ? 1 : 0); } catch { } }
