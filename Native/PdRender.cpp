@@ -1513,6 +1513,60 @@ static bool BeaconCamera(float* raw)
     for (int i = 0; i < 16; i++) raw[16 + i] = (i % 5 == 0) ? 1.0f : 0.0f;
     return true;
 }
+// voce 257 (diario del 21/11 20:54): la matrice del faro ha x, y e w esatte ma la riga della profondita' e' quella con cui
+// Revit disegna le nuvole, non quella del modello: stessa direzione, scala circa 2000 volte piu' piccola e tutti i punti
+// a circa 0,5 (righe «E;faro_diverso»: errore 0,07-0,19 sulla riga 2, zero sulle altre). La nuvola disegnata cosi' finiva
+// tutta davanti al modello o tutta dietro, a seconda dell'immagine: il modello passava sopra e sotto. La riga giusta e'
+// quella della camera del modello della stessa immagine: tra le matrici scritte da Revit in quell'immagine si cerca quella
+// con x, y e w uguali al faro (le matrici degli elementi dei collegamenti hanno x e y diverse) e si usa quella intera.
+// Se non c'e' (vista ortogonale), si stima la riga dalla camera precedente: stessa scala, direzione del faro, e il punto
+// al centro dello schermo resta alla stessa profondita'.
+static long g_bcnZFound = 0, g_bcnZEst = 0, g_bcnZNone = 0;
+static const char* g_bcnZKind = "";
+static void PutRaw(const double* C, float* raw)
+{
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = (float)C[r * 4 + k]; if (g_mT & 1) raw[r * 4 + k] = v; else raw[k * 4 + r] = v; }
+    for (int i = 0; i < 16; i++) raw[16 + i] = (i % 5 == 0) ? 1.0f : 0.0f;
+}
+static void BeaconFixDepth(float* raw, int nCand, const float* prevRaw)
+{
+    double B[16]; ColFormD(raw, B);
+    auto rowsXYW = [&](const double* M, double tol) -> bool {
+        for (int r = 0; r < 4; r++)
+        {
+            if (r == 2) continue;
+            double nn = fabs(B[r * 4]) + fabs(B[r * 4 + 1]) + fabs(B[r * 4 + 2]) + fabs(B[r * 4 + 3]) + 1e-12;
+            for (int k = 0; k < 4; k++) if (!(fabs(B[r * 4 + k] - M[r * 4 + k]) <= tol * nn)) return false;
+        }
+        return true;
+    };
+    int best = -1;
+    for (int i = 0; i < nCand && i < 16; i++)
+    {
+        double M[16]; ColFormD(g_cand[i].m, M);
+        double z = fabs(M[8]) + fabs(M[9]) + fabs(M[10]);
+        if (!(z > 0) || !rowsXYW(M, 1e-5)) continue;
+        if (best < 0 || g_cand[i].n > g_cand[best].n) best = i;
+    }
+    if (best >= 0)
+    {
+        double M[16]; ColFormD(g_cand[best].m, M); B[8] = M[8]; B[9] = M[9]; B[10] = M[10]; B[11] = M[11];
+        PutRaw(B, raw); g_bcnZFound++; g_bcnZKind = "trovata"; return;
+    }
+    double P[16], Pi[16]; ColFormD(prevRaw, P);
+    bool ortho = fabs(B[12]) + fabs(B[13]) + fabs(B[14]) < 1e-9 && fabs(B[15] - 1) < 1e-6 && fabs(P[12]) + fabs(P[13]) + fabs(P[14]) < 1e-9;
+    double bl = sqrt(B[8] * B[8] + B[9] * B[9] + B[10] * B[10]), pl = sqrt(P[8] * P[8] + P[9] * P[9] + P[10] * P[10]);
+    if (ortho && bl > 0 && pl > 0 && Inv4(P, Pi))
+    {   // punto al centro dello schermo, a meta' profondita', con la camera precedente
+        double c[3]; for (int i = 0; i < 3; i++) c[i] = Pi[i * 4 + 2] * 0.5 + Pi[i * 4 + 3];
+        double zPrev = P[8] * c[0] + P[9] * c[1] + P[10] * c[2] + P[11];
+        double f = pl / bl;
+        B[8] *= f; B[9] *= f; B[10] *= f;
+        B[11] = zPrev - (B[8] * c[0] + B[9] * c[1] + B[10] * c[2]);
+        PutRaw(B, raw); g_bcnZEst++; g_bcnZKind = "stimata"; return;
+    }
+    g_bcnZNone++; g_bcnZKind = "del_faro";
+}
 static void BeaconPresent(bool full)
 {
     if (g_bcnPts == 0 && g_bcnOther == 0) return;
@@ -1631,6 +1685,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         if (bcnStill) { bcn = false; g_bcnStill++; }
     }
     if (bcn) g_bcnUsed++;
+    g_bcnZKind = "";
+    if (bcn) BeaconFixDepth(bcnRaw, nCandHere, g_chainGen == g_viewGen ? g_chainRaw : g_refRaw);   // voce 257
     // voce 256 (diario del 21/11 20:18, faro acceso): nelle immagini senza faro si cercava ancora la camera tra le matrici
     // scritte (212-216, 245). Con i collegamenti quelle matrici sono spesso degli elementi dei collegamenti (camera x
     // trasformazione del collegamento) e passano i controlli: la nuvola si disegnava spostata e il modello le passava
@@ -1670,6 +1726,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
             double Cb[16]; ColFormD(camNow ? camNow : g_chainRaw, Cb);
             double a = sqrt(Cb[8] * Cb[8] + Cb[9] * Cb[9] + Cb[10] * Cb[10]);
             g_depthBias = (float)((g_bcnExact ? 0.0 : 0.3) * a);   // voce 251: con la trasformazione esatta nessuno spostamento
+            if (g_bcnZKind[0] == 's') g_depthBias = (float)(0.3 * a);   // voce 257: profondita' stimata, 9 cm verso chi guarda
         }
         else { g_noDepth = true; g_bcnDepthMissing++; }
     }
@@ -1677,9 +1734,9 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
     g_noDepth = false; g_depthBias = 0;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
-    FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
+    FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f;profondita_camera=%s",
        drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (useBcnCam ? "del_faro_avvicinata" : (g_keepOk ? "copia" : "revit")), sc ? 1 : 0, g_ready.size(),
-       nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
+       nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift, bcn ? g_bcnZKind : "-");
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -1798,9 +1855,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld",
-            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill);
-        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld",
+            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone);
+        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = 0;
     }
     if (g_trDone && g_trBuf[0])
     {

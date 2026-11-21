@@ -1515,3 +1515,14 @@ Ottava tornata (28/10/2026): octree
      triangolo contro 0,35 dei fotogrammi completi). Con il faro attivo questa ricerca non si fa piu': un'immagine senza
      faro usa la camera precedente (quando Revit ridisegna il modello con una camera nuova il faro c'e').
 
+257) Video del 21/11 dalle 20:54:38 (faro e collegamenti accesi): a ogni piccolo movimento si alternavano tre immagini,
+     nuvola sopra tutto (anche i punti dentro l'edificio), modello bianco sopra la nuvola, immagine giusta. Causa trovata
+     nelle righe «E;faro_diverso» del diario: la matrice del faro ha x, y e w esatte, ma la riga della profondita' non e'
+     quella del modello. Revit disegna le nuvole con un'altra profondita' (stessa direzione, scala circa 2000 volte piu'
+     piccola, tutti i punti a circa 0,5). Con quella riga la nuvola risultava tutta davanti o tutta dietro al modello, a
+     seconda dell'immagine (pixel visibili 17-18 milioni contro 3,3 dei fotogrammi completi, oppure 0,1-2 milioni).
+     Ora la camera del faro tiene x, y e w e prende la riga della profondita' dalla camera del modello della stessa
+     immagine: tra le matrici scritte da Revit si cerca quella con x, y e w uguali al faro (quelle degli elementi dei
+     collegamenti hanno x e y diverse). Se manca, la riga si stima dalla camera precedente (con 9 cm verso chi guarda).
+     Diario: «profondita_camera=trovata/stimata» nelle righe P; riepilogo nel registro.
+
