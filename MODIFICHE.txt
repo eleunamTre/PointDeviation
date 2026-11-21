@@ -1460,3 +1460,14 @@ Ottava tornata (28/10/2026): octree
      - la copia della profondita' dell'immagine del faro (248) non si usa piu'.
      Resoconto DirectX: immagini con la camera del faro e con la camera esatta perche' ferma.
 
+250) La 249 ignorava la profondita' nelle immagini disegnate con la camera del faro: in movimento la nuvola poteva passare
+     davanti ai muri, non accettabile. Ora con la camera del faro la nuvola si confronta di nuovo con la profondita' del
+     modello di quella stessa immagine (copiata quando Revit lascia il buffer di profondita' della scena dopo aver
+     disegnato il faro, oppure al Present se non lo lascia prima: nella 248 la copia mancava in 28 immagini su 39), e i
+     punti si avvicinano di 0,3 ft (9 cm) verso chi guarda: la profondita' ricavata dal faro e' approssimata di qualche
+     centimetro, e i punti che stanno sulla superficie dei muri, confrontati alla pari, finivano dietro (la nuvola spariva
+     sull'edificio). Cosi' la nuvola resta davanti alla superficie su cui sta, ma dietro ai muri che la coprono davvero.
+     Lo spostamento vale solo con la camera del faro; nei fotogrammi completi e a vista ferma (camera esatta, 249) niente.
+     Le immagini senza disegni che riusano la camera del faro usano la stessa copia. Se la copia manca, la profondita'
+     si ignora solo in quell'immagine (diario «profondita=ignorata», resoconto «mancante»).
+
