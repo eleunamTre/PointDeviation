@@ -344,6 +344,7 @@ namespace PointDeviation
                                 (f1 - f0) * tk, (f2 - f1) * tk, (fd - f2) * tk);
                         }
                         if (uploadBudget <= 0) Redraw.Request();
+                        foreach (CloudLayer l in visible) if (l.Fading) { Redraw.Request(); break; }   // voce 240: comparsa graduale in corso
                     }
                     else
                     {

@@ -41,7 +41,7 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdShaderFree(int layer, int node);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdShaderAdd(int layer, int node, int count, float spacing);
+        private static extern void PdShaderAdd(int layer, int node, int count, float spacing, float grow);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -143,7 +143,7 @@ namespace PointDeviation
         public static void Free(int layer, int node) { try { PdShaderFree(layer, node); } catch { } }
         /// <summary>Voce 223: il plugin non disegna piu' in questa vista; se e' quella della libreria, elenco vuoto.</summary>
         public static void ViewOff(long viewId) { if (_state > 0) try { PdViewOff(viewId); } catch { } }
-        public static void Add(int layer, int node, int count, float spacing) { try { PdShaderAdd(layer, node, count, spacing); } catch { } }
+        public static void Add(int layer, int node, int count, float spacing, float grow = 1f) { try { PdShaderAdd(layer, node, count, spacing, grow); } catch { } }
         /// <summary>Fine del fotogramma: l'elenco dei blocchi passa al disegno. Raggio massimo come «Dimensione punti» (100% ≈ 5 px).</summary>
         public static void EndFrame(Style st, bool on)
         {

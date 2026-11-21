@@ -354,7 +354,7 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
 static ID3D11Device* g_realDev = nullptr;
 static ID3D11Device* g_realDevFwd() { return g_realDev; }
 struct PdNode { ID3D11Buffer* vb; ID3D11ShaderResourceView* srv; int count; };
-struct PdItem { ID3D11ShaderResourceView* srv; int count; float spacing; };
+struct PdItem { ID3D11ShaderResourceView* srv; int count; float spacing; float grow; };   // voce 240: grow = comparsa graduale (0..1)
 static ID3D11Buffer* g_quadIb = nullptr;
 static const int QuadMax = 262144;   // punti per chiamata di disegno (indici a 32 bit, 6 per punto)
 static std::unordered_map<long long, PdNode> g_nodes;
@@ -403,10 +403,11 @@ static const char* g_shHlsl =
 "  float3 rx = M[0].xyz;\n"
 "  float rpx = P.x * length(rx) / max(abs(cl.w), 1e-6) * P.y * 0.5;\n"
 "  rpx = clamp(rpx, 0.75, P.w);\n"
+"  float gr = asfloat(Info2.w); bool fading = gr > 0 && gr < 1; if (fading) rpx *= gr;\n"
 "  float2 cn = float2((cr & 1) != 0 ? 1.0 : -1.0, (cr & 2) != 0 ? 1.0 : -1.0);\n"
 "  cl.xy += cn * float2(rpx * 2.0 / P.y, rpx * 2.0 / P.z) * cl.w;\n"
 "  o.pos = cl; o.uv = rpx < 1.25 ? cn * 0.5 : cn;\n"
-"  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, asfloat(Info2.z));\n"
+"  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, asfloat(Info2.z) * (fading ? gr : 1.0));\n"
 "  float dd[6];\n"
 "  [unroll] for (int k = 0; k < 6; k++) dd[k] = Info.w != 0 ? dot(Pl[k].xyz, p) + Pl[k].w : 1.0;\n"
 "  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
@@ -579,11 +580,11 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     // voce 200: piani di ritaglio dal plugin (riquadro di sezione, intervallo di vista, campo della sezione letti
     // dalle API di Revit), non piu' dal buffer di Revit (voce 196: li' la loro posizione cambia da vista a vista)
     int planes = g_clipOn;
-    float lastSp = -1;
+    float lastSp = -1, lastGr = -1;
     for (const PdItem& it : g_ready)
     {
         if (!it.srv || it.count <= 0) continue;
-        if (it.spacing != lastSp)
+        if (it.spacing != lastSp || it.grow != lastGr)
         {
             D3D11_MAPPED_SUBRESOURCE m;
             if (SUCCEEDED(c->Map(g_scb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
@@ -593,10 +594,10 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
                 f[4] = it.spacing * g_shScale; f[5] = vp.Width; f[6] = vp.Height; f[7] = g_shMaxPx;
                 memcpy(f + 8, g_clip, sizeof(g_clip));
                 // voce 205: seconda matrice (vista e proiezione separate nel buffer di Revit), come nel cubo di prova
-                in[32] = off2; in[33] = t2; f[34] = alpha; in[35] = 0;
+                in[32] = off2; in[33] = t2; f[34] = alpha; f[35] = it.grow;
                 c->Unmap(g_scb, 0);
             }
-            lastSp = it.spacing;
+            lastSp = it.spacing; lastGr = it.grow;
         }
         c->VSSetShaderResources(0, 1, &it.srv);
         for (int st0 = 0; st0 < it.count; st0 += QuadMax)
@@ -1238,12 +1239,12 @@ extern "C" __declspec(dllexport) void PdShaderFree(int layer, int node)
     g_nodes.erase(f);
 }
 
-extern "C" __declspec(dllexport) void PdShaderAdd(int layer, int node, int count, float spacing)
+extern "C" __declspec(dllexport) void PdShaderAdd(int layer, int node, int count, float spacing, float grow)
 {
     auto f = g_nodes.find(NodeKey(layer, node));
     if (f == g_nodes.end() || !f->second.srv) return;
     if (count > f->second.count) count = f->second.count;
-    g_build.push_back(PdItem{ f->second.srv, count, spacing });
+    g_build.push_back(PdItem{ f->second.srv, count, spacing, grow >= 1.0f || grow <= 0.0f ? 1.0f : grow });
 }
 
 // Fine dell'elenco del fotogramma: diventa quello da disegnare al prossimo segnale. maxPx = raggio massimo dei punti.

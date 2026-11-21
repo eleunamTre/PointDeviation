@@ -1605,7 +1605,7 @@ namespace PointDeviation
             int argb = LayerArgb(st);
             bool hl = Highlighted;
             int nodes = 0, notLoaded = 0, notBuilt = 0; long pts = 0;
-            StatUploadPts = 0; StatUploadBlocks = 0;
+            StatUploadPts = 0; StatUploadBlocks = 0; Fading = false;
             ShaderUploadAll(st, want, argb, hl, ref uploadBudget);
             for (int i = 0; i < n; i++)
             {
@@ -1644,7 +1644,7 @@ namespace PointDeviation
                 drawBudget -= draw;
                 double sp = _childCount[i] == 0 ? Math.Sqrt(_area[i] / Math.Max(1, cnt)) : _nodeSpacing[i];
                 if (draw < _nUpPts[i]) sp *= Math.Sqrt((double)_nUpPts[i] / draw);   // meno punti: piu' distanti, piu' grandi
-                NativeProbe.Add(NativeId, i, draw, (float)sp);
+                NativeProbe.Add(NativeId, i, draw, (float)sp, Grow(i, now));
                 _nAdded[i] = true;
                 nodes++; pts += draw;
             }
@@ -1661,7 +1661,7 @@ namespace PointDeviation
                     drawBudget -= draw;
                     double sp = _childCount[p] == 0 ? Math.Sqrt(_area[p] / Math.Max(1, _nUpCount[p])) : _nodeSpacing[p];
                     if (draw < _nUpPts[p]) sp *= Math.Sqrt((double)_nUpPts[p] / draw);
-                    NativeProbe.Add(NativeId, p, draw, (float)sp);
+                    NativeProbe.Add(NativeId, p, draw, (float)sp, Grow(p, now));
                     _nAdded[p] = true; _nUpTick[p] = now;
                     nodes++; pts += draw;
                 }
@@ -1680,6 +1680,23 @@ namespace PointDeviation
         // «refresh» durante la navigazione. Ora si scelgono prima i blocchi da caricare (stesso ordine e stesso limite di
         // punti), i loro punti si preparano in parallelo su tutti i processori a gruppi di 2 M punti, e poi si caricano
         // uno dopo l'altro (le chiamate DirectX restano sul thread di Revit).
+        // voce 240: comparsa graduale dei blocchi. Un blocco che entra nel disegno (non disegnato da oltre 1 s) cresce da
+        // punti piccolissimi alla grandezza piena in FadeMs: zoomando, i punti dei livelli piu' fini non spuntano tutti
+        // insieme (il rapporto tra bianco e nuvola cambiava a scatti, «refresh» nello zoom).
+        private const double FadeMs = 350;
+        private long[] _shownFirst = new long[0], _shownLast = new long[0];
+        public bool Fading;
+        private float Grow(int i, long now)
+        {
+            if (_shownFirst.Length != Tiles.Length) { _shownFirst = new long[Tiles.Length]; _shownLast = new long[Tiles.Length]; }
+            if (_shownLast[i] == 0 || now - _shownLast[i] > 1000) _shownFirst[i] = now;
+            _shownLast[i] = now;
+            double g = (now - _shownFirst[i]) / FadeMs;
+            if (g >= 1) return 1f;
+            Fading = true;
+            return (float)Math.Max(0.05, g);
+        }
+
         private readonly List<int> _upIdx = new List<int>();
         private readonly List<TileCpu> _upCpu = new List<TileCpu>();
         private readonly List<long> _upKey = new List<long>();

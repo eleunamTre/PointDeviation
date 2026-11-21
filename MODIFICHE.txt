@@ -1354,3 +1354,12 @@ Ottava tornata (28/10/2026): octree
      usa quella. Nel diario: «camera=del_fotogramma_da_collegamento» e «collegamenti=N» nelle righe P;interrotto,
      «E;collegamenti=N»; nel resoconto DirectX il numero di camere ricavate dai collegamenti. Funziona con la matrice
      unica (vista per proiezione), che e' il caso trovato finora.
+
+240) Nello zoom si vedeva una specie di «refresh»: i blocchi piu' fini dell'albero comparivano tutti insieme e il
+     rapporto tra modello (bianco) e nuvola cambiava a scatti. Ora un blocco che entra nel disegno (non disegnato da oltre
+     1 s) compare gradualmente: per 350 ms i suoi punti partono piccolissimi e trasparenti e crescono fino alla grandezza
+     e opacita' piene (fattore «grow» per blocco passato alla libreria e allo shader, raggio e alfa moltiplicati). Mentre
+     una comparsa e' in corso si chiede il ridisegno, cosi' la transizione avanza anche a camera ferma. I blocchi gia'
+     visibili non cambiano. Diario del 21/11 dalle 17:33:35 (collegamenti): nessuna camera recuperata dalle trasformazioni
+     dei collegamenti (0 su 434 fotogrammi interrotti con la camera precedente); in 252 di questi Revit non scrive alcuna
+     matrice, negli altri le matrici sono scartate per proiezione e fuoco anche dopo l'inversa del collegamento.
