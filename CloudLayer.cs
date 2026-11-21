@@ -1607,6 +1607,7 @@ namespace PointDeviation
             bool hl = Highlighted;
             int nodes = 0, notLoaded = 0, notBuilt = 0; long pts = 0;
             StatUploadPts = 0; StatUploadBlocks = 0; Fading = false;
+            int visBlocks = 0, visLeaves = 0, childNotAsked = 0, childNotReady = 0; long visPts = 0; _visRad.Clear();
             ShaderUploadAll(st, want, argb, hl, ref uploadBudget);
             for (int i = 0; i < n; i++)
             {
@@ -1647,6 +1648,20 @@ namespace PointDeviation
                 if (draw < _nUpPts[i]) sp *= Math.Sqrt((double)_nUpPts[i] / draw);   // meno punti: piu' distanti, piu' grandi
                 NativeProbe.Add(NativeId, i, draw, (float)sp, Grow(i, now));
                 _nAdded[i] = true;
+                double pxv;
+                if (_lastCam != null && NodeVisible(_lastCam, i, out pxv) && pxv > 0)
+                {
+                    visBlocks++; visPts += draw; _visRad.Add(0.5 * sp / pxv);
+                    if (!IsOctree || _childCount[i] == 0) visLeaves++;
+                    else
+                        for (int k = 0; k < _childCount[i]; k++)
+                        {
+                            int ch = _firstChild[i] + k; double pxc;
+                            if (ch >= n || !NodeVisible(_lastCam, ch, out pxc)) continue;
+                            if (ch >= want.Length || want[ch] <= 0) childNotAsked++;
+                            else if (_nUp[ch] == null) childNotReady++;
+                        }
+                }
                 nodes++; pts += draw;
             }
             // voce 201: un blocco scelto ma non ancora caricato nella scheda video si sostituisce con il primo antenato
@@ -1668,6 +1683,10 @@ namespace PointDeviation
                 }
             StatPoints = pts; StatNodes = nodes; StatNotLoaded = notLoaded; StatNotBuilt = notBuilt;
             FrameStats.SmallPts += pts;
+            _visRad.Sort();
+            StatVis = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "vis_blocchi={0};vis_foglie={1};vis_punti={2:F2}M;raggio_px_mediano={3:F2};raggio_px_min={4:F2};figli_non_chiesti={5};figli_non_pronti={6}",
+                visBlocks, visLeaves, visPts / 1e6, _visRad.Count > 0 ? _visRad[_visRad.Count / 2] : 0, _visRad.Count > 0 ? _visRad[0] : 0, childNotAsked, childNotReady);
             // voce 207: blocchi ancora in lettura o da caricare nella scheda video: si ridisegna. Con lo shader non c'e' la
             // preparazione per DirectContext3D che chiedeva il ridisegno a fine lavoro, e a vista ferma (vista iniziale,
             // appena aperta) la nuvola restava incompleta o assente finche' non si muoveva la camera.
@@ -1687,6 +1706,11 @@ namespace PointDeviation
         private const double FadeMs = 350;
         private long[] _shownFirst = new long[0], _shownLast = new long[0];
         public bool Fading;
+        // voce 244: diagnostica dei blocchi dentro l'inquadratura (zoom ravvicinato: nuvola quasi bianca per 1,5 s, video
+        // del 21/11 18:08:43). Distingue: livelli piu' fitti non chiesti, chiesti ma non pronti, oppure foglie raggiunte
+        // con punti troppo piccoli.
+        public string StatVis = "";
+        private readonly List<double> _visRad = new List<double>();
         private float Grow(int i, long now)
         {
             if (_shownFirst.Length != Tiles.Length) { _shownFirst = new long[Tiles.Length]; _shownLast = new long[Tiles.Length]; }

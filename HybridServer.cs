@@ -340,6 +340,7 @@ namespace PointDeviation
                             foreach (CloudLayer l in visible) { dp += l.StatPoints; db += l.StatNodes; nl += l.StatNotLoaded; nb += l.StatNotBuilt; up += l.StatUploadPts; ub += l.StatUploadBlocks; }
                             double tk = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                             long fd = System.Diagnostics.Stopwatch.GetTimestamp();
+                            FrameDiary.Extra = visible.Count > 0 ? visible[0].StatVis : null;
                             FrameDiary.Frame(view.Id.Value, view.Name, st, budget.Moving, shaderCap, wantAll, scale, dp, db, nl, nb, up, ub,
                                 (f1 - f0) * tk, (f2 - f1) * tk, (fd - f2) * tk);
                         }

@@ -1390,3 +1390,13 @@ Ottava tornata (28/10/2026): octree
      rilievo e Misura punti, come nel pannello Ritaglio e visibilità. In inglese «Fence» diventa «Clipping region» nel
      pulsante, nei suggerimenti e nei messaggi (anche al plurale).
 
+244) Zoom ravvicinato (video del 21/11 dalle 18:07:24, a 79-81 s, contro un muro): per circa 1,5 s la nuvola diventa quasi
+     bianca, puntini radi, poi si riempie. Diario: in quel tratto il plugin chiede solo 142-221 blocchi (1,6-2,1 M punti,
+     tutti gia' caricati: non_letti 0) e dei punti disegnati ne cadono nella finestra appena il 3% (81 mila triangoli su
+     1,57 M punti, 21 mila pixel visibili contro 4,3 M di poco prima). Non e' quindi un ritardo di lettura. Per capire se
+     i livelli fitti non vengono chiesti, se sono chiesti ma non pronti, o se si e' arrivati alle foglie con punti troppo
+     piccoli, dopo ogni riga C il diario ha una riga V con i blocchi dentro l'inquadratura: quanti, quante foglie, punti,
+     raggio dei punti in pixel (mediano e minimo), figli inquadrati non chiesti e chiesti ma non ancora caricati.
+     Con i collegamenti nella stessa prova: tutti i disegni misurati risultano visibili (0 coperti dalla profondita', 0
+     con la nuvola fuori dalla finestra), nessuna sparizione.
+

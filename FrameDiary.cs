@@ -42,7 +42,7 @@ namespace PointDeviation
                 _w = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false), 1 << 16);
                 _w.WriteLine();
                 _w.WriteLine(string.Format(Inv, "{0:F1};E;inizio diario;modifica={1};{2:yyyy-MM-dd HH:mm:ss}", NowMs, BuildInfo.Change, DateTime.Now));
-                _w.WriteLine("# righe: ms;tipo;campi. C=fotogramma del plugin, M=segnale nel disegno di Revit, P=Present (completo/interrotto), G=tempo della scheda video per i punti, X=matrice di Revit, E=evento, S=sistema");
+                _w.WriteLine("# righe: ms;tipo;campi. C=fotogramma del plugin, M=segnale nel disegno di Revit, P=Present (completo/interrotto), G=tempo della scheda video per i punti, V=blocchi dentro l'inquadratura, X=matrice di Revit, E=evento, S=sistema");
                 NativeProbe.TraceOn(true);
                 return true;
             }
@@ -71,6 +71,8 @@ namespace PointDeviation
         // creazione dei buffer nella scheda video (thread di Revit); li somma CloudLayer.ShaderUploadAll
         public static double UpPrepMs, UpGpuMs;
 
+        /// <summary>Voce 244: riga V (blocchi dentro l'inquadratura) scritta dopo la riga C del fotogramma.</summary>
+        public static string Extra;
         public static void Frame(long viewId, string viewName, Style st, bool moving, long cap, long wanted, double scale,
                                  long points, int blocks, int notLoaded, int notBuilt, long upPts, int upBlocks,
                                  double msSelect, double msPrep, double msDraw)
@@ -91,6 +93,7 @@ namespace PointDeviation
                 moving ? 1 : 0, cap / 1e6, wanted / 1e6, scale, points / 1e6, blocks, notLoaded, notBuilt, upPts / 1e6, upBlocks,
                 msSelect, msPrep, msDraw, interval, UpPrepMs, UpGpuMs));
             UpPrepMs = 0; UpGpuMs = 0;
+            if (!string.IsNullOrEmpty(Extra)) { Line("V;" + Extra); Extra = null; }   // voce 244
             Pump();
         }
 
