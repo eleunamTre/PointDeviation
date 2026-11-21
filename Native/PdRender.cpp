@@ -1273,6 +1273,35 @@ static const int BcnSlots = 4;
 static std::vector<float> g_bcnSnap[BcnSlots];   // buffer di costanti del vertex shader al disegno del faro
 static bool g_bcnSnapOk = false;                // fotografia presa in questo fotogramma
 static long g_bcnHidden = 0;
+// voce 248: profondita' dell'immagine del faro. Nelle immagini intermedie la nuvola si disegnava con la camera nuova (dal
+// faro) ma con la profondita' copiata all'ultimo fotogramma completo, cioe' vista dalla camera vecchia: il modello di
+// prima copriva la nuvola dove non doveva e mancavano pezzi interi (video del 21/11 19:28:42, 25-28 s). Ora al disegno
+// del faro si prende nota del buffer di profondita' della scena e, quando Revit lo lascia, se ne fa una copia: e' la
+// profondita' di quella stessa immagine. Se la copia non c'e', in quell'immagine la profondita' si ignora.
+static ID3D11Resource* g_bcnDzSrc = nullptr;   // solo confronto, senza riferimento
+static bool g_bcnDzArm = false, g_bcnDepthOk = false;
+static ID3D11Texture2D* g_bcnTex = nullptr; static ID3D11DepthStencilView* g_bcnDsv = nullptr;
+static long g_bcnDepthCopies = 0, g_bcnDepthMissing = 0;
+static bool g_bcnLocked = false;   // voce 247: posizione della matrice del faro appresa
+static void BeaconDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* src)
+{
+    if (!src || !g_realDev) return;
+    ID3D11Resource* r = nullptr; src->GetResource(&r);
+    if (!r) return;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+    D3D11_TEXTURE2D_DESC k = {}; if (g_bcnTex) g_bcnTex->GetDesc(&k);
+    if (!g_bcnTex || k.Width != d.Width || k.Height != d.Height || k.Format != d.Format || k.SampleDesc.Count != d.SampleDesc.Count)
+    {
+        if (g_bcnDsv) { g_bcnDsv->Release(); g_bcnDsv = nullptr; }
+        if (g_bcnTex) { g_bcnTex->Release(); g_bcnTex = nullptr; }
+        D3D11_TEXTURE2D_DESC nd = d; nd.Usage = D3D11_USAGE_DEFAULT; nd.BindFlags = D3D11_BIND_DEPTH_STENCIL; nd.CPUAccessFlags = 0; nd.MiscFlags = 0; nd.MipLevels = 1; nd.ArraySize = 1;
+        D3D11_DEPTH_STENCIL_VIEW_DESC vd = {}; src->GetDesc(&vd);
+        if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_bcnTex)) && g_bcnTex)
+            if (FAILED(g_realDev->CreateDepthStencilView(g_bcnTex, &vd, &g_bcnDsv))) { g_bcnTex->Release(); g_bcnTex = nullptr; g_bcnDsv = nullptr; }
+    }
+    if (g_bcnTex && g_bcnDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_bcnTex, r); g_bcnDepthOk = true; g_bcnDepthCopies++; }
+    r->Release();
+}
 static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char* kind)
 {
     if (!g_shaderWanted) return false;
@@ -1290,6 +1319,11 @@ static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char
             if (cb[k]) { auto f = g_shadow.find(cb[k]); if (f != g_shadow.end()) g_bcnSnap[k] = f->second.f; cb[k]->Release(); }
         }
         g_bcnSnapOk = true;
+        if (g_bcnLocked)
+        {
+            ID3D11DepthStencilView* cur = nullptr; c->OMGetRenderTargets(0, nullptr, &cur);
+            if (cur) { ID3D11Resource* rr = nullptr; cur->GetResource(&rr); g_bcnDzSrc = rr; if (rr) rr->Release(); cur->Release(); g_bcnDzArm = g_bcnDzSrc != nullptr; }
+        }
     }
     double now = QpcMs();
     if (now > g_bcnLogAt) { g_bcnLogAt = now + 1000; g_bcnLogs = 0; }
@@ -1343,7 +1377,7 @@ static bool ReadM(int slot, int off, int t, double* M)
 struct BcnTry { int slot, off, t; double K[16]; int hits; };
 static std::vector<BcnTry> g_bcnTry;
 static double g_bcnLastCam[16]; static bool g_bcnHasLast = false;
-static int g_bcnSlot = -1, g_bcnOff = -1, g_bcnT = 0; static double g_bcnKinv[16]; static bool g_bcnLocked = false;
+static int g_bcnSlot = -1, g_bcnOff = -1, g_bcnT = 0; static double g_bcnKinv[16];
 static long g_bcnAgree = 0, g_bcnCompared = 0, g_bcnUsed = 0, g_bcnDumped = 0;
 static void ColFormD(const float* raw, double* C) { float Cf[16]; ColForm(raw, Cf); for (int i = 0; i < 16; i++) C[i] = Cf[i]; }
 static void BeaconLearn(const float* refRaw)
@@ -1353,7 +1387,27 @@ static void BeaconLearn(const float* refRaw)
     if (g_bcnLocked)
     {   // verifica continua: camera ricavata dal faro contro quella vera
         double M[16], P[16];
-        if (ReadM(g_bcnSlot, g_bcnOff, g_bcnT, M)) { MulD(M, g_bcnKinv, P); g_bcnCompared++; if (NearD(C, P, 2e-3)) g_bcnAgree++; }
+        if (ReadM(g_bcnSlot, g_bcnOff, g_bcnT, M))
+        {
+            MulD(M, g_bcnKinv, P); g_bcnCompared++;
+            if (NearD(C, P, 2e-3)) g_bcnAgree++;
+            else
+            {   // voce 248: quali righe non tornano (x, y, profondita', w), al massimo una volta al secondo
+                static double at = 0; double now = QpcMs();
+                if (now > at)
+                {
+                    at = now + 1000; double e[4];
+                    for (int r = 0; r < 4; r++)
+                    {
+                        double nn = fabs(C[r * 4]) + fabs(C[r * 4 + 1]) + fabs(C[r * 4 + 2]) + fabs(C[r * 4 + 3]) + 1e-9, mx = 0;
+                        for (int k = 0; k < 4; k++) mx = fmax(mx, fabs(C[r * 4 + k] - P[r * 4 + k]) / nn);
+                        e[r] = mx;
+                    }
+                    FT("E;faro_diverso;errore_righe=%.2e,%.2e,%.2e,%.2e;vera_riga2=%.6g,%.6g,%.6g,%.6g;faro_riga2=%.6g,%.6g,%.6g,%.6g",
+                       e[0], e[1], e[2], e[3], C[8], C[9], C[10], C[11], P[8], P[9], P[10], P[11]);
+                }
+            }
+        }
         return;
     }
     // una volta: fotografia e camera vera nel diario, per l'analisi se l'apprendimento non riesce
@@ -1429,6 +1483,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
 {
     BeaconPresent(g_drawnThisFrame);
     bool bcnSnap = g_bcnSnapOk; g_bcnSnapOk = false;   // voce 247: fotografia del faro di questa immagine
+    bool bcnDepth = g_bcnDepthOk; g_bcnDepthOk = false; g_bcnDzArm = false;   // voce 248
     if (g_trRec && g_drawnThisFrame && g_keepThisFrame && g_keepOk && g_realDev)
     {
         ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
@@ -1519,12 +1574,15 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; FT("P;interrotto;salto=camera_di_un'altra_vista"); return; }
     // voce 212: camera del modello di questo fotogramma se trovata, altrimenti l'ultima usata
     g_drawSrc = camNow ? 2 : 3; g_noDepth = QpcMs() < g_depthOffUntil;
+    // voce 248: con la camera del faro, la profondita' della stessa immagine; senza, nessuna (quella vecchia apre buchi)
+    ID3D11DepthStencilView* dzUse = g_keepOk ? g_keepDsv : g_fbDsv;
+    if (bcn) { if (bcnDepth && g_bcnDsv) dzUse = g_bcnDsv; else { g_noDepth = true; g_bcnDepthMissing++; } }
     bool depthOff = g_noDepth;
-    bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, g_keepOk ? g_keepDsv : g_fbDsv, sc, bcn);
+    bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
     g_noDepth = false;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
     FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f",
-       drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (g_keepOk ? "copia" : "revit"), sc ? 1 : 0, g_ready.size(),
+       drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (bcn ? "del_faro" : (g_keepOk ? "copia" : "revit")), sc ? 1 : 0, g_ready.size(),
        nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift);
 }
 
@@ -1644,9 +1702,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld",
-            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnLocked ? "posizione della matrice appresa" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed);
-        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld)",
+            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnLocked ? "posizione della matrice appresa" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing);
+        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = 0;
     }
     if (g_trDone && g_trBuf[0])
     {
@@ -1843,6 +1901,18 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
     if (g_trRec) { TrFlush(); TrPut(" T(r#%d d#%d)", (n > 0 && r) ? TrView(r[0]) : 0, TrView(d)); }
     // voce 227: dopo il segnale, la prima volta che Revit lascia il buffer di profondita' della scena se ne fa una copia:
     // li' c'e' il modello finito, anche se poi Revit riusa o svuota quel buffer prima del Present (VistaIniziale)
+    // voce 248: profondita' dell'immagine del faro
+    ID3D11DepthStencilView* bcnLeave = nullptr;
+    if (g_bcnDzArm)
+    {
+        ID3D11DepthStencilView* cur = nullptr; c->OMGetRenderTargets(0, nullptr, &cur);
+        if (cur)
+        {
+            ID3D11Resource *rc = nullptr, *rn = nullptr; cur->GetResource(&rc); if (d) d->GetResource(&rn);
+            if (rc && rc == g_bcnDzSrc && rn != rc) bcnLeave = cur; else cur->Release();
+            if (rc) rc->Release(); if (rn) rn->Release();
+        }
+    }
     bool leave = false;
     if (g_dzArm && g_fbDsv)
     {
@@ -1857,6 +1927,7 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
         }
     }
     g_rOMSet(c, n, r, d);
+    if (bcnLeave) { g_bcnDzArm = false; BeaconDepthCopy(c, bcnLeave); bcnLeave->Release(); }
     if (leave)
     {
         g_dzArm = false;

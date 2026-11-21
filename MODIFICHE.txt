@@ -1437,3 +1437,14 @@ Ottava tornata (28/10/2026): octree
      l'analisi se l'apprendimento non riuscisse. Resoconto DirectX: disegni del faro nascosti, posizione appresa o no,
      camera dal faro uguale alla vera su N fotogrammi completi, immagini intermedie disegnate con il faro.
 
+248) Il faro funziona (diario del 21/11 dalle 19:28: posizione appresa, camera dal faro uguale alla vera 22 su 22,
+     fino a 32 immagini intermedie su 5 s disegnate con il faro, modello e nuvola insieme), ma in molte immagini la
+     nuvola mancava a pezzi o del tutto (video dalle 19:28:42, 25-28 s: manca proprio dove c'e' l'edificio). Le immagini
+     disegnate con la camera del faro (124) usavano la profondita' copiata all'ultimo fotogramma completo, cioe' quella
+     della camera vecchia: il modello nella posizione di prima copriva la nuvola nella posizione nuova. Ora al disegno del
+     faro si prende nota del buffer di profondita' della scena e, quando Revit lo lascia, se ne fa una copia: e' la
+     profondita' di quella stessa immagine e si usa con la camera del faro (diario «profondita=del_faro»). Se la copia
+     non c'e', in quell'immagine la profondita' si ignora («ignorata»): meglio la nuvola sopra il fil di ferro che a pezzi.
+     Verso la fine della prova (zoom ravvicinato) la camera dal faro coincideva con la vera solo 5 su 19 volte: nel
+     diario «E;faro_diverso» ora dice quali righe della matrice non tornano (x, y, profondita', w).
+
