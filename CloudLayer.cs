@@ -312,7 +312,7 @@ namespace PointDeviation
         // (era 2,5: quando di un blocco si disegnava solo l'inizio si vedevano rombi enormi)
         private const double ProgressiveCap = 1.6;
         private const double SpacingFactor = 0.75;     // distanza reale tra i punti / cella della griglia (vedi costruttore)
-        private ViewCam _lastCam;
+        private ViewCam _lastCam, _prevCam;   // voce 242: _prevCam = camera del fotogramma prima
         private double _capTarget = 2.8;               // distanza a schermo scelta (qualità × dimensione), senza gli aumenti per il limite di punti                      // octree: camera dell'ultimo fotogramma (per la vista precedente mostrata in attesa)
         // blocchi in coda di lettura chiesti in un fotogramma: a vista ferma i fotogrammi arrivano al massimo ogni 150 ms, e
         // con 24 la lettura si fermava a circa 160 blocchi al secondo (vista da 432 blocchi, 292 da leggere: quasi 2 s)
@@ -733,6 +733,7 @@ namespace PointDeviation
             // (100% = circa 5 px di diametro). Prima la densità era 2,8 px con punti grandi ovunque: superfici granulose e
             // piene di buchi bianchi (immagini del concorrente e prova a 1 px dell'utente, 13/11).
             double target = 1.0 / Math.Sqrt(PointsPerPixel(st.Quality));
+            if (!ReferenceEquals(cam, _lastCam)) _prevCam = _lastCam;
             _lastCam = cam;
             _pointScale = st.PointScale;
             _capTarget = st.PointScale > 0
@@ -1689,7 +1690,15 @@ namespace PointDeviation
         private float Grow(int i, long now)
         {
             if (_shownFirst.Length != Tiles.Length) { _shownFirst = new long[Tiles.Length]; _shownLast = new long[Tiles.Length]; }
-            if (_shownLast[i] == 0 || now - _shownLast[i] > 1000) _shownFirst[i] = now;
+            if (_shownLast[i] == 0 || now - _shownLast[i] > 1000)
+            {
+                // voce 242: cresce gradualmente solo un blocco che era gia' nell'inquadratura e arriva perche' ci si e'
+                // avvicinati (dettaglio in piu'). Un blocco che entra nell'inquadratura (zoom indietro, spostamento) compare
+                // subito intero: con la 240 zoomando indietro i bordi si riempivano come un liquido dal centro verso fuori.
+                double pxPrev;
+                bool refine = _prevCam != null && NodeVisible(_prevCam, i, out pxPrev);
+                _shownFirst[i] = refine ? now : now - (long)FadeMs - 1;
+            }
             _shownLast[i] = now;
             double g = (now - _shownFirst[i]) / FadeMs;
             if (g >= 1) return 1f;

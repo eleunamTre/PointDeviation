@@ -1380,3 +1380,9 @@ Ottava tornata (28/10/2026): octree
      Righe G del diario con fonte del disegno, punti, triangoli in finestra e pixel visibili; nel resoconto DirectX i
      disegni visibili, coperti dalla profondita' e fuori dalla finestra.
 
+242) La comparsa graduale della 240 peggiorava lo zoom indietro: «dal centro una cascata di punti che si diffonde su
+     tutta la nuvola, come un liquido». Zoomando indietro entrano nell'inquadratura blocchi nuovi ai bordi e partivano
+     tutti da punti piccolissimi. Ora cresce gradualmente solo un blocco che era gia' dentro l'inquadratura del
+     fotogramma prima (arriva per il dettaglio in piu' avvicinandosi); un blocco che entra nell'inquadratura compare
+     subito intero.
+
