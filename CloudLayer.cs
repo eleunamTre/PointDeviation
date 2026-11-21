@@ -1704,6 +1704,7 @@ namespace PointDeviation
         // punti piccolissimi alla grandezza piena in FadeMs: zoomando, i punti dei livelli piu' fini non spuntano tutti
         // insieme (il rapporto tra bianco e nuvola cambiava a scatti, «refresh» nello zoom).
         private const double FadeMs = 350;
+        private const bool FadeOn = false;   // voce 253
         private long[] _shownFirst = new long[0], _shownLast = new long[0];
         public bool Fading;
         // voce 244: diagnostica dei blocchi dentro l'inquadratura (zoom ravvicinato: nuvola quasi bianca per 1,5 s, video
@@ -1713,6 +1714,11 @@ namespace PointDeviation
         private readonly List<double> _visRad = new List<double>();
         private float Grow(int i, long now)
         {
+            // voce 253: comparsa graduale tolta. Con Revit lento (link accesi) tra un fotogramma completo e l'altro passano
+            // anche 1-2 s: tutti i blocchi risultavano «nuovi» e ripartivano da punti minuscoli e trasparenti, e le immagini
+            // intermedie riusavano quell'elenco. Diario del 21/11 20:01:38: dopo una pausa di 2,2 s 14 mila pixel visibili
+            // contro 5 milioni, nuvola sparita per diverse immagini (video dalle 20:01:37, a 1 s e 4 s).
+            if (!FadeOn) return 1f;
             if (_shownFirst.Length != Tiles.Length) { _shownFirst = new long[Tiles.Length]; _shownLast = new long[Tiles.Length]; }
             if (_shownLast[i] == 0 || now - _shownLast[i] > 1000)
             {

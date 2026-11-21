@@ -1484,3 +1484,11 @@ Ottava tornata (28/10/2026): octree
 252) Errore di compilazione della 251 (CS0103, «Dll» non esiste): la dichiarazione di PdSetCloudTransforms usava un nome
      di costante che in NativeProbe non c'e'; ora «PdRender.dll» come le altre.
 
+253) «Sono piu' i frame senza nuvola che quelli con» (video del 21/11 dalle 20:01:37, a 1 s e 4 s la nuvola manca del tutto,
+     a 1,2 s si vede appena). Non era il faro: diario, fotogramma completo dopo una pausa di Revit di 2,2 s, 9,3 milioni di
+     triangoli dei punti nella finestra ma solo 14 mila pixel visibili, poi 0,9 milioni, poi 5 milioni. E' la comparsa
+     graduale della 240: un blocco non disegnato da oltre 1 s ripartiva da punti minuscoli e trasparenti; con i link
+     Revit fa pause di 1-2 s tra un fotogramma completo e l'altro, quindi dopo ogni pausa tutta la nuvola ripartiva quasi
+     invisibile, e le immagini intermedie riusavano quell'elenco. Comparsa graduale tolta: i blocchi compaiono subito
+     interi (la «cascata» della 240 era gia' stata giudicata poco utile).
+
