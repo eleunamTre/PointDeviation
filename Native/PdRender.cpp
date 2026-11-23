@@ -1521,8 +1521,26 @@ static bool BeaconCamera(float* raw)
 // con x, y e w uguali al faro (le matrici degli elementi dei collegamenti hanno x e y diverse) e si usa quella intera.
 // Se non c'e' (vista ortogonale), si stima la riga dalla camera precedente: stessa scala, direzione del faro, e il punto
 // al centro dello schermo resta alla stessa profondita'.
-static long g_bcnZFound = 0, g_bcnZEst = 0, g_bcnZNone = 0;
+static long g_bcnZFound = 0, g_bcnZEst = 0, g_bcnZNone = 0, g_bcnZRej = 0;
 static const char* g_bcnZKind = "";
+static int g_bcnZLogs = 0; static long g_bcnZLogGen = -1;
+// voce 258 (diario e video del 23/11 09:44:21): con la 257 la riga e' sempre «trovata», ma nelle immagini col faro i pixel
+// della nuvola sono 1,18 per triangolo (mediana) contro 0,62 dei fotogrammi completi, cioe' quanti se ne hanno senza
+// profondita' (1,2-1,3): la nuvola passava sempre davanti al modello (nel video i punti dentro l'edificio sopra il tetto).
+// Nella 256, con la riga del faro, la stessa copia di profondita' copriva la nuvola a tratti: la copia contiene il modello,
+// e' la riga scelta a essere sbagliata. Tra le matrici con x, y e w del faro si prendeva la piu' scritta: con ogni
+// probabilita' quella di un passaggio disegnato sopra il modello (linee, contorni) con la profondita' schiacciata. Ora si
+// prende quella con la riga della profondita' piu' vicina a quella dell'ultima camera vera (scala entro 1/2-2 volte), e
+// le prime immagini di ogni vista scrivono nel diario tutte le candidate (righe X;faro_z).
+static double ZRowDist(const double* M, const double* P)
+{   // distanza tra le righe della profondita': rapporto delle scale (logaritmo) piu' differenza di direzione e di valore al centro
+    double ml = sqrt(M[8] * M[8] + M[9] * M[9] + M[10] * M[10]), pl = sqrt(P[8] * P[8] + P[9] * P[9] + P[10] * P[10]);
+    if (!(ml > 0) || !(pl > 0)) return 1e30;
+    double r = ml / pl; if (r < 0.5 || r > 2.0) return 1e30;
+    double dot = (M[8] * P[8] + M[9] * P[9] + M[10] * P[10]) / (ml * pl);
+    if (dot < 0.9) return 1e30;
+    return fabs(log(r)) + (1 - dot) + fabs(M[11] - P[11]);
+}
 static void PutRaw(const double* C, float* raw)
 {
     for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = (float)C[r * 4 + k]; if (g_mT & 1) raw[r * 4 + k] = v; else raw[k * 4 + r] = v; }
@@ -1540,20 +1558,28 @@ static void BeaconFixDepth(float* raw, int nCand, const float* prevRaw)
         }
         return true;
     };
-    int best = -1;
+    double P[16], Pi[16]; ColFormD(prevRaw, P);
+    if (g_bcnZLogGen != g_viewGen) { g_bcnZLogGen = g_viewGen; g_bcnZLogs = 0; }
+    bool logZ = g_bcnZLogs < 30; if (logZ) g_bcnZLogs++;
+    if (logZ) FT("X;faro_z;precedente;%g;%g;%g;%g;faro;%g;%g;%g;%g;candidate=%d", P[8], P[9], P[10], P[11], B[8], B[9], B[10], B[11], nCand);
+    int best = -1, matched = 0; double bestD = 1e30;
     for (int i = 0; i < nCand && i < 16; i++)
     {
         double M[16]; ColFormD(g_cand[i].m, M);
         double z = fabs(M[8]) + fabs(M[9]) + fabs(M[10]);
         if (!(z > 0) || !rowsXYW(M, 1e-5)) continue;
-        if (best < 0 || g_cand[i].n > g_cand[best].n) best = i;
+        matched++;
+        double d = ZRowDist(M, P);
+        if (logZ) FT("X;faro_z;candidata=%d;scritture=%d;%g;%g;%g;%g;distanza=%g", i, g_cand[i].n, M[8], M[9], M[10], M[11], d);
+        if (d < bestD) { bestD = d; best = i; }
     }
+    if (best < 0 && matched > 0) g_bcnZRej++;
+    if (logZ) FT("X;faro_z;scelta=%d;con_xyw_uguali=%d", best, matched);
     if (best >= 0)
     {
         double M[16]; ColFormD(g_cand[best].m, M); B[8] = M[8]; B[9] = M[9]; B[10] = M[10]; B[11] = M[11];
         PutRaw(B, raw); g_bcnZFound++; g_bcnZKind = "trovata"; return;
     }
-    double P[16], Pi[16]; ColFormD(prevRaw, P);
     bool ortho = fabs(B[12]) + fabs(B[13]) + fabs(B[14]) < 1e-9 && fabs(B[15] - 1) < 1e-6 && fabs(P[12]) + fabs(P[13]) + fabs(P[14]) < 1e-9;
     double bl = sqrt(B[8] * B[8] + B[9] * B[9] + B[10] * B[10]), pl = sqrt(P[8] * P[8] + P[9] * P[9] + P[10] * P[10]);
     if (ortho && bl > 0 && pl > 0 && Inv4(P, Pi))
@@ -1855,9 +1881,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld",
-            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone);
-        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
+            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone, g_bcnZRej);
+        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0;
     }
     if (g_trDone && g_trBuf[0])
     {

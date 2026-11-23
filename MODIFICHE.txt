@@ -1526,3 +1526,14 @@ Ottava tornata (28/10/2026): octree
      collegamenti hanno x e y diverse). Se manca, la riga si stima dalla camera precedente (con 9 cm verso chi guarda).
      Diario: «profondita_camera=trovata/stimata» nelle righe P; riepilogo nel registro.
 
+
+258) Prova della 257 (video del 23/11 dalle 09:44:21, faro e collegamenti accesi): la riga della profondita' risulta
+     sempre «trovata», ma nelle immagini col faro la nuvola passa ancora sopra tutto (punti dentro l'edificio sopra il
+     tetto). Nel diario i pixel visibili per triangolo in quelle immagini sono 1,18 (mediana) contro 0,62 dei fotogrammi
+     completi, gli stessi che si hanno senza profondita' (1,2-1,3): nessun punto era coperto dal modello. La copia della
+     profondita' contiene il modello (con la 256 la nuvola veniva coperta a tratti): sbagliata e' la riga scelta. Tra le
+     matrici con x, y e w del faro si prendeva la piu' scritta, con ogni probabilita' quella di un passaggio disegnato
+     sopra il modello con la profondita' schiacciata. Ora si sceglie quella con la riga della profondita' piu' vicina a
+     quella dell'ultima camera vera (scala tra meta' e il doppio, stessa direzione); se nessuna va bene si usa la stima
+     dalla camera precedente. Diario: righe «X;faro_z» con tutte le candidate per le prime 30 immagini col faro di ogni
+     vista; nel registro il conteggio delle candidate scartate.
