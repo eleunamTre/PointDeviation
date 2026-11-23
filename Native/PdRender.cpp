@@ -1396,6 +1396,10 @@ static long long g_drawSeq = 0, g_bindSeq = 0;   // disegni di Revit, e al momen
 static ID3D11Texture2D* g_winTex = nullptr; static ID3D11DepthStencilView* g_winDsv = nullptr;
 static bool g_winOk = false; static long g_winCopies = 0, g_winUsed = 0; static long long g_winDraws = 0;
 static long g_presentNo = 0, g_winPresent = -1;   // voce 266: la copia vale per l'immagine in corso (Present numerato)
+// voce 267: le nostre stesse operazioni (ripristino dello stato dopo il disegno al Present, sulla finestra e dopo
+// centinaia di nostri disegni) facevano una copia della NOSTRA profondita': g_ourDraw le esclude
+static bool g_ourDraw = false;
+static long g_winAfterFull = 0;   // numero del Present dell'ultimo fotogramma completo
 static void WinDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* src)
 {
     if (!src || !g_realDev) return;
@@ -1729,7 +1733,11 @@ static void BeaconPresent(bool full)
 static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* pp)
 {
     // voce 264: la copia della profondita' della finestra vale solo per questa immagine
-    g_winOk = g_winOk && g_winPresent == g_presentNo;
+    // voce 267 (diario del 23/11 19:30): con il controllo per immagine (264, 266) la copia della finestra risultava sempre
+    // vecchia al momento di usarla, anche se Revit l'aveva appena fatta (l'ordine tra il Present e il disegno
+    // dell'immagine seguente non e' quello atteso). Si usa l'ultima copia fatta da Revit, se e' successiva all'ultimo
+    // fotogramma completo; nel diario X;finestra_eta = Present trascorsi dalla copia.
+    struct OurDraw { ~OurDraw() { g_ourDraw = false; } } ourDraw; g_ourDraw = true;
     struct WinNext { bool on; ~WinNext() { if (on) g_presentNo++; } } winNext{ s == g_fbSwap || g_fbSwap == nullptr };
     if (s == g_fbSwap || g_fbSwap == nullptr)
     {
@@ -1797,7 +1805,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     }
     if (g_drawnThisFrame)
     {
-        g_fbNormal++; g_drawnThisFrame = false; g_fbSwap = s; LearnSearch();
+        g_fbNormal++; g_drawnThisFrame = false; g_fbSwap = s; LearnSearch(); g_winAfterFull = g_presentNo;   // voce 267
         int b = BestCand();
         if (b >= 0 && g_hasRef) { g_fbCompared++; if (memcmp(g_cand[b].m, g_refRaw, (g_mOff2 >= 0 ? 32 : 16) * 4) == 0) g_fbAgree++; }
         if (bcnSnap && g_hasRef && g_refGen == g_viewGen && !g_partial) BeaconLearn(g_refRaw);   // voce 247
@@ -1902,9 +1910,10 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     if (bcn) g_bcnDepthChain = bcnDepth;
     if (useBcnCam)
     {
-        if (bcn && g_winOk && g_winDsv)
-        {   // voce 264: profondita' del modello disegnato nella finestra in questa stessa immagine
+        if (bcn && g_winOk && g_winDsv && g_winPresent >= g_winAfterFull)
+        {   // voce 264, 267: profondita' del modello disegnato nella finestra (ultima copia di Revit)
             dzUse = g_winDsv; g_winUsed++;
+            if (g_seqOn) FT("X;finestra_eta;present=%ld;disegni=%lld", g_presentNo - g_winPresent, g_winDraws);
         }
         else if (g_bcnDepthChain && g_bcnDsv)
         {
@@ -2258,7 +2267,7 @@ static void STDMETHODCALLTYPE HookRDrawAuto(ID3D11DeviceContext* c) { g_cDrawOth
 static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d)
 {
     g_cOMSet++;
-    if (g_bbRes && g_drawSeq - g_bindSeq >= 200)   // 266: l'interfaccia (#3) ha circa 150 disegni, il modello 540-680
+    if (g_bbRes && !g_ourDraw && g_drawSeq - g_bindSeq >= 200)   // 266: l'interfaccia (#3) ha circa 150 disegni, il modello 540-680
     {   // voce 264: Revit lascia il buffer di profondita' con cui ha disegnato il modello nell'immagine della finestra
         ID3D11RenderTargetView* crt = nullptr; ID3D11DepthStencilView* cds = nullptr; c->OMGetRenderTargets(1, &crt, &cds);
         if (crt && cds)

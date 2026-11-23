@@ -1619,3 +1619,11 @@ Ottava tornata (28/10/2026): octree
      Present; le righe P interrotte riportano finestra=0/1 e il numero di copie. La copia si fa solo dopo almeno 200
      disegni (il modello nella finestra 540-680, l'interfaccia circa 150: prima si copiava anche il buffer
      dell'interfaccia all'inizio dell'immagine successiva).
+
+267) Diario della 266 (23/11 19:30): la copia della profondita' della finestra viene creata senza errori e Revit la
+     rinnova a ogni immagine (COPIA-FINESTRA, 260 disegni), ma al momento di disegnare la nuvola nelle immagini col faro
+     risultava sempre di un'immagine precedente e non veniva usata. Il valore «finestra=1» delle righe P era falso: la
+     copia veniva rifatta dal ripristino del nostro stesso disegno al Present (sulla finestra, dopo centinaia di nostri
+     disegni), cioe' copiava la NOSTRA profondita'. Ora le nostre operazioni non fanno copie (g_ourDraw) e nelle
+     immagini col faro si usa l'ultima copia fatta da Revit purche' successiva all'ultimo fotogramma completo; nel
+     diario X;finestra_eta (Present trascorsi dalla copia).
