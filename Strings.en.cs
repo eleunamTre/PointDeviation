@@ -287,6 +287,9 @@ namespace PointDeviation
             d["Piedi US survey"] = "US survey feet";
             d["Includi i modelli collegati (link)"] = "Include linked models";
             d["Sbiaditi"] = "Faded";
+            d["Senza modello: sbiadita/trasparente"] = "Without model: faded/transparent";
+            d["Stessa resa scelta per i link (sbiaditi o trasparenti); 0 = colore pieno."] = "Same look chosen for links (faded or transparent); 0 = full color.";
+            d["\nFuori dalla zona analizzata: {0:N0} punti (non contati)."] = "\nOutside the analyzed area: {0:N0} points (not counted).";
             d["Trasparenti"] = "Transparent";
             d["Punti vicini ai link"] = "Points near links";
             d["Trasparenti solo con il disegno con shader; altrimenti sbiaditi."] = "Transparent only with shader drawing; faded otherwise.";

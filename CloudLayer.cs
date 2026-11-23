@@ -91,14 +91,24 @@ namespace PointDeviation
         public bool LinkTranslucent;         // trasparenti davvero: solo con il disegno con shader (altrimenti sbiaditi)
         private byte _linkT;                 // trasparenza del punto del link (0 = opaco, 255 = invisibile)
         public bool LinkFx { get { return LinkStrength > 0 && Mode == DisplayMode.Discrepanze && Analysis != null && Analysis.Bvh != null && Analysis.Bvh.HasLinks; } }
+        // voce 261: stessa resa (sbiaditi o trasparenti) per i punti senza modello mostrati nell'analisi
+        public int MissingStrength;
+        private byte _missT;
+        public bool MissingFx { get { return MissingStrength > 0 && Mode == DisplayMode.Discrepanze && Analysis != null; } }
+        /// <summary>Servono punti con opacità propria (disegno con shader).</summary>
+        public bool PointAlpha { get { return LinkTranslucent && (LinkFx || MissingFx); } }
 
         /// <summary>Voce 259: punto del link sbiadito verso il grigio chiaro, oppure trasparente (shader).</summary>
-        private void LinkColor(ref byte r, ref byte g, ref byte b, ref byte t)
+        private void LinkColor(ref byte r, ref byte g, ref byte b, ref byte t) { Fade(ref r, ref g, ref b, ref t, LinkStrength, _linkT); }
+
+        private void Fade(ref byte r, ref byte g, ref byte b, ref byte t, int strength, byte tr)
         {
-            if (LinkTranslucent) { t = _linkT; return; }
-            double k = LinkStrength / 100.0;
+            if (LinkTranslucent) { t = tr; return; }
+            double k = strength / 100.0;
             r = (byte)(r + (228 - r) * k); g = (byte)(g + (228 - g) * k); b = (byte)(b + (228 - b) * k);
         }
+
+        private static byte TByte(int strength) { return (byte)Math.Round(255 * Math.Min(0.97, Math.Pow(strength / 100.0, 1.0 / 3.0))); }
 
         /// <summary>Zona evidenziata attiva (serve l'analisi: si colorano i punti lontani dal modello).</summary>
         public bool ZoneOn { get { return Zone != null && Analysis != null; } }
@@ -172,11 +182,13 @@ namespace PointDeviation
                 Zone = ZoneHighlight.Box,
                 ZoneThrFt = ZoneHighlight.ThresholdFt,
                 LinkLook = s.LinkLook,
-                LinkStrength = Math.Max(0, Math.Min(90, s.LinkStrength))
+                LinkStrength = Math.Max(0, Math.Min(90, s.LinkStrength)),
+                MissingStrength = Math.Max(0, Math.Min(90, s.MissingStrength))
             };
             st.LinkTranslucent = st.LinkLook == 1 && NativeProbe.ShaderWanted;
             // come per la trasparenza del profilo: i punti si sovrappongono, la trasparenza percepita è circa t^3
-            st._linkT = (byte)Math.Round(255 * Math.Min(0.97, Math.Pow(st.LinkStrength / 100.0, 1.0 / 3.0)));
+            st._linkT = TByte(st.LinkStrength);
+            st._missT = TByte(st.MissingStrength);
             // analisi chiesta ma non disponibile: colori della scansione
             if (st.Mode == DisplayMode.Discrepanze && analysis == null) st.Mode = DisplayMode.Rgb;
             st.BuildLut();
@@ -221,7 +233,7 @@ namespace PointDeviation
         }
 
         /// <summary>Colore e trasparenza (0 = opaco, 255 = invisibile) del punto i. false = punto da non disegnare.</summary>
-        public bool Color(TileCpu c, int i, double mz, int layerArgb, out byte r, out byte g, out byte b, out byte t)
+        public bool Color(TileCpu c, int i, double mx, double my, double mz, int layerArgb, out byte r, out byte g, out byte b, out byte t)
         {
             t = 0; // la trasparenza si applica a tutto il buffer (DrawTransparency)
             r = g = b = 150;
@@ -270,6 +282,17 @@ namespace PointDeviation
                 {
                     float dk = c.Dist != null && i < c.Dist.Length ? c.Dist[i] : float.NaN;
                     double mm = float.IsNaN(dk) ? double.NaN : (Invert ? -dk : dk) * 304.8;
+                    // voce 261: senza superficie vicina ma fuori dalla zona analizzata (riquadro di sezione della vista
+                    // analizzata, selezione): non è «senza modello», lì il modello non è stato guardato. Grigio chiaro con
+                    // il chiaroscuro della scansione (nei profili di completezza e interferenze come gli «altri punti»).
+                    if (float.IsNaN(dk) && Analysis != null && Analysis.Region != null && !Analysis.Region.Contains(mx, my, mz))
+                    {
+                        if (Profile.IsSelection && !Profile.ShowOthers) return false;
+                        int lum = (c.Rgb[i * 3] * 3 + c.Rgb[i * 3 + 1] * 6 + c.Rgb[i * 3 + 2]) / 10;
+                        byte gray = (byte)(135 + lum * 85 / 255);
+                        r = g = b = gray;
+                        return true;
+                    }
                     if (Profile.IsSelection)
                     {
                         PointState st = Profile.Evaluate(mm, out r, out g, out b);
@@ -287,6 +310,7 @@ namespace PointDeviation
                     // anch'essi viola, la zona selezionata non si distinguerebbe
                     if (Missing == MissingMode.Evidenzia && !ZoneOn) { r = ColorScale.MissingRgb[0]; g = ColorScale.MissingRgb[1]; b = ColorScale.MissingRgb[2]; }
                     else { r = g = b = 150; }
+                    if (MissingFx) Fade(ref r, ref g, ref b, ref t, MissingStrength, _missT);   // voce 261
                     return true;
                 }
             }
@@ -1831,7 +1855,7 @@ namespace PointDeviation
                 if (hl) Style.HighlightColor(cpu, k, argb, out r, out g, out b, out t);
                 else if (st.ZoneColor(cpu, k, x, y, z, out r, out g, out b)) t = 0;
                 else if (st.DebugLevels) { CloudDebug.LevelColor(Tiles[i].Level, true, out r, out g, out b); t = 0; }
-                else if (!st.Color(cpu, k, z, argb, out r, out g, out b, out t)) continue;
+                else if (!st.Color(cpu, k, x, y, z, argb, out r, out g, out b, out t)) continue;
                 int o = w * 16;
                 fixed (byte* q = &buf[o])
                 {
@@ -2173,7 +2197,7 @@ namespace PointDeviation
                 if (gpu.Highlight) Style.HighlightColor(cpu, k, layerArgb, out r, out g, out b, out t);
                 else if (st.ZoneColor(cpu, k, x, y, z, out r, out g, out b)) t = 0;
                 else if (st.DebugLevels && split) { CloudDebug.LevelColor(Tiles[node].Level, gpu.Points, out r, out g, out b); t = 0; }
-                else if (!st.Color(cpu, k, z, layerArgb, out r, out g, out b, out t)) continue;
+                else if (!st.Color(cpu, k, x, y, z, layerArgb, out r, out g, out b, out t)) continue;
                 int oc = split ? (lx >= cx ? 1 : 0) | (ly >= cy ? 2 : 0) | (lz >= cz ? 4 : 0) : 0;
                 float fx = (float)x, fy = (float)y, fz = (float)z;
                 if (vpp == 1) Put(oc, fx, fy, fz, r, g, b, t);
@@ -2289,7 +2313,7 @@ namespace PointDeviation
                 if (j.Highlight) Style.HighlightColor(cpu, k, j.Argb, out r, out g, out b, out t);
                 else if (st.ZoneColor(cpu, k, x, y, z, out r, out g, out b)) t = 0;
                 else if (st.DebugLevels) { CloudDebug.LevelColor(Tiles[node].Level, !octa, out r, out g, out b); t = 0; }
-                else if (!st.Color(cpu, k, z, j.Argb, out r, out g, out b, out t)) continue;
+                else if (!st.Color(cpu, k, x, y, z, j.Argb, out r, out g, out b, out t)) continue;
                 int oc = (lx >= cx ? 1 : 0) | (ly >= cy ? 2 : 0) | (lz >= cz ? 4 : 0);
                 if (buf[oc] == null) buf[oc] = new byte[per * vpp * stride];
                 byte a = op ? (byte)(255 - t) : t;
@@ -2814,6 +2838,14 @@ namespace PointDeviation
         private double[] _box;         // origine, assi X Y Z (3 ciascuno), min, max nelle coordinate del riquadro
         public int BoxCulled;          // diagnostica: blocchi esclusi dal riquadro nell'ultima scelta
         public bool HasBox { get { return _box != null; } }
+
+        /// <summary>Voce 261: ritaglio della vista (riquadro di sezione, intervallo di vista, campo della sezione), null = nessuno.</summary>
+        public static double[] BoxOf(View view)
+        {
+            var c = new ViewCam();
+            try { c.SetBox(view); } catch { return null; }
+            return c._box;
+        }
 
         /// <summary>
         /// Voce 200: i sei piani del ritaglio della vista (riquadro di sezione, intervallo di vista della pianta, campo della

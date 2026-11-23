@@ -203,6 +203,7 @@ namespace PointDeviation
                                             layer.ToModel(BitConverter.ToInt32(raw, o) * sc, BitConverter.ToInt32(raw, o + 4) * sc, BitConverter.ToInt32(raw, o + 8) * sc,
                                                 out x, out y, out z);
                                             if (opt.Clip != null && !opt.Clip.Contains(x, y, z)) continue;
+                                            if (float.IsNaN(v) && an.Region != null && !an.Region.Contains(x, y, z)) continue;   // voce 261: zona non analizzata
                                             long key = Pack((long)Math.Floor((x - ox) / cellFt), (long)Math.Floor((y - oy) / cellFt), (long)Math.Floor((z - oz) / cellFt));
                                             int c;
                                             local.TryGetValue(key, out c);

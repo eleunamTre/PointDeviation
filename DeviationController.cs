@@ -715,6 +715,40 @@ namespace PointDeviation
             }
         }
 
+        /// <summary>
+        /// Voce 261: zona in cui l'analisi ha cercato il modello. Selezione: ingombro degli elementi selezionati più la
+        /// distanza massima. Vista: il suo ritaglio (riquadro di sezione della 3D, intervallo di vista della pianta, campo
+        /// della sezione), cioè dove Revit mostra il modello analizzato. Null = ovunque.
+        /// </summary>
+        private static AnalysisRegion RegionOf(Document doc, View view, ICollection<ElementId> sel, double searchFt)
+        {
+            try
+            {
+                if (sel != null)
+                {
+                    double x0 = double.MaxValue, y0 = double.MaxValue, z0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue, z1 = double.MinValue;
+                    foreach (ElementId id in sel)
+                    {
+                        Element e = doc.GetElement(id);
+                        BoundingBoxXYZ bb = e != null ? e.get_BoundingBox(null) : null;
+                        if (bb == null) continue;
+                        Transform t = bb.Transform ?? Transform.Identity;
+                        for (int k = 0; k < 8; k++)
+                        {
+                            XYZ p = t.OfPoint(new XYZ((k & 1) == 0 ? bb.Min.X : bb.Max.X, (k & 2) == 0 ? bb.Min.Y : bb.Max.Y, (k & 4) == 0 ? bb.Min.Z : bb.Max.Z));
+                            x0 = Math.Min(x0, p.X); y0 = Math.Min(y0, p.Y); z0 = Math.Min(z0, p.Z);
+                            x1 = Math.Max(x1, p.X); y1 = Math.Max(y1, p.Y); z1 = Math.Max(z1, p.Z);
+                        }
+                    }
+                    if (x0 > x1) return null;
+                    return AnalysisRegion.Aabb(x0 - searchFt, y0 - searchFt, z0 - searchFt, x1 + searchFt, y1 + searchFt, z1 + searchFt);
+                }
+                double[] b = view != null ? ViewCam.BoxOf(view) : null;
+                return b != null ? new AnalysisRegion(b) : null;
+            }
+            catch (Exception ex) { Log.Error("Zona analizzata", ex); return null; }
+        }
+
         private bool Compute(UIDocument uidoc, DocumentData data, DeviationSettings s)
         {
             Document doc = uidoc.Document;
@@ -756,7 +790,9 @@ namespace PointDeviation
 
             // versione unica anche tra sessioni diverse
             data.AnalysisVersion = Math.Max(data.AnalysisVersion + 1, (int)((DateTime.UtcNow - new DateTime(2026, 1, 1)).TotalSeconds));
-            AnalysisRegistry.Set(data.Key, new AnalysisSnapshot { Bvh = bvh, SearchFt = searchFt, Version = data.AnalysisVersion, Signature = bvh.Signature() });
+            AnalysisRegion region = RegionOf(doc, view, sel, searchFt);
+            Log.Write("Analisi", region == null ? "zona analizzata: tutta la nuvola" : "zona analizzata (fuori i punti senza modello non si evidenziano): " + region.Describe());
+            AnalysisRegistry.Set(data.Key, new AnalysisSnapshot { Bvh = bvh, SearchFt = searchFt, Version = data.AnalysisVersion, Signature = bvh.Signature(), Region = region });
 
             // statistiche su un campione uniforme di tutte le nuvole; i punti disegnati calcolano le distanze da soli
             data.Cloud = data.BuildSample(Math.Max(100000, Math.Min(s.MaxPoints, 800000)));

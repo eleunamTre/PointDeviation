@@ -169,7 +169,7 @@ namespace PointDeviation
                 PdSetAlpha((float)Math.Min(1.0, a));
                 // voce 259: punti dei link trasparenti (opacità per punto); con una libreria vecchia si va avanti senza
                 if (!_ptAlphaMissing)
-                    try { PdSetPointAlpha(st.LinkTranslucent && st.LinkFx ? 1 : 0); }
+                    try { PdSetPointAlpha(st.PointAlpha ? 1 : 0); }
                     catch (EntryPointNotFoundException) { _ptAlphaMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetPointAlpha: ricompilare la libreria nativa (voce 259)"); }
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }

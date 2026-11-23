@@ -1561,3 +1561,15 @@ Ottava tornata (28/10/2026): octree
      della profondita' dell'immagine col faro: per vederlo, alla prima immagine col faro di ogni vista e poi ogni 15 s
      il diario registra 12 immagini consecutive (righe X;sequenza: destinazioni T(r# d#), pulizie Z, disegni dN, FARO
      con il suo buffer di profondita', COPIA-FARO, contenuto della copia, PRESENT).
+
+261) Nuvola senza modello solo dove l'analisi ha guardato il modello. Prima, analizzando una vista 3D con il riquadro di
+     sezione, tutto cio' che stava fuori dal riquadro risultava «senza modello» (viola) nelle altre viste, anche dove il
+     modello c'e'. Ora l'analisi ricorda la zona in cui ha cercato il modello (AnalysisSnapshot.Region): vista attiva =
+     il suo ritaglio (riquadro di sezione della 3D, intervallo di vista della pianta, campo della sezione; ViewCam.BoxOf),
+     selezione = ingombro degli elementi selezionati piu' la distanza massima. I punti senza superficie vicina fuori da
+     quella zona si mostrano in grigio chiaro con il chiaroscuro della scansione (nei profili di completezza e
+     interferenze come gli «altri punti»), non entrano nelle Zone mancanti e nelle statistiche sono contati a parte
+     («Fuori dalla zona analizzata»). Registro: riga «[Analisi] zona analizzata».
+     Inoltre, Impostazioni analisi › «Senza modello: sbiadita/trasparente»: intensita' 0-90% (0 di serie) per i punti
+     senza modello mostrati nell'analisi (es. profilo Tolleranza), con la stessa resa scelta per i link (sbiaditi, o
+     trasparenti con il disegno con shader). Salvata col progetto.

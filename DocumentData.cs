@@ -178,7 +178,7 @@ namespace PointDeviation
               .Append('|').Append(zmin.ToString("R")).Append('|').Append(zmax.ToString("R"))
               .Append('|').Append(an != null ? an.Version : 0).Append('|').Append(CloudDebug.Levels)
               .Append('|').Append(ZoneHighlight.Key)
-              .Append('|').Append(s.LinkLook).Append('|').Append(s.LinkStrength).Append('|').Append(NativeProbe.ShaderWanted);   // voce 259
+              .Append('|').Append(s.LinkLook).Append('|').Append(s.LinkStrength).Append('|').Append(s.MissingStrength).Append('|').Append(NativeProbe.ShaderWanted);   // voce 259
             if (s.CloudColors != null) foreach (var kv in s.CloudColors.OrderBy(k => k.Key)) sb.Append('|').Append(kv.Key).Append('=').Append(kv.Value);
             sb.Append('|').Append(Json(s.Profile)).Append('|').Append(Json(s.Clips));
             return sb.ToString();
@@ -269,13 +269,29 @@ namespace PointDeviation
 
             const double Mm = 304.8;
             int count = Cloud.Count;
+            // voce 261: punti senza superficie vicina fuori dalla zona analizzata: non contano come «senza modello»
+            AnalysisSnapshot an = AnalysisRegistry.Get(Key);
+            AnalysisRegion reg = an != null ? an.Region : null;
+            var outside = new bool[count];
+            long nOut = 0;
+            if (reg != null)
+            {
+                float[] xyz = Cloud.Xyz;
+                double ox = Cloud.Origin[0], oy = Cloud.Origin[1], oz = Cloud.Origin[2];
+                for (int i = 0; i < count && i < d.Length; i++)
+                    if (float.IsNaN(d[i]) && !reg.Contains(xyz[i * 3] + ox, xyz[i * 3 + 1] + oy, xyz[i * 3 + 2] + oz)) { outside[i] = true; nOut++; }
+            }
+            string outLine = nOut > 0 ? string.Format(L.T("\nFuori dalla zona analizzata: {0:N0} punti (non contati)."), nOut) : "";
+            count -= (int)nOut;
+            if (count <= 0) return outLine.Trim();
 
             if (profile.IsSelection)
             {
                 double thr = profile.ThresholdMm;
                 long far = 0, near = 0, inside = 0;
-                for (int i = 0; i < count; i++)
+                for (int i = 0; i < d.Length && i < Cloud.Count; i++)
                 {
+                    if (outside[i]) continue;
                     float v = d[i];
                     if (float.IsNaN(v)) { far++; continue; }
                     double x = v * (invert ? -1.0 : 1.0) * Mm;
@@ -285,10 +301,10 @@ namespace PointDeviation
                 }
                 if (profile.Kind == ProfileKind.Completezza)
                     return string.Format(L.T("Completezza ({0:0.#} mm): {1:N0} punti su {2:N0} ({3:P1}) sono lontani dal modello:\n") +
-                        L.T("parti rilevate ma non modellate (o arredi, persone, rumore)."), thr, far, (long)count, (double)far / count);
+                        L.T("parti rilevate ma non modellate (o arredi, persone, rumore)."), thr, far, (long)count, (double)far / count) + outLine;
                 return string.Format(L.T("Interferenze ({0:0.#} mm): {1:N0} punti entro la soglia ({2:P1}), di cui {3:N0} dentro il modello ({4:P1}).\n") +
                     L.T("Oltre la soglia: {5:N0} punti. I punti molto all'interno di elementi spessi (oltre la soglia dalla superficie) non vengono rilevati."),
-                    thr, near + inside, (double)(near + inside) / count, inside, (double)inside / count, far);
+                    thr, near + inside, (double)(near + inside) / count, inside, (double)inside / count, far) + outLine;
             }
 
             List<ColorClass> classes = profile.StatClasses();
@@ -298,8 +314,9 @@ namespace PointDeviation
             double sgn = invert ? -1.0 : 1.0;
             byte r, g, b;
 
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < d.Length && i < Cloud.Count; i++)
             {
+                if (outside[i]) continue;
                 float v = d[i];
                 if (float.IsNaN(v)) continue;
                 double x = v * sgn * Mm;
@@ -331,6 +348,7 @@ namespace PointDeviation
             }
             sb.AppendFormat(profile.HideMissing ? L.T("Nuvola senza modello (nascosta): {0:N0} punti ({1:P1})") : L.T("Nuvola senza modello: {0:N0} punti ({1:P1})"),
                 missing, (double)missing / count);
+            sb.Append(outLine);
             if (!profile.Absolute) sb.Append(L.T("\nPositivo = punti davanti alla superficie modellata, negativo = dietro."));
             return sb.ToString();
         }

@@ -77,8 +77,36 @@ namespace PointDeviation
     }
 
     /// <summary>Dati di analisi di un progetto visibili al motore (che lavora anche su thread di Revit diversi dal principale).</summary>
+    /// <summary>
+    /// Voce 261: zona in cui l'analisi ha cercato il modello (riquadro di sezione o campo della vista analizzata, oppure
+    /// ingombro della selezione più la distanza massima). Fuori da qui un punto senza superficie vicina non è «senza
+    /// modello»: lì il modello non è stato guardato.
+    /// </summary>
+    internal sealed class AnalysisRegion
+    {
+        private readonly double[] _b;   // origine, assi X Y Z, min, max (come ViewCam)
+        public AnalysisRegion(double[] box) { _b = box; }
+        public static AnalysisRegion Aabb(double x0, double y0, double z0, double x1, double y1, double z1)
+        {
+            return new AnalysisRegion(new[] { 0.0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, x0, y0, z0, x1, y1, z1 });
+        }
+        public bool Contains(double x, double y, double z)
+        {
+            double[] b = _b;
+            double dx = x - b[0], dy = y - b[1], dz = z - b[2];
+            double u = dx * b[3] + dy * b[4] + dz * b[5];
+            if (u < b[12] || u > b[15]) return false;
+            double v = dx * b[6] + dy * b[7] + dz * b[8];
+            if (v < b[13] || v > b[16]) return false;
+            double w = dx * b[9] + dy * b[10] + dz * b[11];
+            return w >= b[14] && w <= b[17];
+        }
+        public string Describe() { return string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F2}..{1:F2} x {2:F2}..{3:F2} x {4:F2}..{5:F2} ft", _b[12], _b[15], _b[13], _b[16], _b[14], _b[17]); }
+    }
+
     internal sealed class AnalysisSnapshot
     {
+        public AnalysisRegion Region;   // voce 261: null = ovunque
         public TriangleBvh Bvh;
         public double SearchFt;
         public int Version;

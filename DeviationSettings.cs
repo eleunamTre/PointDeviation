@@ -36,6 +36,8 @@ namespace PointDeviation
         public int LinkLook;
         /// <summary>Voce 259: intensità dell'effetto sui punti dei link, 0..90 (0 = come quelli del modello in uso).</summary>
         public int LinkStrength = 60;
+        /// <summary>Voce 261: intensità dell'effetto (sbiaditi/trasparenti come i link) sui punti senza modello, 0..90.</summary>
+        public int MissingStrength;
         /// <summary>Profilo colore attivo per questo progetto (vedi ProfileStore).</summary>
         public string ProfileId = ProfileStore.DefaultId;
         public MissingMode Missing = MissingMode.Evidenzia;
