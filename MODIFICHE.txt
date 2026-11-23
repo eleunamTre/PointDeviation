@@ -1592,3 +1592,16 @@ Ottava tornata (28/10/2026): octree
      sapere dopo quale disegno inserire la nuvola (dopo la copia della scena, prima del cubo e delle maniglie), le
      sequenze del diario ora scrivono anche quali texture legge ogni gruppo di disegni (S(#a,#b,#c,#d), slot 0-3 del
      pixel shader). Solo diagnostica.
+
+264) Diario della 263 (23/11 10:36): nelle immagini col faro la copia della profondita' della scena (#5) copre a volte
+     solo il 3-4% della finestra contro il 37-40% dei fotogrammi completi nella stessa vista, e proprio li' la nuvola
+     passa davanti al modello (11 milioni di pixel visibili contro 4,4-4,6). Le sequenze mostrano che in ogni immagine
+     Revit disegna prima il modello direttamente nell'immagine della finestra (#1) con un suo buffer di profondita' (#2,
+     540-580 disegni), poi a volte la scena a pezzi nell'immagine a parte (#4/#5, dove ci sono il faro e il nostro
+     segnale), poi l'interfaccia nella finestra con un altro buffer (#3: icone e testi, texture 8x8-128x1024). Ora,
+     quando Revit lascia il buffer di profondita' della finestra dopo almeno 20 disegni, se ne fa una copia
+     (COPIA-FINESTRA nelle sequenze); nelle immagini col faro la nuvola si confronta con quella (P: profondita=
+     della_finestra). L'immagine della finestra si riconosce da dimensioni e formato del buffer della swap chain.
+     Diario: X;finestra_copia (copertura della copia della finestra, anche nei fotogrammi completi) e X;faro_copia con
+     copia=finestra/scena. Visto anche dove va messa la nuvola per stare sotto cubo e maniglie: dopo il modello nella
+     finestra e prima dei disegni dell'interfaccia (prossimo passo).
