@@ -1609,3 +1609,13 @@ Ottava tornata (28/10/2026): octree
 265) Impostazioni analisi: i punti senza modello hanno ora una resa propria («Punti senza modello»: Sbiaditi /
      Trasparenti + intensita'), non piu' legata a quella dei link (con la 261 il menu dei link valeva per entrambi).
      Salvata col progetto (MissingLook).
+
+266) Prova della 264/265 (diario dalle 18:53, video delle 19:22:39): la copia della profondita' della finestra viene
+     fatta (COPIA-FINESTRA nelle sequenze, 609-675 disegni del modello) ma non e' mai stata usata: nelle immagini col faro
+     resta «del_faro_avvicinata» e le righe X;finestra_copia non compaiono, quindi al Present la copia risultava non
+     valida o assente. Dal codice non si vede il motivo: ora si scrive nel diario l'esito della creazione della copia
+     (E;finestra_buffer con formato e codici di ritorno) e le copie non fatte (E;finestra_copia_non_fatta); la validita'
+     della copia per l'immagine in corso si controlla con un contatore dei Present invece che azzerandola alla fine del
+     Present; le righe P interrotte riportano finestra=0/1 e il numero di copie. La copia si fa solo dopo almeno 200
+     disegni (il modello nella finestra 540-680, l'interfaccia circa 150: prima si copiava anche il buffer
+     dell'interfaccia all'inizio dell'immagine successiva).

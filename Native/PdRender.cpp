@@ -1395,6 +1395,7 @@ static bool IsWindowImage(ID3D11Resource* r)
 static long long g_drawSeq = 0, g_bindSeq = 0;   // disegni di Revit, e al momento dell'ultimo cambio di destinazione
 static ID3D11Texture2D* g_winTex = nullptr; static ID3D11DepthStencilView* g_winDsv = nullptr;
 static bool g_winOk = false; static long g_winCopies = 0, g_winUsed = 0; static long long g_winDraws = 0;
+static long g_presentNo = 0, g_winPresent = -1;   // voce 266: la copia vale per l'immagine in corso (Present numerato)
 static void WinDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* src)
 {
     if (!src || !g_realDev) return;
@@ -1408,10 +1409,18 @@ static void WinDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* src)
         if (g_winTex) { g_winTex->Release(); g_winTex = nullptr; }
         D3D11_TEXTURE2D_DESC nd = d; nd.Usage = D3D11_USAGE_DEFAULT; nd.BindFlags = D3D11_BIND_DEPTH_STENCIL; nd.CPUAccessFlags = 0; nd.MiscFlags = 0; nd.MipLevels = 1; nd.ArraySize = 1;
         D3D11_DEPTH_STENCIL_VIEW_DESC vd = {}; src->GetDesc(&vd);
-        if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_winTex)) && g_winTex)
-            if (FAILED(g_realDev->CreateDepthStencilView(g_winTex, &vd, &g_winDsv))) { g_winTex->Release(); g_winTex = nullptr; g_winDsv = nullptr; }
+        HRESULT h1 = g_realDev->CreateTexture2D(&nd, nullptr, &g_winTex), h2 = E_FAIL;
+        if (SUCCEEDED(h1) && g_winTex)
+        {
+            h2 = g_realDev->CreateDepthStencilView(g_winTex, &vd, &g_winDsv);
+            if (FAILED(h2)) { g_winTex->Release(); g_winTex = nullptr; g_winDsv = nullptr; }
+        }
+        // voce 266: nella prova della 264 la copia risultava fatta ma non veniva mai usata: si scrive l'esito
+        FT("E;finestra_buffer;%ux%u;formato=%d;campioni=%u;livelli=%u;strati=%u;vista=%d/%d;texture=0x%08lx;vista_profondita=0x%08lx",
+           d.Width, d.Height, (int)d.Format, d.SampleDesc.Count, d.MipLevels, d.ArraySize, (int)vd.Format, (int)vd.ViewDimension, (unsigned long)h1, (unsigned long)h2);
     }
-    if (g_winTex && g_winDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_winTex, r); g_winOk = true; g_winCopies++; }
+    if (g_winTex && g_winDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_winTex, r); g_winOk = true; g_winCopies++; g_winPresent = g_presentNo; }
+    else { static double lastAt = 0; if (QpcMs() - lastAt > 2000) { lastAt = QpcMs(); FT("E;finestra_copia_non_fatta;texture=%d;vista=%d;livelli=%u;strati=%u", g_winTex ? 1 : 0, g_winDsv ? 1 : 0, d.MipLevels, d.ArraySize); } }
     r->Release();
 }
 static ID3D11Resource* g_bcnDzRef = nullptr;   // voce 250: con riferimento, per la copia al Present se Revit non lo lascia prima
@@ -1720,7 +1729,8 @@ static void BeaconPresent(bool full)
 static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* pp)
 {
     // voce 264: la copia della profondita' della finestra vale solo per questa immagine
-    struct WinReset { bool on; ~WinReset() { if (on) g_winOk = false; } } winReset{ s == g_fbSwap || g_fbSwap == nullptr };
+    g_winOk = g_winOk && g_winPresent == g_presentNo;
+    struct WinNext { bool on; ~WinNext() { if (on) g_presentNo++; } } winNext{ s == g_fbSwap || g_fbSwap == nullptr };
     if (s == g_fbSwap || g_fbSwap == nullptr)
     {
         ID3D11Texture2D* bb = nullptr;
@@ -1920,9 +1930,9 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
     g_noDepth = false; g_depthBias = 0;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
-    FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f;profondita_camera=%s",
+    FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f;profondita_camera=%s;finestra=%d;copie_finestra=%ld",
        drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (useBcnCam ? (dzUse == g_winDsv ? "della_finestra" : "del_faro_avvicinata") : (g_keepOk ? "copia" : "revit")), sc ? 1 : 0, g_ready.size(),
-       nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift, bcn ? g_bcnZKind : "-");
+       nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift, bcn ? g_bcnZKind : "-", g_winOk ? 1 : 0, g_winCopies);
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -2248,7 +2258,7 @@ static void STDMETHODCALLTYPE HookRDrawAuto(ID3D11DeviceContext* c) { g_cDrawOth
 static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d)
 {
     g_cOMSet++;
-    if (g_bbRes && g_drawSeq - g_bindSeq >= 20)
+    if (g_bbRes && g_drawSeq - g_bindSeq >= 200)   // 266: l'interfaccia (#3) ha circa 150 disegni, il modello 540-680
     {   // voce 264: Revit lascia il buffer di profondita' con cui ha disegnato il modello nell'immagine della finestra
         ID3D11RenderTargetView* crt = nullptr; ID3D11DepthStencilView* cds = nullptr; c->OMGetRenderTargets(1, &crt, &cds);
         if (crt && cds)
