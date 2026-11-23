@@ -1549,3 +1549,15 @@ Ottava tornata (28/10/2026): octree
      Shader: byte alto del colore = opacita' del punto; al segnale si disegnano solo i punti pieni, i trasparenti al
      Present sopra il modello finito con la profondita' copiata e senza scriverla (PdSetPointAlpha, sel 1/2 in
      DrawPointsCore); nelle immagini interrotte prima i pieni e poi i trasparenti.
+
+260) Prova della 259 (video del 23/11 dalle 10:03:06, faro e collegamenti accesi): trasparenza dei link confermata
+     dall'utente. Profondita' ancora sbagliata nelle immagini col faro: pixel visibili per triangolo 0,85 di mediana
+     (fino a 1,5) contro 0,70 dei fotogrammi completi; nel video a tratti i punti dentro l'edificio sopra il tetto. Le
+     righe X;faro_z mostrano che nelle immagini intermedie la riga della profondita' del faro e' gia' quella del modello
+     (identica all'unica candidata con x, y, w uguali): la 258 non cambiava nulla, e in rotazione veloce scartava la
+     riga giusta (direzione cambiata oltre il limite) passando alla stima, peggio (stimata: fino a 1,7). Ora la riga del
+     faro si tiene se la sua scala e' tra 1/5 e 5 volte quella della camera precedente; altrimenti la candidata piu'
+     scritta con scala in quell'intervallo; altrimenti la stima. Dato che la riga e' giusta, il difetto sta nella copia
+     della profondita' dell'immagine col faro: per vederlo, alla prima immagine col faro di ogni vista e poi ogni 15 s
+     il diario registra 12 immagini consecutive (righe X;sequenza: destinazioni T(r# d#), pulizie Z, disegni dN, FARO
+     con il suo buffer di profondita', COPIA-FARO, contenuto della copia, PRESENT).

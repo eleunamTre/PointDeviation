@@ -714,6 +714,10 @@ static bool KeepStillGood();
 // qualcosa (profondita' sotto il valore di sfondo) e il valore medio: si vede se al Present il modello c'e' ancora.
 // =====================================================================================================================
 static bool g_trArm = false, g_trRec = false, g_trDone = false;
+// voce 260: sequenze di immagini consecutive nel diario (righe X;sequenza), partono alla prima immagine col faro di una
+// vista e poi al massimo ogni 15 s: si vede su quale buffer di profondita' Revit disegna il faro, se dopo il faro
+// disegna ancora il modello su quel buffer, quando lo lascia e cosa c'e' nella nostra copia.
+static int g_seqLeft = 0; static bool g_seqOn = false; static double g_seqAt = -1e9; static long g_seqGen = -1;
 static char g_trBuf[3500] = ""; static int g_trLen = 0; static long g_trDraws = 0;
 static void* g_trRes[32] = {}; static int g_trN = 0;
 static void TrPut(const char* f, ...)
@@ -797,6 +801,13 @@ static void TrPresent(IDXGISwapChain* s, bool full, ID3D11DepthStencilView* fbDs
         if (SUCCEEDED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) && bb) { id = TrId(bb); bb->Release(); }
         TrPut(" PRESENT(#%d, %s)", id, full ? "completo" : "interrotto");
         g_trRec = false; g_trDone = true;
+        if (g_seqOn)
+        {   // voce 260: nel diario, e si continua con l'immagine successiva
+            FT("X;sequenza;%s", g_trBuf);
+            g_trDone = false;
+            if (--g_seqLeft > 0) { g_trRec = true; g_trLen = 0; g_trBuf[0] = 0; g_trN = 0; g_trDraws = 0; }
+            else g_seqOn = false;
+        }
     }
     else if (g_trArm && !g_trDone) { g_trArm = false; g_trRec = true; g_trLen = 0; g_trBuf[0] = 0; g_trN = 0; g_trDraws = 0; }
 }
@@ -1352,6 +1363,7 @@ static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char
             if (cb[k]) { auto f = g_shadow.find(cb[k]); if (f != g_shadow.end()) g_bcnSnap[k] = f->second.f; cb[k]->Release(); }
         }
         g_bcnSnapOk = true;
+        if (g_trRec) { TrFlush(); ID3D11DepthStencilView* tv = nullptr; c->OMGetRenderTargets(0, nullptr, &tv); TrPut(" FARO(d#%d)", TrView(tv)); if (tv) tv->Release(); }   // voce 260
         if (g_bcnLocked)   // voce 250: profondita' di questa immagine, da copiare quando Revit la lascia
         {
             ID3D11DepthStencilView* cur = nullptr; c->OMGetRenderTargets(0, nullptr, &cur);
@@ -1546,15 +1558,6 @@ static int g_bcnZLogs = 0; static long g_bcnZLogGen = -1;
 // probabilita' quella di un passaggio disegnato sopra il modello (linee, contorni) con la profondita' schiacciata. Ora si
 // prende quella con la riga della profondita' piu' vicina a quella dell'ultima camera vera (scala entro 1/2-2 volte), e
 // le prime immagini di ogni vista scrivono nel diario tutte le candidate (righe X;faro_z).
-static double ZRowDist(const double* M, const double* P)
-{   // distanza tra le righe della profondita': rapporto delle scale (logaritmo) piu' differenza di direzione e di valore al centro
-    double ml = sqrt(M[8] * M[8] + M[9] * M[9] + M[10] * M[10]), pl = sqrt(P[8] * P[8] + P[9] * P[9] + P[10] * P[10]);
-    if (!(ml > 0) || !(pl > 0)) return 1e30;
-    double r = ml / pl; if (r < 0.5 || r > 2.0) return 1e30;
-    double dot = (M[8] * P[8] + M[9] * P[9] + M[10] * P[10]) / (ml * pl);
-    if (dot < 0.9) return 1e30;
-    return fabs(log(r)) + (1 - dot) + fabs(M[11] - P[11]);
-}
 static void PutRaw(const double* C, float* raw)
 {
     for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { float v = (float)C[r * 4 + k]; if (g_mT & 1) raw[r * 4 + k] = v; else raw[k * 4 + r] = v; }
@@ -1576,6 +1579,18 @@ static void BeaconFixDepth(float* raw, int nCand, const float* prevRaw)
     if (g_bcnZLogGen != g_viewGen) { g_bcnZLogGen = g_viewGen; g_bcnZLogs = 0; }
     bool logZ = g_bcnZLogs < 30; if (logZ) g_bcnZLogs++;
     if (logZ) FT("X;faro_z;precedente;%g;%g;%g;%g;faro;%g;%g;%g;%g;candidate=%d", P[8], P[9], P[10], P[11], B[8], B[9], B[10], B[11], nCand);
+    // voce 260 (diario del 23/11 10:03): nelle immagini intermedie la riga del faro e' quasi sempre gia' quella del modello
+    // (uguale alla candidata); quella «da nuvola» (scala ~1/2000) compare solo a tratti. In rotazione veloce la 258
+    // scartava la riga giusta (direzione cambiata piu' del previsto) e passava alla stima, peggio. Ora: riga del faro
+    // tenuta se la sua scala e' entro 1/5-5 volte quella della camera precedente; altrimenti la candidata con x, y, w
+    // uguali e scala in quell'intervallo (la piu' scritta); altrimenti la stima.
+    auto zScale = [](const double* M) { return sqrt(M[8] * M[8] + M[9] * M[9] + M[10] * M[10]); };
+    double pS = zScale(P), bS = zScale(B);
+    if (pS > 0 && bS > 0.2 * pS && bS < 5 * pS)
+    {
+        if (logZ) FT("X;faro_z;riga_del_faro_tenuta;scala=%.3f", bS / pS);
+        g_bcnZNone++; g_bcnZKind = "del_faro"; return;
+    }
     int best = -1, matched = 0; double bestD = 1e30;
     for (int i = 0; i < nCand && i < 16; i++)
     {
@@ -1583,7 +1598,8 @@ static void BeaconFixDepth(float* raw, int nCand, const float* prevRaw)
         double z = fabs(M[8]) + fabs(M[9]) + fabs(M[10]);
         if (!(z > 0) || !rowsXYW(M, 1e-5)) continue;
         matched++;
-        double d = ZRowDist(M, P);
+        double mS = zScale(M);
+        double d = pS > 0 && mS > 0.2 * pS && mS < 5 * pS ? 1.0 / (1 + g_cand[i].n) : 1e30;
         if (logZ) FT("X;faro_z;candidata=%d;scritture=%d;%g;%g;%g;%g;distanza=%g", i, g_cand[i].n, M[8], M[9], M[10], M[11], d);
         if (d < bestD) { bestD = d; best = i; }
     }
@@ -1622,6 +1638,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     {   // voce 250: Revit non ha lasciato quel buffer prima del Present: si copia ora
         ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
         if (cx) { BeaconDepthCopyRes(cx, g_bcnDzRef); cx->Release(); }
+        if (g_trRec) TrPut(" COPIA-FARO-AL-PRESENT");
     }
     BeaconDzDisarm();
     bool bcnDepth = g_bcnDepthOk; g_bcnDepthOk = false;   // voce 248
@@ -1629,6 +1646,11 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     {
         ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
         if (c) { TrDepth(c, g_keepDsv, "profondita' copiata all'uscita dalla scena"); c->Release(); }
+    }
+    if (g_trRec && bcnDepth && g_bcnDsv && g_realDev)
+    {   // voce 260: cosa c'e' nella copia della profondita' dell'immagine col faro
+        ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
+        if (c) { TrDepth(c, g_bcnDsv, "copia del faro"); c->Release(); }
     }
     TrPresent(s, g_drawnThisFrame, g_fbDsv);
     if (!g_realDev || g_fbVp.Width < 1) return;
@@ -1727,6 +1749,10 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         if (bcnStill) { bcn = false; g_bcnStill++; }
     }
     if (bcn) g_bcnUsed++;
+    if (bcn && !g_seqOn && (g_seqGen != g_viewGen || QpcMs() - g_seqAt > 15000))
+    {   // voce 260: da qui le prossime 12 immagini
+        g_seqGen = g_viewGen; g_seqAt = QpcMs(); g_seqOn = true; g_seqLeft = 12; g_trArm = true; g_trDone = false;
+    }
     g_bcnZKind = "";
     if (bcn) BeaconFixDepth(bcnRaw, nCandHere, g_chainGen == g_viewGen ? g_chainRaw : g_refRaw);   // voce 257
     // voce 256 (diario del 21/11 20:18, faro acceso): nelle immagini senza faro si cercava ancora la camera tra le matrici
@@ -2122,7 +2148,7 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
         }
     }
     g_rOMSet(c, n, r, d);
-    if (bcnLeave) { ID3D11Resource* rr = nullptr; bcnLeave->GetResource(&rr); BeaconDepthCopyRes(c, rr); if (rr) rr->Release(); bcnLeave->Release(); BeaconDzDisarm(); }
+    if (bcnLeave) { ID3D11Resource* rr = nullptr; bcnLeave->GetResource(&rr); BeaconDepthCopyRes(c, rr); if (rr) rr->Release(); bcnLeave->Release(); BeaconDzDisarm(); if (g_trRec) TrPut(" COPIA-FARO"); }
     if (leave)
     {
         g_dzArm = false;
