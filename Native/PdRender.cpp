@@ -714,11 +714,12 @@ static bool KeepStillGood();
 // qualcosa (profondita' sotto il valore di sfondo) e il valore medio: si vede se al Present il modello c'e' ancora.
 // =====================================================================================================================
 static bool g_trArm = false, g_trRec = false, g_trDone = false;
+static int g_trSrvSig = -1;   // voce 263: ultima combinazione di texture lette (vedi TrSrv)
 // voce 260: sequenze di immagini consecutive nel diario (righe X;sequenza), partono alla prima immagine col faro di una
 // vista e poi al massimo ogni 15 s: si vede su quale buffer di profondita' Revit disegna il faro, se dopo il faro
 // disegna ancora il modello su quel buffer, quando lo lascia e cosa c'e' nella nostra copia.
 static int g_seqLeft = 0; static bool g_seqOn = false; static double g_seqAt = -1e9; static long g_seqGen = -1;
-static char g_trBuf[3500] = ""; static int g_trLen = 0; static long g_trDraws = 0;
+static char g_trBuf[3900] = ""; static int g_trLen = 0; static long g_trDraws = 0;
 static void* g_trRes[32] = {}; static int g_trN = 0;
 static void TrPut(const char* f, ...)
 {
@@ -853,11 +854,11 @@ static void TrPresent(IDXGISwapChain* s, bool full, ID3D11DepthStencilView* fbDs
         {   // voce 260: nel diario, e si continua con l'immagine successiva
             FT("X;sequenza;%s", g_trBuf);
             g_trDone = false;
-            if (--g_seqLeft > 0) { g_trRec = true; g_trLen = 0; g_trBuf[0] = 0; g_trN = 0; g_trDraws = 0; }
+            if (--g_seqLeft > 0) { g_trRec = true; g_trLen = 0; g_trBuf[0] = 0; g_trN = 0; g_trDraws = 0; g_trSrvSig = -1; }
             else g_seqOn = false;
         }
     }
-    else if (g_trArm && !g_trDone) { g_trArm = false; g_trRec = true; g_trLen = 0; g_trBuf[0] = 0; g_trN = 0; g_trDraws = 0; }
+    else if (g_trArm && !g_trDone) { g_trArm = false; g_trRec = true; g_trLen = 0; g_trBuf[0] = 0; g_trN = 0; g_trDraws = 0; g_trSrvSig = -1; }
 }
 static UINT g_fbW = 0, g_fbH = 0;
 static bool g_drawnThisFrame = false;
@@ -2094,10 +2095,21 @@ static DrawIndexed_t g_rdefDI = nullptr;
 static DrawIndexedInst_t g_rdefDII = nullptr;
 static std::atomic<int> g_realDone{ 0 };
 static char g_realInfo[700] = "";
-static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_trRec) g_trDraws++; if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
-static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_trRec) g_trDraws++; BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+// voce 263: nelle sequenze, quali texture leggono i disegni (pixel shader, slot 0-3): si vede quando Revit copia
+// l'immagine della scena (#4) nella finestra e quali disegni vengono dopo (cubo di navigazione, maniglie del riquadro)
+static void TrSrv(ID3D11DeviceContext* c)
+{
+    ID3D11ShaderResourceView* v[4] = {}; c->PSGetShaderResources(0, 4, v);
+    int id[4]; for (int k = 0; k < 4; k++) { id[k] = TrView(v[k]); if (v[k]) v[k]->Release(); }
+    int sig = id[0] | (id[1] << 7) | (id[2] << 14) | (id[3] << 21);
+    if (sig == g_trSrvSig) return;
+    g_trSrvSig = sig; TrFlush();
+    TrPut(" S(#%d,#%d,#%d,#%d)", id[0], id[1], id[2], id[3]);
+}
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
 

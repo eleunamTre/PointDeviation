@@ -1584,3 +1584,11 @@ Ottava tornata (28/10/2026): octree
      fino a 4.096 caratteri, e durante le sequenze due righe per immagine: X;faro_copia (copertura e profondita' della
      copia usata nell'immagine col faro, profondita' del centro della nuvola con la camera del faro) e X;completo_copia
      (lo stesso per i fotogrammi completi).
+
+263) La nuvola disegnata al Present (immagini intermedie, fotogrammi con la trasparenza) passa sopra anche al cubo di
+     navigazione e alle maniglie del riquadro di sezione: al Present Revit li ha gia' disegnati nell'immagine della
+     finestra. Dalle sequenze: la scena si disegna in un'immagine a parte (#4 con profondita' #5), poi nella finestra
+     (#1) Revit fa circa 148 disegni prima del Present: li' dentro c'e' la copia della scena e poi l'interfaccia. Per
+     sapere dopo quale disegno inserire la nuvola (dopo la copia della scena, prima del cubo e delle maniglie), le
+     sequenze del diario ora scrivono anche quali texture legge ogni gruppo di disegni (S(#a,#b,#c,#d), slot 0-3 del
+     pixel shader). Solo diagnostica.
