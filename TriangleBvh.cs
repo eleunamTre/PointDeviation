@@ -35,7 +35,7 @@ namespace PointDeviation
         /// Si dividono a metà sul lato più lungo finché ogni lato non supera una lunghezza scelta in modo che il totale
         /// resti entro un limite di memoria. La superficie (e quindi ogni distanza e il suo segno) non cambia.
         /// </summary>
-        private static void Subdivide(ref double[] v, ref int count, out double edge)
+        private static void Subdivide(ref double[] v, ref int count, ref bool[] link, out double edge)
         {
             edge = 0;
             if (count <= 0) return;
@@ -57,12 +57,14 @@ namespace PointDeviation
             }
             edge = L;
             var outV = new List<double>(Math.Min(SplitBudget, count * 4) * 9);
+            var outL = link != null ? new List<bool>(Math.Min(SplitBudget, count * 4)) : null;   // voce 259
             var stack = new Stack<double[]>();
             for (int t = 0; t < count; t++)
             {
                 double e, area;
                 EdgeArea(v, t, out e, out area);
-                if (e <= L) { for (int j = 0; j < 9; j++) outV.Add(v[t * 9 + j]); continue; }
+                bool lk = link != null && link[t];
+                if (e <= L) { for (int j = 0; j < 9; j++) outV.Add(v[t * 9 + j]); if (outL != null) outL.Add(lk); continue; }
                 var tri = new double[9];
                 Array.Copy(v, t * 9, tri, 0, 9);
                 stack.Push(tri);
@@ -72,7 +74,7 @@ namespace PointDeviation
                     // lato più lungo: ab (0-1), bc (1-2), ca (2-0)
                     double lab = D2(q, 0, 1), lbc = D2(q, 1, 2), lca = D2(q, 2, 0);
                     double m = Math.Max(lab, Math.Max(lbc, lca));
-                    if (m <= L * L || outV.Count / 9 + stack.Count > SplitBudget * 3) { outV.AddRange(q); continue; }
+                    if (m <= L * L || outV.Count / 9 + stack.Count > SplitBudget * 3) { outV.AddRange(q); if (outL != null) outL.Add(lk); continue; }
                     int i0, i1, i2; // i0-i1 è il lato da dividere, i2 il vertice opposto
                     if (m == lab) { i0 = 0; i1 = 1; i2 = 2; } else if (m == lbc) { i0 = 1; i1 = 2; i2 = 0; } else { i0 = 2; i1 = 0; i2 = 1; }
                     double mx = (q[i0 * 3] + q[i1 * 3]) * 0.5, my = (q[i0 * 3 + 1] + q[i1 * 3 + 1]) * 0.5, mz = (q[i0 * 3 + 2] + q[i1 * 3 + 2]) * 0.5;
@@ -85,6 +87,7 @@ namespace PointDeviation
             }
             v = outV.ToArray();
             count = v.Length / 9;
+            if (outL != null) link = outL.ToArray();
         }
 
         /// <summary>Numero di pezzi della bisezione sul lato più lungo finché ogni lato è al massimo √L2.</summary>
@@ -162,11 +165,26 @@ namespace PointDeviation
         public int OriginalTriangles { get; private set; }
         public double SplitEdgeFt { get; private set; }
 
-        public TriangleBvh(double[] vertices, int triangleCount)
+        /// <summary>
+        /// voce 259: triangoli dei modelli collegati. Il punto prende la stessa provenienza del triangolo più vicino
+        /// (indice restituito in «hint» da Nearest), così l'analisi distingue i punti del modello in uso da quelli dei link.
+        /// </summary>
+        private bool[] _link;
+        public bool HasLinks { get { return _link != null; } }
+        public bool IsLink(int tri) { return _link != null && tri >= 0 && tri < _link.Length && _link[tri]; }
+
+        /// <param name="linkFrom">i triangoli da questo indice in poi vengono dai link (triangleCount = nessuno)</param>
+        public TriangleBvh(double[] vertices, int triangleCount, int linkFrom = int.MaxValue)
         {
             OriginalTriangles = triangleCount;
+            bool[] link = null;
+            if (linkFrom < triangleCount)
+            {
+                link = new bool[triangleCount];
+                for (int t = Math.Max(0, linkFrom); t < triangleCount; t++) link[t] = true;
+            }
             double edge;
-            Subdivide(ref vertices, ref triangleCount, out edge);
+            Subdivide(ref vertices, ref triangleCount, ref link, out edge);
             SplitEdgeFt = edge;
             _v = vertices;
             _n = new double[triangleCount * 3];
@@ -202,14 +220,16 @@ namespace PointDeviation
             int m = _idx.Length;
             var v2 = new double[m * 9];
             var n2 = new double[m * 3];
+            var l2 = link != null ? new bool[m] : null;
             for (int k = 0; k < m; k++)
             {
                 int t = _idx[k];
                 Array.Copy(_v, t * 9, v2, k * 9, 9);
                 Array.Copy(_n, t * 3, n2, k * 3, 3);
+                if (l2 != null) l2[k] = link[t];
                 _idx[k] = k;
             }
-            _v = v2; _n = n2;
+            _v = v2; _n = n2; _link = l2;
             _keys = null;
         }
 

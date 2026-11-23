@@ -409,7 +409,9 @@ static const char* g_shHlsl =
 "  float2 cn = float2((cr & 1) != 0 ? 1.0 : -1.0, (cr & 2) != 0 ? 1.0 : -1.0);\n"
 "  cl.xy += cn * float2(rpx * 2.0 / P.y, rpx * 2.0 / P.z) * cl.w;\n"
 "  o.pos = cl; o.uv = rpx < 1.25 ? cn * 0.5 : cn;\n"
-"  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, asfloat(Info2.z) * (fading ? gr : 1.0));\n"
+"  float op = ((d.w >> 24) & 255) / 255.0;\n"
+"  o.c = float4((d.w & 255) / 255.0, ((d.w >> 8) & 255) / 255.0, ((d.w >> 16) & 255) / 255.0, asfloat(Info2.z) * (fading ? gr : 1.0) * op);\n"
+"  if ((Bz.y > 0.5 && Bz.y < 1.5 && op < 0.999) || (Bz.y > 1.5 && op >= 0.999)) o.pos = float4(2, 2, 2, 1);\n"
 "  float dd[6];\n"
 "  [unroll] for (int k = 0; k < 6; k++) dd[k] = Info.w != 0 ? dot(Pl[k].xyz, p) + Pl[k].w : 1.0;\n"
 "  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
@@ -606,8 +608,14 @@ struct SavedState
 // voce 250: spostamento della nuvola verso chi guarda, in profondita' normalizzata (0 = nessuno). Si usa solo con la
 // camera ricavata dal faro, la cui profondita' e' approssimata di qualche centimetro.
 static float g_depthBias = 0;
+// voce 259: punti con la propria opacita' (byte alto del colore; analisi con i link «trasparenti»). sel: 0 = tutti,
+// 1 = solo quelli pieni, 2 = solo quelli trasparenti (sopra il modello finito, al Present, con la profondita' copiata e
+// senza scriverla). Gli altri punti finiscono fuori dalla finestra nel vertex shader.
+static bool g_ptAlpha = false;
+static long g_ptAlphaDraws = 0;
+extern "C" __declspec(dllexport) void PdSetPointAlpha(int on) { g_ptAlpha = on != 0; }
 // Disegno dei punti in g_ready con la matrice in matBuf (righe off..off+3, e off2..off2+3 se c'e' la seconda).
-static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off, int t, int off2, int t2, const D3D11_VIEWPORT& vp)
+static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off, int t, int off2, int t2, const D3D11_VIEWPORT& vp, int sel = 0)
 {
     int qk = GpuBegin(c);
     c->IASetInputLayout(nullptr);
@@ -619,10 +627,12 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     ID3D11Buffer* ours[2] = { g_scb, matBuf };
     c->VSSetConstantBuffers(0, 2, ours);
     bool tr = Transparent();
-    c->OMSetDepthStencilState(g_noDepth && g_sdssOff ? g_sdssOff : (tr ? g_sdssNoWrite : g_sdss), 0);
+    bool blend = tr || sel == 2;
+    if (sel == 2) g_ptAlphaDraws++;
+    c->OMSetDepthStencilState(g_noDepth && g_sdssOff ? g_sdssOff : (blend ? g_sdssNoWrite : g_sdss), 0);
     c->RSSetState(g_useScissor && g_srsSc ? g_srsSc : g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
-    c->OMSetBlendState(tr ? g_bsAlpha : g_bs, zero, 0xffffffff);
+    c->OMSetBlendState(blend ? g_bsAlpha : g_bs, zero, 0xffffffff);
     float alpha = tr ? g_alpha : 1.0f;
     // voce 200: piani di ritaglio dal plugin (riquadro di sezione, intervallo di vista, campo della sezione letti
     // dalle API di Revit), non piu' dal buffer di Revit (voce 196: li' la loro posizione cambia da vista a vista)
@@ -642,7 +652,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
                 memcpy(f + 8, g_clip, sizeof(g_clip));
                 // voce 205: seconda matrice (vista e proiezione separate nel buffer di Revit), come nel cubo di prova
                 in[32] = off2; in[33] = t2; f[34] = alpha; f[35] = it.grow;
-                f[36] = g_depthBias; f[37] = f[38] = f[39] = 0;   // voce 250
+                f[36] = g_depthBias; f[37] = (float)sel; f[38] = f[39] = 0;   // voce 250, 259
                 c->Unmap(g_scb, 0);
             }
             lastSp = it.spacing; lastGr = it.grow;
@@ -1124,7 +1134,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     SavedState st; st.Save(c, false);
     g_useScissor = g_partial;   // voce 229: le forbici di Revit sono gia' impostate, basta rispettarle
     g_drawSrc = 0; g_noDepth = false;
-    DrawPointsCore(c, rcb, g_mOff, g_mT & 1, g_mOff2, (g_mT >> 1) & 1, vp);
+    DrawPointsCore(c, rcb, g_mOff, g_mT & 1, g_mOff2, (g_mT >> 1) & 1, vp, g_ptAlpha ? 1 : 0);   // voce 259: i trasparenti al Present
     g_useScissor = false;
     st.Restore(c);
     rcb->Release();
@@ -1139,7 +1149,8 @@ static void ShaderDraw(ID3D11DeviceContext* c)
 // vera dell'ultimo fotogramma completo (la nuvola puo' restare indietro di qualche fotogramma rispetto al modello).
 // Disegno dei punti nell'immagine della finestra, con il buffer di profondita' di Revit e la camera cam (formato del
 // buffer di Revit). Restituisce true se ha disegnato.
-static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStencilView* dsv, const D3D11_RECT* sc, bool whole = false)
+// voce 259: sel -1 = tutta la nuvola (pieni e poi trasparenti se ce ne sono), 2 = solo i punti trasparenti
+static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStencilView* dsv, const D3D11_RECT* sc, bool whole = false, int sel = -1)
 {
     if (!dsv || !ShaderInit(g_realDev)) return false;
     bool done = false;
@@ -1175,7 +1186,10 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStenci
                 c->RSSetScissorRects(1, sc); g_useScissor = true;
             }
             // voce 247: camera dal faro = matrice intera nella prima, identita' nella seconda (usata solo se serve)
-            DrawPointsCore(c, g_fbMat, 0, g_mT & 1, whole ? 4 : (g_mOff2 >= 0 ? 4 : -1), whole ? 1 : (g_mT >> 1) & 1, g_fbVp);
+            int o2 = whole ? 4 : (g_mOff2 >= 0 ? 4 : -1), t2 = whole ? 1 : (g_mT >> 1) & 1;
+            if (sel == 2) DrawPointsCore(c, g_fbMat, 0, g_mT & 1, o2, t2, g_fbVp, 2);
+            else if (g_ptAlpha && !Transparent()) { DrawPointsCore(c, g_fbMat, 0, g_mT & 1, o2, t2, g_fbVp, 1); DrawPointsCore(c, g_fbMat, 0, g_mT & 1, o2, t2, g_fbVp, 2); }
+            else DrawPointsCore(c, g_fbMat, 0, g_mT & 1, o2, t2, g_fbVp);
             if (sc) { g_useScissor = false; c->RSSetScissorRects(nOld, nOld ? oldSc : nullptr); }
             st.Restore(c);
             done = true;
@@ -1673,6 +1687,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         bool tr = Transparent(), drew = false;
         g_drawSrc = 1; g_noDepth = QpcMs() < g_depthOffUntil;
         if (tr && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) { g_fbAlpha++; drew = true; }
+        // voce 259: punti trasparenti (link) sopra il modello finito, con la camera vera e la profondita' copiata
+        else if (!tr && g_ptAlpha && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc, false, 2)) drew = true;
         g_noDepth = false;
         FT("P;completo;trasparente=%d;disegnato_al_present=%d;opacita=%.2f;profondita=%s;parziale=%d;forbici=%d;blocchi=%zu",
            tr ? 1 : 0, drew ? 1 : 0, g_alpha, QpcMs() < g_depthOffUntil ? "ignorata" : (g_keptOld ? "tenuta_precedente" : (g_keepOk ? "copia" : "revit")), g_partial ? 1 : 0, sc ? 1 : 0, g_ready.size());

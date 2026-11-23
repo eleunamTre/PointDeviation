@@ -1537,3 +1537,15 @@ Ottava tornata (28/10/2026): octree
      quella dell'ultima camera vera (scala tra meta' e il doppio, stessa direzione); se nessuna va bene si usa la stima
      dalla camera precedente. Diario: righe «X;faro_z» con tutte le candidate per le prime 30 immagini col faro di ogni
      vista; nel registro il conteggio delle candidate scartate.
+
+259) Analisi con i modelli collegati: i punti la cui superficie piu' vicina e' di un link si distinguono da quelli del
+     modello in uso. Ogni triangolo dell'albero (TriangleBvh) sa se viene da un link (i triangoli dei link sono dopo
+     quelli del modello in ModelMeshExtractor; la provenienza segue la suddivisione e il riordino); il punto prende
+     quella del triangolo piu' vicino. Il bit si tiene nell'ultimo bit della distanza (LinkBit: in memoria il bit meno
+     significativo del float, su disco il bit 0 del valore a 16 bit, risoluzione dimezzata). Le distanze salvate prima
+     si ricalcolano (chiave del file cambiata). Impostazioni analisi › «Punti vicini ai link»: «Sbiaditi» (colori
+     dell'analisi schiariti verso il grigio) o «Trasparenti» (opacita' per punto, solo con il disegno con shader; senza
+     shader restano sbiaditi), con l'intensita' da 0 a 90% (60% di serie; 0 = come il modello). Salvate col progetto.
+     Shader: byte alto del colore = opacita' del punto; al segnale si disegnano solo i punti pieni, i trasparenti al
+     Present sopra il modello finito con la profondita' copiata e senza scriverla (PdSetPointAlpha, sel 1/2 in
+     DrawPointsCore); nelle immagini interrotte prima i pieni e poi i trasparenti.

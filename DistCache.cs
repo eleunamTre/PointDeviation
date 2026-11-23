@@ -12,6 +12,27 @@ namespace PointDeviation
     /// nuvola: rifacendo la stessa analisi (anche dopo aver chiuso e riaperto il progetto) le distanze già calcolate si
     /// rileggono invece di ricalcolarle. Ogni punto occupa 2 byte (distanza quantizzata sulla distanza massima).
     /// </summary>
+    /// <summary>
+    /// voce 259: provenienza della superficie più vicina (modello in uso o link) tenuta nell'ultimo bit della distanza.
+    /// In memoria: bit meno significativo della mantissa del float (un errore di 1 su 16 milioni, invisibile). Su disco:
+    /// bit 0 del valore a 16 bit (risoluzione della distanza dimezzata: distanza massima / 16.000).
+    /// </summary>
+    internal static class LinkBit
+    {
+        public static unsafe float Set(float d, bool link)
+        {
+            if (float.IsNaN(d)) return d;
+            int b = *(int*)&d;
+            b = link ? b | 1 : b & ~1;
+            return *(float*)&b;
+        }
+        public static unsafe bool Is(float d)
+        {
+            if (float.IsNaN(d)) return false;
+            return (*(int*)&d & 1) != 0;
+        }
+    }
+
     internal sealed class DistCache
     {
         private const int Magic = 0x31445044; // "PDD1"
@@ -49,6 +70,7 @@ namespace PointDeviation
         {
             ulong h = an.Signature;
             h = Mix(h, (ulong)Math.Round(an.SearchFt * 1e5));
+            h = Mix(h, 259);   // voce 259: formato con il bit del link (le distanze salvate prima si ricalcolano)
             double[] probe = { 0, 0, 0, 1000, 0, 0, 0, 1000, 0, 0, 0, 1000 };
             for (int k = 0; k < 4; k++)
             {
@@ -158,7 +180,7 @@ namespace PointDeviation
             for (int k = from; k < n; k++)
             {
                 short v = BitConverter.ToInt16(b, (k - from) * 2);
-                dst[k] = v == NoSurface ? float.NaN : (float)(v * _q);
+                dst[k] = v == NoSurface ? float.NaN : LinkBit.Set((float)((v & ~1) * _q), (v & 1) != 0);
             }
             return n;
         }
@@ -171,7 +193,7 @@ namespace PointDeviation
             for (int k = from; k < to; k++)
             {
                 float d = src[k];
-                short v = float.IsNaN(d) ? NoSurface : (short)Math.Max(-32000, Math.Min(32000, Math.Round(d / _q)));
+                short v = float.IsNaN(d) ? NoSurface : (short)((Math.Max(-32000, Math.Min(32000, (int)Math.Round(d / _q))) & ~1) | (LinkBit.Is(d) ? 1 : 0));
                 b[(k - from) * 2] = (byte)v; b[(k - from) * 2 + 1] = (byte)(v >> 8);
             }
             lock (_lock)
@@ -266,7 +288,7 @@ namespace PointDeviation
                 {
                     int k = idx[q];
                     double d;
-                    dist[offset + k] = bvh.Nearest(xyz[k * 3], xyz[k * 3 + 1], xyz[k * 3 + 2], range, stack, ref hint, out d) ? (float)d : float.NaN;
+                    dist[offset + k] = bvh.Nearest(xyz[k * 3], xyz[k * 3 + 1], xyz[k * 3 + 2], range, stack, ref hint, out d) ? LinkBit.Set((float)d, bvh.IsLink(hint)) : float.NaN;
                 }
                 return stack;
             }, _ => { Thread.CurrentThread.Priority = ThreadPriority.Normal; });
@@ -297,7 +319,7 @@ namespace PointDeviation
             {
                 int k = idx[q];
                 double d;
-                dist[offset + k] = bvh.Nearest(xyz[k * 3], xyz[k * 3 + 1], xyz[k * 3 + 2], range, stack, ref hint, out d) ? (float)d : float.NaN;
+                dist[offset + k] = bvh.Nearest(xyz[k * 3], xyz[k * 3 + 1], xyz[k * 3 + 2], range, stack, ref hint, out d) ? LinkBit.Set((float)d, bvh.IsLink(hint)) : float.NaN;
             }
         }
 

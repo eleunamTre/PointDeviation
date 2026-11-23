@@ -18,6 +18,8 @@ namespace PointDeviation
         [DataMember] public int MaxPoints;
         [DataMember] public bool SelectionOnly;
         [DataMember] public bool IncludeLinks;
+        [DataMember] public int? LinkLook;       // voce 259
+        [DataMember] public int? LinkStrength;
         [DataMember] public int Missing;
         [DataMember] public bool InvertSign;
         [DataMember] public int Display;
@@ -48,6 +50,8 @@ namespace PointDeviation
                 MaxPoints = s.MaxPoints,
                 SelectionOnly = s.SelectionOnly,
                 IncludeLinks = s.IncludeLinks,
+                LinkLook = s.LinkLook,
+                LinkStrength = s.LinkStrength,
                 ProfileId = s.ProfileId,
                 PointScale = s.PointScale,
                 XrayContrast = s.XrayContrast,
@@ -79,6 +83,8 @@ namespace PointDeviation
             if (MaxPoints > 0) s.MaxPoints = MaxPoints;
             s.SelectionOnly = SelectionOnly;
             s.IncludeLinks = IncludeLinks;
+            if (LinkLook.HasValue && LinkLook.Value >= 0 && LinkLook.Value <= 1) s.LinkLook = LinkLook.Value;
+            if (LinkStrength.HasValue) s.LinkStrength = Math.Max(0, Math.Min(90, LinkStrength.Value));
             if (!string.IsNullOrEmpty(ProfileId)) s.ProfileId = ProfileId;
             if (PointScale.HasValue && PointScale.Value >= 0 && PointScale.Value <= 400) s.PointScale = PointScale.Value;
             if (XrayContrast.HasValue && XrayContrast.Value >= 1 && XrayContrast.Value <= 100) s.XrayContrast = XrayContrast.Value;

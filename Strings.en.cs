@@ -286,6 +286,10 @@ namespace PointDeviation
             d["Piedi internazionali"] = "International feet";
             d["Piedi US survey"] = "US survey feet";
             d["Includi i modelli collegati (link)"] = "Include linked models";
+            d["Sbiaditi"] = "Faded";
+            d["Trasparenti"] = "Transparent";
+            d["Punti vicini ai link"] = "Points near links";
+            d["Trasparenti solo con il disegno con shader; altrimenti sbiaditi."] = "Transparent only with shader drawing; faded otherwise.";
             d["Inverti segno (se rosso e blu risultano scambiati)"] = "Invert sign (if red and blue appear swapped)";
             d["Pronto."] = "Ready.";
             d["Point Deviation: impostazioni"] = "Point Deviation: settings";

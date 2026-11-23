@@ -32,6 +32,10 @@ namespace PointDeviation
         public int MaxPoints = 500000;
         public bool SelectionOnly;
         public bool IncludeLinks;
+        /// <summary>Voce 259: come mostrare i punti la cui superficie più vicina è di un link (0 = sbiaditi, 1 = trasparenti).</summary>
+        public int LinkLook;
+        /// <summary>Voce 259: intensità dell'effetto sui punti dei link, 0..90 (0 = come quelli del modello in uso).</summary>
+        public int LinkStrength = 60;
         /// <summary>Profilo colore attivo per questo progetto (vedi ProfileStore).</summary>
         public string ProfileId = ProfileStore.DefaultId;
         public MissingMode Missing = MissingMode.Evidenzia;

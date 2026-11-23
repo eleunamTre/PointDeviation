@@ -60,6 +60,7 @@ namespace PointDeviation
 
             // ------------------------------------------------------------ modelli collegati
             // In modalità selezione si usano solo i link selezionati; altrimenti tutti, se richiesto.
+            int hostTris = tris;   // voce 259: i triangoli dei link vengono dopo quelli del modello in uso
             if (includeLinks || selection != null)
             {
                 foreach (Element el in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)))
@@ -91,7 +92,7 @@ namespace PointDeviation
             elementCount = elems;
             triangleCount = tris;
             if (tris == 0) return null;
-            return new TriangleBvh(verts.ToArray(), tris);
+            return new TriangleBvh(verts.ToArray(), tris, hostTris);
         }
 
         /// <summary>Bounding box del limite espresso nel sistema di coordinate del link (assi allineati al link).</summary>

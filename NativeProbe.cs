@@ -31,6 +31,9 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetAlpha(float a);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetPointAlpha(int on);
+        private static bool _ptAlphaMissing;
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetView(long viewId);
@@ -164,6 +167,10 @@ namespace PointDeviation
                 double a = st.NeedsTransparentPass ? 1.0 - st.DrawTransparency : 1.0;
                 if (a < 1 && LastScale > 0 && LastScale < 1) a = 1 - Math.Pow(1 - a, 1 / LastScale);
                 PdSetAlpha((float)Math.Min(1.0, a));
+                // voce 259: punti dei link trasparenti (opacità per punto); con una libreria vecchia si va avanti senza
+                if (!_ptAlphaMissing)
+                    try { PdSetPointAlpha(st.LinkTranslucent && st.LinkFx ? 1 : 0); }
+                    catch (EntryPointNotFoundException) { _ptAlphaMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetPointAlpha: ricompilare la libreria nativa (voce 259)"); }
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }

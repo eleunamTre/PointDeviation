@@ -86,6 +86,19 @@ namespace PointDeviation
         public bool DebugLevels;      // diagnostica: colori per livello dell'octree
         public double[] Zone;         // zona evidenziata (vedi ZoneHighlight), null = nessuna
         public double ZoneThrFt;
+        // voce 259: punti dell'analisi la cui superficie più vicina è di un modello collegato (bit in TileCpu.Dist, LinkBit)
+        public int LinkLook, LinkStrength;   // 0 = sbiaditi, 1 = trasparenti; intensità 0..90
+        public bool LinkTranslucent;         // trasparenti davvero: solo con il disegno con shader (altrimenti sbiaditi)
+        private byte _linkT;                 // trasparenza del punto del link (0 = opaco, 255 = invisibile)
+        public bool LinkFx { get { return LinkStrength > 0 && Mode == DisplayMode.Discrepanze && Analysis != null && Analysis.Bvh != null && Analysis.Bvh.HasLinks; } }
+
+        /// <summary>Voce 259: punto del link sbiadito verso il grigio chiaro, oppure trasparente (shader).</summary>
+        private void LinkColor(ref byte r, ref byte g, ref byte b, ref byte t)
+        {
+            if (LinkTranslucent) { t = _linkT; return; }
+            double k = LinkStrength / 100.0;
+            r = (byte)(r + (228 - r) * k); g = (byte)(g + (228 - g) * k); b = (byte)(b + (228 - b) * k);
+        }
 
         /// <summary>Zona evidenziata attiva (serve l'analisi: si colorano i punti lontani dal modello).</summary>
         public bool ZoneOn { get { return Zone != null && Analysis != null; } }
@@ -157,8 +170,13 @@ namespace PointDeviation
                 Analysis = analysis,
                 DebugLevels = CloudDebug.Levels,
                 Zone = ZoneHighlight.Box,
-                ZoneThrFt = ZoneHighlight.ThresholdFt
+                ZoneThrFt = ZoneHighlight.ThresholdFt,
+                LinkLook = s.LinkLook,
+                LinkStrength = Math.Max(0, Math.Min(90, s.LinkStrength))
             };
+            st.LinkTranslucent = st.LinkLook == 1 && NativeProbe.ShaderWanted;
+            // come per la trasparenza del profilo: i punti si sovrappongono, la trasparenza percepita è circa t^3
+            st._linkT = (byte)Math.Round(255 * Math.Min(0.97, Math.Pow(st.LinkStrength / 100.0, 1.0 / 3.0)));
             // analisi chiesta ma non disponibile: colori della scansione
             if (st.Mode == DisplayMode.Discrepanze && analysis == null) st.Mode = DisplayMode.Rgb;
             st.BuildLut();
@@ -255,9 +273,15 @@ namespace PointDeviation
                     if (Profile.IsSelection)
                     {
                         PointState st = Profile.Evaluate(mm, out r, out g, out b);
-                        return st != PointState.Nascosto;
+                        if (st == PointState.Nascosto) return false;
+                        if (LinkFx && LinkBit.Is(dk)) LinkColor(ref r, ref g, ref b, ref t);
+                        return true;
                     }
-                    if (!double.IsNaN(mm) && Lut(mm, out r, out g, out b)) return true;
+                    if (!double.IsNaN(mm) && Lut(mm, out r, out g, out b))
+                    {
+                        if (LinkFx && LinkBit.Is(dk)) LinkColor(ref r, ref g, ref b, ref t);
+                        return true;
+                    }
                     if (Missing == MissingMode.Nascondi || Profile.HideMissing) return false;
                     // con una zona evidenziata (viola) gli altri punti senza modello vanno in grigio: altrimenti, essendo
                     // anch'essi viola, la zona selezionata non si distinguerebbe
@@ -1812,7 +1836,7 @@ namespace PointDeviation
                 fixed (byte* q = &buf[o])
                 {
                     *(float*)q = (float)x; *(float*)(q + 4) = (float)y; *(float*)(q + 8) = (float)z;
-                    q[12] = r; q[13] = g; q[14] = b; q[15] = 255;
+                    q[12] = r; q[13] = g; q[14] = b; q[15] = (byte)(255 - t);   // voce 259: opacità del punto (link)
                 }
                 w++;
             }

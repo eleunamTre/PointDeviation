@@ -22,6 +22,11 @@ namespace PointDeviation
         private readonly NumericUpDown _maxPts = Num(50m, 20000m, 2000m, 0, 500m);
         private readonly ComboBox _scope = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 290 };
         private readonly CheckBox _links = new CheckBox { Text = L.T("Includi i modelli collegati (link)"), AutoSize = true };
+        // voce 259: punti la cui superficie più vicina è di un link, distinti da quelli del modello in uso
+        private readonly ComboBox _linkLook = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
+        private readonly TrackBar _linkStr = new TrackBar { Minimum = 0, Maximum = 90, TickFrequency = 10, SmallChange = 5, LargeChange = 10, Width = 150, AutoSize = false, Height = 32 };
+        private readonly Label _linkVal = new Label { AutoSize = true, MinimumSize = new Size(34, 0), Margin = new Padding(4, 8, 0, 0) };
+        private readonly Timer _linkTimer = new Timer { Interval = 250 };
         private readonly ComboBox _profile = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
         private readonly ComboBox _missing = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
         private readonly CheckBox _invert = new CheckBox { Text = L.T("Inverti segno (se rosso e blu risultano scambiati)"), AutoSize = true };
@@ -94,6 +99,16 @@ namespace PointDeviation
             addRow(L.T("Punti per le statistiche (migliaia)"), _maxPts);
             addRow(L.T("Modello"), _scope);
             addRow(null, _links);
+            _linkLook.Items.Add(L.T("Sbiaditi"));
+            _linkLook.Items.Add(L.T("Trasparenti"));
+            _linkLook.SelectedIndex = 0;
+            _linkStr.BackColor = UiTheme.Surface;
+            var linkRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+            linkRow.Controls.Add(_linkLook);
+            linkRow.Controls.Add(_linkStr);
+            linkRow.Controls.Add(_linkVal);
+            addRow(L.T("Punti vicini ai link"), linkRow);
+            new ToolTip().SetToolTip(_linkLook, L.T("Trasparenti solo con il disegno con shader; altrimenti sbiaditi."));
 
             // --- Azioni
             var btnRecalc = new Button { Text = L.T("Ricalcola distanze"), AutoSize = true };
@@ -126,6 +141,10 @@ namespace PointDeviation
 
             _profile.SelectedIndexChanged += OnStyleChanged;
             _missing.SelectedIndexChanged += OnStyleChanged;
+            _linkLook.SelectedIndexChanged += OnStyleChanged;
+            // il cursore ricolora tutta la nuvola: si applica quando si ferma
+            _linkStr.ValueChanged += (s, e) => { _linkVal.Text = _linkStr.Value + "%"; if (_loading) return; _linkTimer.Stop(); _linkTimer.Start(); };
+            _linkTimer.Tick += (s, e) => { _linkTimer.Stop(); OnStyleChanged(s, e); };
             _invert.CheckedChanged += OnStyleChanged;
 
             // cambiare l'insieme dei modelli confrontati richiede di ricalcolare le distanze
@@ -139,6 +158,7 @@ namespace PointDeviation
             {
                 DeviationController.ActiveChanged -= OnActiveChanged;
                 DeviationController.SettingsChanged -= OnSettingsChanged;
+                _linkTimer.Dispose();
             };
         }
 
@@ -197,6 +217,9 @@ namespace PointDeviation
             SetClamped(_maxPts, c.MaxPoints / 1000.0);
             _scope.SelectedIndex = c.SelectionOnly ? 1 : 0;
             _links.Checked = c.IncludeLinks;
+            _linkLook.SelectedIndex = Math.Max(0, Math.Min(1, c.LinkLook));
+            _linkStr.Value = Math.Max(0, Math.Min(90, c.LinkStrength));
+            _linkVal.Text = _linkStr.Value + "%";
             _profile.Items.Clear();
             int sel = 0;
             for (int i = 0; i < ProfileStore.All.Count; i++)
@@ -216,6 +239,8 @@ namespace PointDeviation
             s.MaxPoints = (int)_maxPts.Value * 1000;
             s.SelectionOnly = _scope.SelectedIndex == 1;
             s.IncludeLinks = _links.Checked;
+            s.LinkLook = Math.Max(0, _linkLook.SelectedIndex);
+            s.LinkStrength = _linkStr.Value;
             if (_profile.SelectedIndex >= 0 && _profile.SelectedIndex < ProfileStore.All.Count)
                 s.ProfileId = ProfileStore.All[_profile.SelectedIndex].Id;
             s.Missing = (MissingMode)Math.Max(0, _missing.SelectedIndex);
