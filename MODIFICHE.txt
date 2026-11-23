@@ -1573,3 +1573,14 @@ Ottava tornata (28/10/2026): octree
      Inoltre, Impostazioni analisi › «Senza modello: sbiadita/trasparente»: intensita' 0-90% (0 di serie) per i punti
      senza modello mostrati nell'analisi (es. profilo Tolleranza), con la stessa resa scelta per i link (sbiaditi, o
      trasparenti con il disegno con shader). Salvata col progetto.
+
+262) Prova della 261 (video del 23/11 dalle 10:25:14): punti fuori dal riquadro e trasparenza dei punti senza modello
+     confermati dall'utente. Profondita' nelle immagini col faro ancora sbagliata: pixel visibili per triangolo 1,11 di
+     mediana contro 0,53 dei fotogrammi completi, cioe' quasi nessun punto coperto dal modello. La riga della profondita'
+     del faro ha la scala del modello in tutte le 83 immagini registrate (tenuta). Le sequenze della 260 mostrano che
+     nelle immagini col faro Revit disegna il faro sul buffer di profondita' della scena e poi altri 2.400-5.200 disegni
+     sullo stesso buffer prima di lasciarlo (li' si fa la copia): la copia dovrebbe contenere il modello. Ma le righe
+     X;sequenza erano troncate a 320 caratteri (buffer del diario) e il contenuto della copia non si leggeva. Ora righe
+     fino a 4.096 caratteri, e durante le sequenze due righe per immagine: X;faro_copia (copertura e profondita' della
+     copia usata nell'immagine col faro, profondita' del centro della nuvola con la camera del faro) e X;completo_copia
+     (lo stesso per i fotogrammi completi).

@@ -43,7 +43,7 @@ static double QpcMs()
 static void FT(const char* fmt, ...)
 {
     if (!g_ftOn) return;
-    char b[320];
+    char b[4096];   // voce 262: era 320, le righe X;sequenza si troncavano
     int n = _snprintf_s(b, sizeof(b), _TRUNCATE, "%.1f;", QpcMs());
     va_list a; va_start(a, fmt);
     if (n > 0) _vsnprintf_s(b + n, sizeof(b) - n, _TRUNCATE, fmt, a);
@@ -787,6 +787,54 @@ static void TrDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const c
     }
     st->Release(); r->Release();
 }
+// voce 262: contenuto di un buffer di profondita' (copertura, z minima, massima e media) fuori dalle sequenze
+static bool DepthRead(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, double& cov, double& mn, double& mx, double& mean)
+{
+    cov = 0; mn = 1; mx = 0; mean = 0;
+    if (!dsv || !g_realDev) return false;
+    ID3D11Resource* r = nullptr; dsv->GetResource(&r);
+    if (!r) return false;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+    bool d24 = d.Format == DXGI_FORMAT_R24G8_TYPELESS || d.Format == DXGI_FORMAT_D24_UNORM_S8_UINT;
+    bool f32 = d.Format == DXGI_FORMAT_R32_TYPELESS || d.Format == DXGI_FORMAT_D32_FLOAT;
+    if ((!d24 && !f32) || d.SampleDesc.Count != 1) { r->Release(); return false; }
+    D3D11_TEXTURE2D_DESC sd = d; sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ; sd.MiscFlags = 0;
+    sd.MipLevels = 1; sd.ArraySize = 1;
+    ID3D11Texture2D* st = nullptr;
+    if (FAILED(g_realDev->CreateTexture2D(&sd, nullptr, &st)) || !st) { r->Release(); return false; }
+    c->CopyResource(st, r);
+    D3D11_MAPPED_SUBRESOURCE m; bool ok = false;
+    if (SUCCEEDED(c->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+    {
+        long n = 0, k = 0; double sum = 0;
+        for (UINT y = 0; y < d.Height; y += 8)
+        {
+            const unsigned char* row = (const unsigned char*)m.pData + (size_t)y * m.RowPitch;
+            for (UINT x = 0; x < d.Width; x += 8)
+            {
+                double z = d24 ? (double)(((const unsigned int*)row)[x] & 0xFFFFFF) / 16777215.0 : (double)((const float*)row)[x];
+                n++;
+                if (z < 0.99999 && z > 0.00001) { k++; sum += z; if (z < mn) mn = z; if (z > mx) mx = z; }
+            }
+        }
+        cov = n > 0 ? 100.0 * k / n : 0; mean = k > 0 ? sum / k : 0; ok = true;
+        c->Unmap(st, 0);
+    }
+    st->Release(); r->Release();
+    return ok;
+}
+static void ColFormD(const float* raw, double* C);
+static double g_cloudT[8][16]; static int g_nCloudT = 0;
+// profondita' (0..1) del centro della nuvola con la camera cam (formato del buffer di Revit), -1 se non si sa
+static double CloudCenterZ(const float* cam, bool whole)
+{
+    if (g_nCloudT <= 0) return -1;
+    double C[16]; ColFormD(cam, C);
+    double x = g_cloudT[0][3], y = g_cloudT[0][7], z = g_cloudT[0][11];
+    double cz = C[8] * x + C[9] * y + C[10] * z + C[11], cw = C[12] * x + C[13] * y + C[14] * z + C[15];
+    (void)whole;
+    return cw != 0 ? cz / cw : -1;
+}
 static void TrPresent(IDXGISwapChain* s, bool full, ID3D11DepthStencilView* fbDsv)
 {
     if (g_trRec)
@@ -1316,7 +1364,7 @@ static ID3D11Texture2D* g_bcnTex = nullptr; static ID3D11DepthStencilView* g_bcn
 static long g_bcnDepthCopies = 0, g_bcnDepthMissing = 0, g_bcnStill = 0;
 static bool g_bcnLocked = false;   // voce 247: posizione della matrice del faro appresa
 // voce 251: trasformazioni esatte delle istanze delle nostre nuvole (dal plugin, doppia precisione)
-static double g_cloudT[8][16]; static int g_nCloudT = 0; static long g_cloudTVer = 0;
+static long g_cloudTVer = 0;   // g_cloudT e g_nCloudT sono dichiarati prima (voce 262)
 static bool g_bcnExact = false; static long g_bcnExactVer = -1; static int g_bcnExactIdx = -1;
 extern "C" __declspec(dllexport) void PdSetCloudTransforms(const double* m, int n)
 {
@@ -1708,6 +1756,14 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         ID3D11DepthStencilView* dz = g_keepOk ? g_keepDsv : g_fbDsv;
         bool tr = Transparent(), drew = false;
         g_drawSrc = 1; g_noDepth = QpcMs() < g_depthOffUntil;
+        if (g_seqOn && dz && g_hasRef)
+        {   // voce 262: stesso confronto per i fotogrammi completi
+            ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+            double cov, mn, mx, me;
+            if (cx && DepthRead(cx, dz, cov, mn, mx, me))
+                FT("X;completo_copia;coperto=%.0f;z=%.4f-%.4f;media=%.4f;centro_nuvola_z=%.4f", cov, mn, mx, me, CloudCenterZ(g_refRaw, false));
+            if (cx) cx->Release();
+        }
         if (tr && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) { g_fbAlpha++; drew = true; }
         // voce 259: punti trasparenti (link) sopra il modello finito, con la camera vera e la profondita' copiata
         else if (!tr && g_ptAlpha && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc, false, 2)) drew = true;
@@ -1799,6 +1855,14 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         else { g_noDepth = true; g_bcnDepthMissing++; }
     }
     bool depthOff = g_noDepth;
+    if (g_seqOn && useBcnCam && dzUse == g_bcnDsv && g_realDev)
+    {   // voce 262: cosa c'e' nella copia e dove cade la nuvola con questa camera
+        ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+        double cov, mn, mx, me;
+        if (cx && DepthRead(cx, dzUse, cov, mn, mx, me))
+            FT("X;faro_copia;coperto=%.0f;z=%.4f-%.4f;media=%.4f;centro_nuvola_z=%.4f;camera=%s", cov, mn, mx, me, CloudCenterZ(camNow ? camNow : g_chainRaw, bcn), bcn ? "faro" : "faro_precedente");
+        if (cx) cx->Release();
+    }
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
     g_noDepth = false; g_depthBias = 0;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
