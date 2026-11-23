@@ -21,6 +21,7 @@ namespace PointDeviation
         [DataMember] public int? LinkLook;       // voce 259
         [DataMember] public int? LinkStrength;
         [DataMember] public int? MissingStrength;   // voce 261
+        [DataMember] public int? MissingLook;       // voce 265
         [DataMember] public int Missing;
         [DataMember] public bool InvertSign;
         [DataMember] public int Display;
@@ -54,6 +55,7 @@ namespace PointDeviation
                 LinkLook = s.LinkLook,
                 LinkStrength = s.LinkStrength,
                 MissingStrength = s.MissingStrength,
+                MissingLook = s.MissingLook,
                 ProfileId = s.ProfileId,
                 PointScale = s.PointScale,
                 XrayContrast = s.XrayContrast,
@@ -88,6 +90,7 @@ namespace PointDeviation
             if (LinkLook.HasValue && LinkLook.Value >= 0 && LinkLook.Value <= 1) s.LinkLook = LinkLook.Value;
             if (LinkStrength.HasValue) s.LinkStrength = Math.Max(0, Math.Min(90, LinkStrength.Value));
             if (MissingStrength.HasValue) s.MissingStrength = Math.Max(0, Math.Min(90, MissingStrength.Value));
+            if (MissingLook.HasValue && MissingLook.Value >= 0 && MissingLook.Value <= 1) s.MissingLook = MissingLook.Value;
             if (!string.IsNullOrEmpty(ProfileId)) s.ProfileId = ProfileId;
             if (PointScale.HasValue && PointScale.Value >= 0 && PointScale.Value <= 400) s.PointScale = PointScale.Value;
             if (XrayContrast.HasValue && XrayContrast.Value >= 1 && XrayContrast.Value <= 100) s.XrayContrast = XrayContrast.Value;

@@ -1605,3 +1605,7 @@ Ottava tornata (28/10/2026): octree
      Diario: X;finestra_copia (copertura della copia della finestra, anche nei fotogrammi completi) e X;faro_copia con
      copia=finestra/scena. Visto anche dove va messa la nuvola per stare sotto cubo e maniglie: dopo il modello nella
      finestra e prima dei disegni dell'interfaccia (prossimo passo).
+
+265) Impostazioni analisi: i punti senza modello hanno ora una resa propria («Punti senza modello»: Sbiaditi /
+     Trasparenti + intensita'), non piu' legata a quella dei link (con la 261 il menu dei link valeva per entrambi).
+     Salvata col progetto (MissingLook).

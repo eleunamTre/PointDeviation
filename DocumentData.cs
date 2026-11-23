@@ -178,7 +178,7 @@ namespace PointDeviation
               .Append('|').Append(zmin.ToString("R")).Append('|').Append(zmax.ToString("R"))
               .Append('|').Append(an != null ? an.Version : 0).Append('|').Append(CloudDebug.Levels)
               .Append('|').Append(ZoneHighlight.Key)
-              .Append('|').Append(s.LinkLook).Append('|').Append(s.LinkStrength).Append('|').Append(s.MissingStrength).Append('|').Append(NativeProbe.ShaderWanted);   // voce 259
+              .Append('|').Append(s.LinkLook).Append('|').Append(s.LinkStrength).Append('|').Append(s.MissingStrength).Append('|').Append(s.MissingLook).Append('|').Append(NativeProbe.ShaderWanted);   // voce 259
             if (s.CloudColors != null) foreach (var kv in s.CloudColors.OrderBy(k => k.Key)) sb.Append('|').Append(kv.Key).Append('=').Append(kv.Value);
             sb.Append('|').Append(Json(s.Profile)).Append('|').Append(Json(s.Clips));
             return sb.ToString();

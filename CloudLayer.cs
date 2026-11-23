@@ -96,14 +96,16 @@ namespace PointDeviation
         private byte _missT;
         public bool MissingFx { get { return MissingStrength > 0 && Mode == DisplayMode.Discrepanze && Analysis != null; } }
         /// <summary>Servono punti con opacità propria (disegno con shader).</summary>
-        public bool PointAlpha { get { return LinkTranslucent && (LinkFx || MissingFx); } }
+        public int MissingLook;              // voce 265: resa propria dei punti senza modello (0 = sbiaditi, 1 = trasparenti)
+        public bool MissingTranslucent;
+        public bool PointAlpha { get { return (LinkTranslucent && LinkFx) || (MissingTranslucent && MissingFx); } }
 
         /// <summary>Voce 259: punto del link sbiadito verso il grigio chiaro, oppure trasparente (shader).</summary>
-        private void LinkColor(ref byte r, ref byte g, ref byte b, ref byte t) { Fade(ref r, ref g, ref b, ref t, LinkStrength, _linkT); }
+        private void LinkColor(ref byte r, ref byte g, ref byte b, ref byte t) { Fade(ref r, ref g, ref b, ref t, LinkStrength, _linkT, LinkTranslucent); }
 
-        private void Fade(ref byte r, ref byte g, ref byte b, ref byte t, int strength, byte tr)
+        private static void Fade(ref byte r, ref byte g, ref byte b, ref byte t, int strength, byte tr, bool translucent)
         {
-            if (LinkTranslucent) { t = tr; return; }
+            if (translucent) { t = tr; return; }
             double k = strength / 100.0;
             r = (byte)(r + (228 - r) * k); g = (byte)(g + (228 - g) * k); b = (byte)(b + (228 - b) * k);
         }
@@ -186,6 +188,8 @@ namespace PointDeviation
                 MissingStrength = Math.Max(0, Math.Min(90, s.MissingStrength))
             };
             st.LinkTranslucent = st.LinkLook == 1 && NativeProbe.ShaderWanted;
+            st.MissingLook = s.MissingLook;
+            st.MissingTranslucent = st.MissingLook == 1 && NativeProbe.ShaderWanted;
             // come per la trasparenza del profilo: i punti si sovrappongono, la trasparenza percepita è circa t^3
             st._linkT = TByte(st.LinkStrength);
             st._missT = TByte(st.MissingStrength);
@@ -310,7 +314,7 @@ namespace PointDeviation
                     // anch'essi viola, la zona selezionata non si distinguerebbe
                     if (Missing == MissingMode.Evidenzia && !ZoneOn) { r = ColorScale.MissingRgb[0]; g = ColorScale.MissingRgb[1]; b = ColorScale.MissingRgb[2]; }
                     else { r = g = b = 150; }
-                    if (MissingFx) Fade(ref r, ref g, ref b, ref t, MissingStrength, _missT);   // voce 261
+                    if (MissingFx) Fade(ref r, ref g, ref b, ref t, MissingStrength, _missT, MissingTranslucent);   // voce 261, 265
                     return true;
                 }
             }

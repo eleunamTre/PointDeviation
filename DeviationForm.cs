@@ -28,6 +28,7 @@ namespace PointDeviation
         private readonly Label _linkVal = new Label { AutoSize = true, MinimumSize = new Size(34, 0), Margin = new Padding(4, 8, 0, 0) };
         private readonly Timer _linkTimer = new Timer { Interval = 250 };
         // voce 261: stessa resa per i punti senza modello
+        private readonly ComboBox _missLook = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };   // voce 265
         private readonly TrackBar _missStr = new TrackBar { Minimum = 0, Maximum = 90, TickFrequency = 10, SmallChange = 5, LargeChange = 10, Width = 150, AutoSize = false, Height = 32 };
         private readonly Label _missVal = new Label { AutoSize = true, MinimumSize = new Size(34, 0), Margin = new Padding(4, 8, 0, 0) };
         private readonly ComboBox _profile = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
@@ -134,11 +135,15 @@ namespace PointDeviation
             addRow(L.T("Profilo colore"), profRow);
             addRow(L.T("Nuvola senza modello"), _missing);
             _missStr.BackColor = UiTheme.Surface;
+            _missLook.Items.Add(L.T("Sbiaditi"));
+            _missLook.Items.Add(L.T("Trasparenti"));
+            _missLook.SelectedIndex = 0;
             var missRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+            missRow.Controls.Add(_missLook);
             missRow.Controls.Add(_missStr);
             missRow.Controls.Add(_missVal);
-            addRow(L.T("Senza modello: sbiadita/trasparente"), missRow);
-            new ToolTip().SetToolTip(_missStr, L.T("Stessa resa scelta per i link (sbiaditi o trasparenti); 0 = colore pieno."));
+            addRow(L.T("Punti senza modello"), missRow);
+            new ToolTip().SetToolTip(_missLook, L.T("Trasparenti solo con il disegno con shader; altrimenti sbiaditi. 0% = colore pieno."));
             addRow(null, _invert);
             addRow(null, _status);
             addRow(null, _stats);
@@ -154,6 +159,7 @@ namespace PointDeviation
             // il cursore ricolora tutta la nuvola: si applica quando si ferma
             _linkStr.ValueChanged += (s, e) => { _linkVal.Text = _linkStr.Value + "%"; if (_loading) return; _linkTimer.Stop(); _linkTimer.Start(); };
             _linkTimer.Tick += (s, e) => { _linkTimer.Stop(); OnStyleChanged(s, e); };
+            _missLook.SelectedIndexChanged += OnStyleChanged;
             _missStr.ValueChanged += (s, e) => { _missVal.Text = _missStr.Value + "%"; if (_loading) return; _linkTimer.Stop(); _linkTimer.Start(); };
             _invert.CheckedChanged += OnStyleChanged;
 
@@ -231,6 +237,7 @@ namespace PointDeviation
             _linkStr.Value = Math.Max(0, Math.Min(90, c.LinkStrength));
             _linkVal.Text = _linkStr.Value + "%";
             _missStr.Value = Math.Max(0, Math.Min(90, c.MissingStrength));
+            _missLook.SelectedIndex = Math.Max(0, Math.Min(1, c.MissingLook));
             _missVal.Text = _missStr.Value + "%";
             _profile.Items.Clear();
             int sel = 0;
@@ -254,6 +261,7 @@ namespace PointDeviation
             s.LinkLook = Math.Max(0, _linkLook.SelectedIndex);
             s.LinkStrength = _linkStr.Value;
             s.MissingStrength = _missStr.Value;
+            s.MissingLook = Math.Max(0, _missLook.SelectedIndex);
             if (_profile.SelectedIndex >= 0 && _profile.SelectedIndex < ProfileStore.All.Count)
                 s.ProfileId = ProfileStore.All[_profile.SelectedIndex].Id;
             s.Missing = (MissingMode)Math.Max(0, _missing.SelectedIndex);
