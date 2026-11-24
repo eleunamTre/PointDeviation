@@ -1647,3 +1647,16 @@ Ottava tornata (28/10/2026): octree
      riconoscono dal buffer di profondita' (una delle nostre copie), e i nostri disegni da un contatore attivo solo dentro
      DrawPointsCore. Nelle sequenze del diario, a ogni cambio di destinazione dopo almeno 200 disegni nella finestra,
      LASCIO(...) con i valori della condizione, per vedere subito se manca ancora qualcosa.
+
+270) Diario della 269 (24/11 10:43): le righe LASCIO hanno chiarito l'equivoco delle voci 263-269. I 540-880 disegni
+     «del modello nella finestra» con il buffer di profondita' #2 erano il NOSTRO disegno della nuvola al Present
+     dell'immagine precedente (la sequenza registrata parte subito dopo il Present e il nostro disegno sta dentro il
+     Present): il buffer #2 era una nostra copia (nostro=1) e il flag dei nostri disegni era attivo (flag=1). Revit
+     disegna la scena solo nell'immagine a parte (#4 con #5: faro, segnale, modello) e nella finestra (#1) solo
+     l'interfaccia (#3: cubo, maniglie, testi). Percio' le copie «della finestra» (264-267) e l'armamento della 268-269
+     non potevano funzionare. Ora la nuvola si disegna prima del PRIMO disegno di Revit nell'immagine della finestra di
+     ogni immagine (riarmo a ogni Present), con la logica di sempre (camera del faro o del fotogramma, profondita'
+     copiata della scena); il disegno al Present resta solo se nell'immagine Revit non disegna nella finestra. La
+     destinazione «finestra» si riconosce a ogni cambio di destinazione (g_curWin), non a ogni disegno.
+     Il problema della nuvola davanti al modello in orbita con i link resta da affrontare a parte (la copia della scena
+     nelle immagini col faro a volte e' parziale).

@@ -608,7 +608,8 @@ struct SavedState
 // voce 250: spostamento della nuvola verso chi guarda, in profondita' normalizzata (0 = nessuno). Si usa solo con la
 // camera ricavata dal faro, la cui profondita' e' approssimata di qualche centimetro.
 static float g_depthBias = 0;
-static int g_inOurDraw = 0;   // voce 269: dentro un nostro disegno (DrawPointsCore): i disegni che passano dagli agganci sono nostri
+static int g_inOurDraw = 0;
+static bool g_curWin = false;   // voce 270: la destinazione attuale e' l'immagine della finestra (aggiornato a ogni cambio)   // voce 269: dentro un nostro disegno (DrawPointsCore): i disegni che passano dagli agganci sono nostri
 static ID3D11DepthStencilView* g_winModelDsv = nullptr;
 static bool g_uiArm = false, g_uiDone = false, g_uiFull = false, g_depthNoWrite = false;
 static ID3D11RenderTargetView* g_uiRtv = nullptr;
@@ -1752,11 +1753,11 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     bool ui = g_uiRtv != nullptr;   // voce 268: chiamata prima dell'interfaccia, non dal Present
     if (!ui && g_uiDone && s == g_fbSwap)
     {   // nuvola gia' disegnata prima dell'interfaccia in questa immagine: al Present solo la fine della sequenza
-        g_uiDone = false; g_uiArm = false; g_presentNo++;
+        g_uiDone = false; g_uiArm = true; g_presentNo++;
         TrPresent(s, g_uiFull, g_fbDsv);
         return;
     }
-    if (!ui) g_uiArm = false;   // immagine finita senza interfaccia riconosciuta
+    struct Rearm { bool on; ~Rearm() { if (on) g_uiArm = true; } } rearm{ !ui && s == g_fbSwap };   // voce 270: l'immagine seguente
     struct OurDraw { ~OurDraw() { g_ourDraw = false; } } ourDraw; g_ourDraw = true;
     struct UiDone { bool on; ~UiDone() { if (on) { g_uiDone = true; g_uiDraws++; } } } uiDone{ ui };
     struct WinNext { bool on; ~WinNext() { if (on) g_presentNo++; } } winNext{ !ui && (s == g_fbSwap || g_fbSwap == nullptr) };
@@ -1975,13 +1976,18 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
 // nuvola, con la logica del Present (FallbackAtPresent) ma nella destinazione attuale e prima di quei disegni.
 static void BeforeUi(ID3D11DeviceContext* c)
 {
+    // voce 270 (diario della 269): i 540-880 disegni «del modello nella finestra» con il buffer #2 visti dalla 263 erano il
+    // NOSTRO disegno al Present dell'immagine prima (la sequenza registrata comincia subito dopo il Present, e il nostro
+    // disegno sta dentro il Present): LASCIO mostrava nostro=1. Revit disegna la scena solo nell'immagine a parte (#4/#5) e
+    // nella finestra solo l'interfaccia (#1/#3). Quindi: la nuvola si disegna prima del primo disegno di Revit
+    // nell'immagine della finestra, in ogni immagine.
     ID3D11RenderTargetView* rt = nullptr; ID3D11DepthStencilView* ds = nullptr; c->OMGetRenderTargets(1, &rt, &ds);
     bool go = false;
-    if (rt && g_winModelDsv)
+    if (rt)
     {
-        ID3D11Resource *rr = nullptr, *a = nullptr, *b = nullptr; rt->GetResource(&rr); if (ds) ds->GetResource(&a); g_winModelDsv->GetResource(&b);
-        go = IsWindowImage(rr) && a != b;
-        if (rr) rr->Release(); if (a) a->Release(); if (b) b->Release();
+        ID3D11Resource* rr = nullptr; rt->GetResource(&rr);
+        go = IsWindowImage(rr);
+        if (rr) rr->Release();
     }
     if (go && g_fbSwap)
     {
@@ -2229,10 +2235,10 @@ static void TrSrv(ID3D11DeviceContext* c)
     g_trSrvSig = sig; TrFlush();
     TrPut(" S(#%d,#%d,#%d,#%d)", id[0], id[1], id[2], id[3]);
 }
-static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
-static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
 
@@ -2333,14 +2339,18 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
             if (win && !ours && rn != rd)
             {
                 WinDepthCopy(c, cds); g_winDraws = g_drawSeq - g_bindSeq; if (g_trRec) TrPut(" COPIA-FINESTRA(%lld)", g_winDraws);
-                if (g_winModelDsv) g_winModelDsv->Release();
-                g_winModelDsv = cds; cds->AddRef(); g_uiArm = true;   // voce 268
+                // voce 270: quel «modello nella finestra» era il nostro disegno al Present (vedi BeforeUi): niente armamento qui
             }
             if (rr) rr->Release(); if (rd) rd->Release(); if (rn) rn->Release();
         }
         if (crt) crt->Release(); if (cds) cds->Release();
     }
     g_bindSeq = g_drawSeq;
+    {   // voce 270
+        bool w = false;
+        if (n > 0 && r && r[0]) { ID3D11Resource* rr = nullptr; r[0]->GetResource(&rr); w = IsWindowImage(rr); if (rr) rr->Release(); }
+        g_curWin = w;
+    }
     if (g_trRec) { TrFlush(); TrPut(" T(r#%d d#%d)", (n > 0 && r) ? TrView(r[0]) : 0, TrView(d)); }
     // voce 227: dopo il segnale, la prima volta che Revit lascia il buffer di profondita' della scena se ne fa una copia:
     // li' c'e' il modello finito, anche se poi Revit riusa o svuota quel buffer prima del Present (VistaIniziale)
