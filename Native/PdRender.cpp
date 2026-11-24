@@ -1123,6 +1123,7 @@ static bool UnLink(const float* raw, int L, float* out)
 // senza confronto con quella vecchia: e' la matrice M per cui un'altra matrice dello stesso fotogramma vale M x T, con T
 // la trasformazione di un collegamento (gli elementi dei collegamenti si disegnano con camera x trasformazione).
 static long g_hostHits = 0;
+static long g_noBcnImgs = 0, g_noBcnMoved = 0;   // voce 279
 static double g_candDumpAt = 0;
 static void Mul4(const float* A, const float* B, float* O)
 {
@@ -2233,6 +2234,37 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // attivo, un'immagine senza faro usa la camera precedente: se Revit ha ridisegnato il modello con una camera nuova
     // il faro c'e' (28 immagini su 29 nella prova delle 19:16).
     bool noGuess = g_bcnLocked && !bcn;
+    if (noGuess && !bcnStill && g_chainGen == g_viewGen)
+    {   // voce 279 (24/11 16:23, senza registrazione: la nuvola sfarfalla in orbita con i link, l'RCP no). Immagini senza
+        // faro: la nuvola usa la camera precedente. Se in quell'immagine Revit ha disegnato qualcosa con una camera nuova
+        // (per esempio solo il link) la nuvola resta indietro di un'immagine e salta. Si contano le matrici scritte da
+        // Revit (anche tolta la trasformazione di ogni collegamento) con x, y, w uguali alla camera usata o diverse ma con
+        // la stessa scala (camera spostata).
+        double P0[16]; ColFormD(g_chainRaw, P0);
+        auto nrm = [](const double* M, int r) { return sqrt(M[r * 4] * M[r * 4] + M[r * 4 + 1] * M[r * 4 + 1] + M[r * 4 + 2] * M[r * 4 + 2]); };
+        auto cls = [&](const float* raw) -> int {   // 1 uguale, 2 camera spostata, 0 altro
+            double R[16]; ColFormD(raw, R);
+            bool same = true;
+            for (int r = 0; r < 4 && same; r++)
+            {
+                if (r == 2) continue;
+                double nn = fabs(P0[r * 4]) + fabs(P0[r * 4 + 1]) + fabs(P0[r * 4 + 2]) + fabs(P0[r * 4 + 3]) + 1e-9;
+                for (int k = 0; k < 4; k++) if (fabs(R[r * 4 + k] - P0[r * 4 + k]) > 1e-3 * nn) { same = false; break; }
+            }
+            if (same) return 1;
+            for (int r = 0; r < 2; r++) { double a = nrm(P0, r), b = nrm(R, r); if (!(a > 0) || fabs(b / a - 1) > 0.02) return 0; }
+            return 2;
+        };
+        int nSame = 0, nMoved = 0, nOther = 0;
+        for (int i = 0; i < nCandHere && i < 16; i++)
+        {
+            int c = cls(g_cand[i].m);
+            for (int L = 0; L < g_nLinks && c != 1; L++) { float u[32]; if (UnLink(g_cand[i].m, L, u)) { int c2 = cls(u); if (c2 == 1 || (c2 == 2 && c == 0)) c = c2; } }
+            if (c == 1) nSame++; else if (c == 2) nMoved++; else nOther++;
+        }
+        g_noBcnImgs++; if (nMoved > 0 && nSame == 0) g_noBcnMoved++;
+        FT("X;senza_faro;candidate=%d;uguali=%d;spostate=%d;altre=%d", nCandHere, nSame, nMoved, nOther);
+    }
     int host = !bcn && !bcnStill && !noGuess && g_hasRef ? HostByLinks() : -1;
     if (host >= 0) g_hostHits++;
     int best = (bcn || bcnStill || noGuess) ? -1 : (host >= 0 ? host : (g_hasRef ? BestValidCand() : -1));
@@ -2484,6 +2516,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
             g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone, g_bcnZRej);
+        L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; immagini senza faro con la camera precedente %ld, di cui con matrici di una camera spostata e nessuna uguale %ld", g_noBcnImgs, g_noBcnMoved);
+        g_noBcnImgs = g_noBcnMoved = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; mesh del modello per la profondita': %d triangoli, disegnata in %ld immagini col faro (non riuscita %ld), tolleranza sulle superfici %s%s; scarto di Revit misurato %ld volte, ultimo %.3g (%.1f cm)%s",
             g_meshTris, g_meshDraws, g_meshFail, g_meshTol ? "accesa" : "spenta", g_meshShFailed ? ", shader della mesh non compilato" : "",

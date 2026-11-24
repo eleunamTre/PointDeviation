@@ -1739,3 +1739,12 @@ Ottava tornata (28/10/2026): octree
      quella dell'analisi, se c'e'. Solo con disegno con shader, faro e opzione accesi. Registro: riga [Mesh] con
      elementi, collegamenti, triangoli, tempo di lavoro e tempo totale. Prossimi passi possibili se serve: cache su
      disco con la versione dei documenti, aggiornamento dei soli elementi modificati.
+
+279) Prova della 277 senza registrazione (24/11 16:23): in orbita con i link la nostra nuvola sfarfalla, l'RCP no;
+     senza link va bene. Dal diario la profondita' non c'entra (pixel visibili per triangolo uguali nei fotogrammi
+     completi, nelle immagini col faro e in quelle con la camera precedente: mediana 0,74-0,77). Ipotesi: nelle
+     immagini senza faro (dopo ogni fotogramma completo e a tratti in fila, fino a 9) la nuvola usa la camera
+     precedente, ma Revit potrebbe aver disegnato qualcosa (per esempio solo il link) con una camera nuova: la nuvola
+     resta indietro di un'immagine e salta. Diagnostica: in quelle immagini si classificano le matrici scritte da Revit
+     (anche tolta la trasformazione di ogni collegamento) in uguali alla camera usata, spostate (stessa scala, x, y, w
+     diversi) o altre. Diario X;senza_faro; registro: immagini senza faro e quante con camera spostata e nessuna uguale.
