@@ -1422,6 +1422,7 @@ static ID3D11Resource* g_bcnDzSrc = nullptr;   // solo confronto, senza riferime
 static bool g_bcnDzArm = false, g_bcnDepthOk = false;
 static ID3D11Texture2D* g_bcnTex = nullptr; static ID3D11DepthStencilView* g_bcnDsv = nullptr;
 static long g_bcnDepthCopies = 0, g_bcnDepthMissing = 0, g_bcnStill = 0;
+static long g_bcnCopySerial = 0;   // voce 272: numero dell'ultima copia della profondita' del faro
 static bool g_bcnLocked = false;   // voce 247: posizione della matrice del faro appresa
 // voce 251: trasformazioni esatte delle istanze delle nostre nuvole (dal plugin, doppia precisione)
 static long g_cloudTVer = 0;   // g_cloudT e g_nCloudT sono dichiarati prima (voce 262)
@@ -1539,7 +1540,6 @@ static void SideCopy(ID3D11DeviceContext* ctx, ID3D11Resource* bcn)
 static void BeaconDepthCopyRes(ID3D11DeviceContext* ctx, ID3D11Resource* r)
 {
     if (!r || !g_realDev) return;
-    SideCopy(ctx, r);   // voce 271
     D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
     D3D11_TEXTURE2D_DESC k = {}; if (g_bcnTex) g_bcnTex->GetDesc(&k);
     if (!g_bcnTex || k.Width != d.Width || k.Height != d.Height || k.Format != d.Format || k.SampleDesc.Count != d.SampleDesc.Count)
@@ -1550,7 +1550,126 @@ static void BeaconDepthCopyRes(ID3D11DeviceContext* ctx, ID3D11Resource* r)
         if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_bcnTex)) && g_bcnTex)
             if (FAILED(g_realDev->CreateDepthStencilView(g_bcnTex, &g_bcnDzDesc, &g_bcnDsv))) { g_bcnTex->Release(); g_bcnTex = nullptr; g_bcnDsv = nullptr; }
     }
-    if (g_bcnTex && g_bcnDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_bcnTex, r); g_bcnDepthOk = true; g_bcnDepthCopies++; }
+    if (g_bcnTex && g_bcnDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_bcnTex, r); g_bcnDepthOk = true; g_bcnDepthCopies++; g_bcnCopySerial++; }
+}
+// =====================================================================================================================
+// Voce 272: profondita' del modello disegnata da noi. Il diario della 271 ha mostrato che nelle immagini intermedie la
+// profondita' del modello che si vede a schermo non sta in nessun buffer di Revit: #5 e #6 si alternano (uno ha il
+// modello nuovo, l'altro e' vuoto o uguale) e il resto dell'immagine e' ricomposto senza profondita'. Ora nella copia
+// della profondita' dell'immagine col faro si disegna anche la mesh del modello dell'analisi (modello e collegamenti, dal
+// plugin), con la stessa camera della nuvola: dove Revit ha scritto la profondita' vale la piu' vicina delle due, dove non
+// l'ha scritta vale la mesh. La mesh si carica nella scheda video una volta; il plugin la cambia solo con una nuova analisi.
+// =====================================================================================================================
+static std::mutex g_meshMx;
+static std::vector<float> g_meshCpu; static int g_meshCpuTris = 0; static double g_meshCpuO[3] = {}; static bool g_meshDirty = false;
+static ID3D11Buffer* g_meshBuf = nullptr; static ID3D11ShaderResourceView* g_meshSrv = nullptr; static int g_meshTris = 0;
+static double g_meshO[3] = {};
+static ID3D11VertexShader* g_meshVs = nullptr; static ID3D11Buffer* g_meshCb = nullptr; static bool g_meshShFailed = false;
+static long g_meshOnSerial = -1; static long g_meshDraws = 0, g_meshFail = 0;   // g_bcnCopySerial: vicino a g_bcnTex
+extern "C" __declspec(dllexport) void PdSetModelMesh(const float* xyz, int tris, const double* origin)
+{
+    std::lock_guard<std::mutex> l(g_meshMx);
+    if (tris < 0 || !xyz || !origin) tris = 0;
+    g_meshCpu.assign(xyz ? xyz : (const float*)nullptr, xyz ? xyz + (size_t)tris * 9 : (const float*)nullptr);
+    g_meshCpuTris = tris;
+    if (origin) { g_meshCpuO[0] = origin[0]; g_meshCpuO[1] = origin[1]; g_meshCpuO[2] = origin[2]; }
+    g_meshDirty = true;
+}
+static const char* g_meshHlsl =
+"cbuffer C : register(b0) { float4 R0; float4 R1; float4 R2; float4 R3; float4 Pl[6]; int4 Inf; };\n"
+"Buffer<float> V : register(t0);\n"
+"struct VO { float4 pos : SV_Position; float4 cd0 : SV_ClipDistance0; float2 cd1 : SV_ClipDistance1; };\n"
+"VO VS(uint vid : SV_VertexID) {\n"
+"  VO o; float4 q = float4(V.Load(vid * 3), V.Load(vid * 3 + 1), V.Load(vid * 3 + 2), 1);\n"
+"  o.pos = float4(dot(R0, q), dot(R1, q), dot(R2, q), dot(R3, q));\n"
+"  float dd[6];\n"
+"  [unroll] for (int k = 0; k < 6; k++) dd[k] = Inf.x != 0 ? dot(Pl[k].xyz, q.xyz) + Pl[k].w : 1.0;\n"
+"  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
+"  return o; }\n";
+static bool MeshReady(ID3D11Device* dev)
+{
+    if (!g_meshVs && !g_meshShFailed)
+    {
+        ID3DBlob *vb = nullptr, *err = nullptr;
+        if (FAILED(D3DCompile(g_meshHlsl, strlen(g_meshHlsl), "pdmesh", nullptr, nullptr, "VS", "vs_4_0", 0, 0, &vb, &err)) || !vb)
+        { FT("E;mesh_shader;%s", err ? (char*)err->GetBufferPointer() : "?"); if (err) err->Release(); g_meshShFailed = true; return false; }
+        dev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), nullptr, &g_meshVs); vb->Release();
+        D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 176; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        dev->CreateBuffer(&bd, nullptr, &g_meshCb);
+        if (!g_meshVs || !g_meshCb) { g_meshShFailed = true; FT("E;mesh_shader;creazione_non_riuscita"); return false; }
+    }
+    if (g_meshShFailed) return false;
+    std::lock_guard<std::mutex> l(g_meshMx);
+    if (g_meshDirty)
+    {
+        g_meshDirty = false;
+        if (g_meshSrv) { g_meshSrv->Release(); g_meshSrv = nullptr; }
+        if (g_meshBuf) { g_meshBuf->Release(); g_meshBuf = nullptr; }
+        g_meshTris = 0;
+        if (g_meshCpuTris > 0)
+        {
+            D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = (UINT)((size_t)g_meshCpuTris * 36); bd.Usage = D3D11_USAGE_IMMUTABLE; bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            D3D11_SUBRESOURCE_DATA sd = {}; sd.pSysMem = g_meshCpu.data();
+            HRESULT h = dev->CreateBuffer(&bd, &sd, &g_meshBuf);
+            if (SUCCEEDED(h) && g_meshBuf)
+            {
+                D3D11_SHADER_RESOURCE_VIEW_DESC vd = {}; vd.Format = DXGI_FORMAT_R32_FLOAT; vd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+                vd.Buffer.FirstElement = 0; vd.Buffer.NumElements = (UINT)((size_t)g_meshCpuTris * 9);
+                if (SUCCEEDED(dev->CreateShaderResourceView(g_meshBuf, &vd, &g_meshSrv)) && g_meshSrv) { g_meshTris = g_meshCpuTris; memcpy(g_meshO, g_meshCpuO, sizeof(g_meshO)); }
+                else { g_meshBuf->Release(); g_meshBuf = nullptr; }
+            }
+            FT("E;mesh_caricata;triangoli=%d;esito=%s", g_meshCpuTris, g_meshTris > 0 ? "ok" : "non_riuscita");
+        }
+        else FT("E;mesh_tolta");
+        std::vector<float>().swap(g_meshCpu);
+    }
+    return g_meshTris > 0 && g_meshSrv;
+}
+// disegna la mesh nel buffer di profondita' dsv con la camera cam (formato del buffer di Revit); true se disegnata
+static void ColFormD(const float* raw, double* C);
+static bool MeshDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const float* cam)
+{
+    if (!dsv || !cam || !g_realDev || !ShaderInit(g_realDev) || !MeshReady(g_realDev)) return false;
+    double C[16]; ColFormD(cam, C);
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (FAILED(c->Map(g_meshCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) { g_meshFail++; return false; }
+    float* f = (float*)m.pData; int* in = (int*)m.pData;
+    for (int r = 0; r < 4; r++)
+    {   // vertici relativi all'origine della mesh: la traslazione entra nella colonna 3 (in doppia precisione)
+        for (int k = 0; k < 3; k++) f[r * 4 + k] = (float)C[r * 4 + k];
+        f[r * 4 + 3] = (float)(C[r * 4] * g_meshO[0] + C[r * 4 + 1] * g_meshO[1] + C[r * 4 + 2] * g_meshO[2] + C[r * 4 + 3]);
+    }
+    for (int k = 0; k < 6; k++)
+    {
+        const float* pl = g_clip + k * 4;
+        f[16 + k * 4] = pl[0]; f[17 + k * 4] = pl[1]; f[18 + k * 4] = pl[2];
+        f[19 + k * 4] = (float)(pl[3] + pl[0] * g_meshO[0] + pl[1] * g_meshO[1] + pl[2] * g_meshO[2]);
+    }
+    in[40] = g_clipOn; in[41] = in[42] = in[43] = 0;
+    c->Unmap(g_meshCb, 0);
+    struct In { In() { g_inOurDraw++; } ~In() { g_inOurDraw--; } } inOur;
+    SavedState st; st.Save(c, true);
+    ID3D11ShaderResourceView* ps0 = nullptr; c->PSGetShaderResources(0, 1, &ps0);
+    c->OMSetRenderTargets(0, nullptr, dsv);
+    c->RSSetViewports(1, &g_fbVp);
+    c->IASetInputLayout(nullptr);
+    c->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
+    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    c->VSSetShader(g_meshVs, nullptr, 0);
+    c->PSSetShader(nullptr, nullptr, 0);
+    c->GSSetShader(nullptr, nullptr, 0);
+    c->VSSetConstantBuffers(0, 1, &g_meshCb);
+    c->VSSetShaderResources(0, 1, &g_meshSrv);
+    c->OMSetDepthStencilState(g_sdss, 0);
+    c->RSSetState(g_srs);
+    FLOAT zero[4] = { 0, 0, 0, 0 };
+    c->OMSetBlendState(g_bs, zero, 0xffffffff);
+    c->Draw((UINT)g_meshTris * 3, 0);
+    ID3D11ShaderResourceView* nul = nullptr; c->VSSetShaderResources(0, 1, &nul);
+    st.Restore(c);
+    if (ps0) ps0->Release();
+    g_meshDraws++;
+    return true;
 }
 static void BeaconDzDisarm() { g_bcnDzArm = false; if (g_bcnDzRef) { g_bcnDzRef->Release(); g_bcnDzRef = nullptr; } g_bcnDzSrc = nullptr; }
 static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char* kind)
@@ -2053,6 +2172,19 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         else if (g_bcnDepthChain && g_bcnDsv)
         {
             dzUse = g_bcnDsv;
+            if (g_meshOnSerial != g_bcnCopySerial && g_realDev)
+            {   // voce 272: mesh del modello nella copia, una volta per copia
+                ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+                if (cx)
+                {
+                    double c0 = -1, c1 = -1, mn, mx, me;
+                    if (g_seqOn) DepthRead(cx, g_bcnDsv, c0, mn, mx, me);
+                    bool md = MeshDepth(cx, g_bcnDsv, camNow ? camNow : g_chainRaw);
+                    if (md) g_meshOnSerial = g_bcnCopySerial;
+                    if (g_seqOn && md) { DepthRead(cx, g_bcnDsv, c1, mn, mx, me); FT("X;mesh_profondita;prima=%.0f;dopo=%.0f;triangoli=%d", c0, c1, g_meshTris); }
+                    cx->Release();
+                }
+            }
             double Cb[16]; ColFormD(camNow ? camNow : g_chainRaw, Cb);
             double a = sqrt(Cb[8] * Cb[8] + Cb[9] * Cb[9] + Cb[10] * Cb[10]);
             g_depthBias = (float)((g_bcnExact ? 0.0 : 0.3) * a);   // voce 251: con la trasformazione esatta nessuno spostamento
@@ -2253,9 +2385,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
             g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone, g_bcnZRej);
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; altro buffer della scena copiato %ld volte; immagini con profondita' scarsa (meno della meta' del fotogramma completo, %s): saltate %ld, trasparenti %ld; ultima copertura del fotogramma completo %.0f%%",
-            g_sideCopies, g_thinMode == 1 ? "nuvola saltata" : g_thinMode == 2 ? "nuvola trasparente" : "nessun ripiego", g_thinSkip, g_thinGhost, g_fullCov);
-        g_sideCopies = 0; g_thinSkip = g_thinGhost = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; mesh del modello per la profondita': %d triangoli, disegnata in %ld immagini col faro (non riuscita %ld)%s",
+            g_meshTris, g_meshDraws, g_meshFail, g_meshShFailed ? ", shader della mesh non compilato" : "");
+        g_meshDraws = g_meshFail = 0;
         g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0;
     }
     if (g_trDone && g_trBuf[0])

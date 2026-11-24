@@ -174,9 +174,26 @@ namespace PointDeviation
         public bool IsLink(int tri) { return _link != null && tri >= 0 && tri < _link.Length && _link[tri]; }
 
         /// <param name="linkFrom">i triangoli da questo indice in poi vengono dai link (triangleCount = nessuno)</param>
+        /// <summary>
+        /// Voce 272: triangoli originali (prima della suddivisione) in float, relativi a <see cref="DrawOrigin"/>, per la
+        /// profondità del modello disegnata dalla libreria nativa nelle immagini intermedie. Null se troppi triangoli.
+        /// </summary>
+        public float[] DrawVerts { get; private set; }
+        public double[] DrawOrigin { get; private set; }
+        private const int DrawMaxTriangles = 4000000;
+
         public TriangleBvh(double[] vertices, int triangleCount, int linkFrom = int.MaxValue)
         {
             OriginalTriangles = triangleCount;
+            if (triangleCount > 0 && triangleCount <= DrawMaxTriangles && vertices != null && vertices.Length >= triangleCount * 9)
+            {
+                double ox = 0, oy = 0, oz = 0;
+                for (int i = 0; i < triangleCount * 9; i += 3) { ox += vertices[i]; oy += vertices[i + 1]; oz += vertices[i + 2]; }
+                double k = 1.0 / (triangleCount * 3.0); ox *= k; oy *= k; oz *= k;
+                var f = new float[triangleCount * 9];
+                for (int i = 0; i < f.Length; i += 3) { f[i] = (float)(vertices[i] - ox); f[i + 1] = (float)(vertices[i + 1] - oy); f[i + 2] = (float)(vertices[i + 2] - oz); }
+                DrawVerts = f; DrawOrigin = new[] { ox, oy, oz };
+            }
             bool[] link = null;
             if (linkFrom < triangleCount)
             {

@@ -368,6 +368,11 @@ namespace PointDeviation
                         NativeProbe.LastScale = scale;
                         for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget, scale);
                         NativeProbe.SetClip(cam.ClipPlanes());
+                        // voce 272: mesh dell'analisi di questo documento per la profondità del modello in movimento
+                        {
+                            AnalysisSnapshot an = AdvancedSettings.Current.NoMeshDepth ? null : AnalysisRegistry.Get(DeviationController.KeyOf(view.Document));
+                            NativeProbe.SetModelMesh(an != null ? an.Bvh : null);
+                        }
                         NativeProbe.EndFrame(st, true);
                         // voce 234: riga del diario dei fotogrammi
                         {

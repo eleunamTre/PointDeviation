@@ -34,8 +34,10 @@ namespace PointDeviation
         private static extern void PdSetPointAlpha(int on);
         private static bool _ptAlphaMissing;
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetThinDepth(int mode);
-        private static bool _thinMissing;
+        private static extern void PdSetModelMesh(float[] xyz, int tris, double[] origin);
+        private static bool _meshMissing;
+        private static TriangleBvh _meshSent;
+        private static bool _meshAny;
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -145,6 +147,25 @@ namespace PointDeviation
         {
             try { return PdShaderUpload(layer, node, data, count) != 0; } catch (Exception ex) { Log.Error("DirectX", ex); return false; }
         }
+        /// <summary>
+        /// Voce 272: mesh del modello (dall'analisi del documento della vista) per la profondità disegnata dalla libreria
+        /// nelle immagini intermedie. Si invia solo quando cambia; null la toglie.
+        /// </summary>
+        public static void SetModelMesh(TriangleBvh bvh)
+        {
+            if (_meshMissing || _state <= 0) return;
+            if (bvh != null && bvh.DrawVerts == null) bvh = null;
+            if (ReferenceEquals(bvh, _meshSent) && (bvh != null || !_meshAny)) return;
+            try
+            {
+                if (bvh != null) PdSetModelMesh(bvh.DrawVerts, bvh.DrawVerts.Length / 9, bvh.DrawOrigin);
+                else PdSetModelMesh(null, 0, null);
+                _meshSent = bvh; _meshAny = bvh != null;
+                Log.Write("DirectX", bvh != null ? string.Format("mesh del modello per la profondità in movimento: {0:N0} triangoli (voce 272)", bvh.DrawVerts.Length / 9) : "mesh del modello per la profondità tolta (voce 272)");
+            }
+            catch (EntryPointNotFoundException) { _meshMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetModelMesh: ricompilare la libreria nativa (voce 272)"); }
+            catch (Exception ex) { Log.Error("DirectX", ex); }
+        }
         /// <summary>Voce 200: piani di ritaglio della vista (6 x nx, ny, nz, d) o null.</summary>
         public static void SetClip(float[] planes)
         {
@@ -174,10 +195,6 @@ namespace PointDeviation
                 if (!_ptAlphaMissing)
                     try { PdSetPointAlpha(st.PointAlpha ? 1 : 0); }
                     catch (EntryPointNotFoundException) { _ptAlphaMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetPointAlpha: ricompilare la libreria nativa (voce 259)"); }
-                // voce 271: immagini intermedie con poca profondità
-                if (!_thinMissing)
-                    try { PdSetThinDepth(Math.Max(0, Math.Min(2, AdvancedSettings.Current.ThinDepth))); }
-                    catch (EntryPointNotFoundException) { _thinMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetThinDepth: ricompilare la libreria nativa (voce 271)"); }
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }
