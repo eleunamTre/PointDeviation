@@ -1627,3 +1627,16 @@ Ottava tornata (28/10/2026): octree
      disegni), cioe' copiava la NOSTRA profondita'. Ora le nostre operazioni non fanno copie (g_ourDraw) e nelle
      immagini col faro si usa l'ultima copia fatta da Revit purche' successiva all'ultimo fotogramma completo; nel
      diario X;finestra_eta (Present trascorsi dalla copia).
+
+268) Diario della 267 (24/11 09:53-10:02): con l'esclusione delle nostre operazioni la copia della finestra non si fa
+     piu' del tutto (finestra=0 sempre): la variabile che le escludeva restava vera mentre Revit disegnava l'immagine
+     seguente. Insieme ai risultati della 264 e della 266 questo fa pensare che il Present arrivi in un momento (o da un
+     thread) diverso da quello atteso, e che lavorare al Present sia fragile. Cambio di metodo: la nuvola delle immagini
+     della finestra si disegna nel momento in cui Revit, dopo aver disegnato il modello nella finestra (#1 con #2) e
+     lasciato quel buffer di profondita', fa il primo disegno nella finestra con un altro buffer (l'interfaccia: cubo,
+     maniglie del riquadro, testi, evidenziazione). Li' si esegue la stessa logica di prima (FallbackAtPresent, camera
+     del faro, del fotogramma completo o precedente) con la destinazione attuale di Revit; nelle immagini col faro la
+     profondita' e' direttamente il buffer del modello appena disegnato (#2), senza copia e senza scriverci. Cosi'
+     l'interfaccia viene disegnata dopo, sopra la nuvola. Se quel momento non arriva, si disegna al Present come prima.
+     g_ourDraw ora vale per thread. Diario: prima_interfaccia=0/1 nelle righe P, profondita=del_modello_nella_finestra,
+     NUVOLA-PRIMA-DELL'INTERFACCIA nelle sequenze.

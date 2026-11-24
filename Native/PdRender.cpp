@@ -608,6 +608,10 @@ struct SavedState
 // voce 250: spostamento della nuvola verso chi guarda, in profondita' normalizzata (0 = nessuno). Si usa solo con la
 // camera ricavata dal faro, la cui profondita' e' approssimata di qualche centimetro.
 static float g_depthBias = 0;
+static ID3D11DepthStencilView* g_winModelDsv = nullptr;
+static bool g_uiArm = false, g_uiDone = false, g_uiFull = false, g_depthNoWrite = false;
+static ID3D11RenderTargetView* g_uiRtv = nullptr;
+static long g_uiDraws = 0, g_presentDraws = 0;
 // voce 259: punti con la propria opacita' (byte alto del colore; analisi con i link «trasparenti»). sel: 0 = tutti,
 // 1 = solo quelli pieni, 2 = solo quelli trasparenti (sopra il modello finito, al Present, con la profondita' copiata e
 // senza scriverla). Gli altri punti finiscono fuori dalla finestra nel vertex shader.
@@ -629,7 +633,7 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     bool tr = Transparent();
     bool blend = tr || sel == 2;
     if (sel == 2) g_ptAlphaDraws++;
-    c->OMSetDepthStencilState(g_noDepth && g_sdssOff ? g_sdssOff : (blend ? g_sdssNoWrite : g_sdss), 0);
+    c->OMSetDepthStencilState(g_noDepth && g_sdssOff ? g_sdssOff : (blend || g_depthNoWrite ? g_sdssNoWrite : g_sdss), 0);
     c->RSSetState(g_useScissor && g_srsSc ? g_srsSc : g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(blend ? g_bsAlpha : g_bs, zero, 0xffffffff);
@@ -1215,7 +1219,8 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStenci
     if (!dsv || !ShaderInit(g_realDev)) return false;
     bool done = false;
     ID3D11Texture2D* bb = nullptr;
-    if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return false;
+    if (g_uiRtv) { ID3D11Resource* ur = nullptr; g_uiRtv->GetResource(&ur); bb = (ID3D11Texture2D*)ur; if (!bb) return false; }   // voce 268
+    else if (FAILED(s->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return false;
     ID3D11Resource* dr = nullptr; dsv->GetResource(&dr);
     D3D11_TEXTURE2D_DESC bd2 = {}, dd2 = {};
     bb->GetDesc(&bd2);
@@ -1228,7 +1233,8 @@ static bool DrawAtPresent(IDXGISwapChain* s, const float* cam, ID3D11DepthStenci
         g_realDev->CreateBuffer(&bd, nullptr, &g_fbMat);
     }
     ID3D11RenderTargetView* rtv = nullptr;
-    if (c && g_fbMat && SUCCEEDED(g_realDev->CreateRenderTargetView(bb, nullptr, &rtv)) && rtv)
+    if (g_uiRtv) { rtv = g_uiRtv; rtv->AddRef(); }   // voce 268: la destinazione che Revit sta usando per l'interfaccia
+    if (c && g_fbMat && (rtv || (SUCCEEDED(g_realDev->CreateRenderTargetView(bb, nullptr, &rtv)) && rtv)))
     {
         D3D11_MAPPED_SUBRESOURCE m;
         if (SUCCEEDED(c->Map(g_fbMat, 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
@@ -1398,7 +1404,11 @@ static bool g_winOk = false; static long g_winCopies = 0, g_winUsed = 0; static 
 static long g_presentNo = 0, g_winPresent = -1;   // voce 266: la copia vale per l'immagine in corso (Present numerato)
 // voce 267: le nostre stesse operazioni (ripristino dello stato dopo il disegno al Present, sulla finestra e dopo
 // centinaia di nostri disegni) facevano una copia della NOSTRA profondita': g_ourDraw le esclude
-static bool g_ourDraw = false;
+static thread_local bool g_ourDraw = false;   // voce 268: per thread (il Present puo' arrivare da un altro thread)
+// voce 268: la nuvola si disegna nell'immagine della finestra subito prima dell'interfaccia (cubo, maniglie, evidenziazione
+// al passaggio del mouse), con la profondita' del modello appena disegnato nella finestra; al Present solo se non e' stato
+// possibile prima. g_winModelDsv: buffer di profondita' di Revit con il modello della finestra (con riferimento).
+// (dichiarati prima, vicino a g_depthBias)
 static long g_winAfterFull = 0;   // numero del Present dell'ultimo fotogramma completo
 static void WinDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* src)
 {
@@ -1737,8 +1747,18 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // vecchia al momento di usarla, anche se Revit l'aveva appena fatta (l'ordine tra il Present e il disegno
     // dell'immagine seguente non e' quello atteso). Si usa l'ultima copia fatta da Revit, se e' successiva all'ultimo
     // fotogramma completo; nel diario X;finestra_eta = Present trascorsi dalla copia.
+    bool ui = g_uiRtv != nullptr;   // voce 268: chiamata prima dell'interfaccia, non dal Present
+    if (!ui && g_uiDone && s == g_fbSwap)
+    {   // nuvola gia' disegnata prima dell'interfaccia in questa immagine: al Present solo la fine della sequenza
+        g_uiDone = false; g_uiArm = false; g_presentNo++;
+        TrPresent(s, g_uiFull, g_fbDsv);
+        return;
+    }
+    if (!ui) g_uiArm = false;   // immagine finita senza interfaccia riconosciuta
     struct OurDraw { ~OurDraw() { g_ourDraw = false; } } ourDraw; g_ourDraw = true;
-    struct WinNext { bool on; ~WinNext() { if (on) g_presentNo++; } } winNext{ s == g_fbSwap || g_fbSwap == nullptr };
+    struct UiDone { bool on; ~UiDone() { if (on) { g_uiDone = true; g_uiDraws++; } } } uiDone{ ui };
+    struct WinNext { bool on; ~WinNext() { if (on) g_presentNo++; } } winNext{ !ui && (s == g_fbSwap || g_fbSwap == nullptr) };
+    if (!ui) g_presentDraws++;
     if (s == g_fbSwap || g_fbSwap == nullptr)
     {
         ID3D11Texture2D* bb = nullptr;
@@ -1764,7 +1784,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
         if (c) { TrDepth(c, g_bcnDsv, "copia del faro"); c->Release(); }
     }
-    TrPresent(s, g_drawnThisFrame, g_fbDsv);
+    if (ui) g_uiFull = g_drawnThisFrame; else TrPresent(s, g_drawnThisFrame, g_fbDsv);
     if (!g_realDev || g_fbVp.Width < 1) return;
     DXGI_SWAP_CHAIN_DESC sd = {};
     if (FAILED(s->GetDesc(&sd))) return;
@@ -1834,8 +1854,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         // voce 259: punti trasparenti (link) sopra il modello finito, con la camera vera e la profondita' copiata
         else if (!tr && g_ptAlpha && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc, false, 2)) drew = true;
         g_noDepth = false;
-        FT("P;completo;trasparente=%d;disegnato_al_present=%d;opacita=%.2f;profondita=%s;parziale=%d;forbici=%d;blocchi=%zu",
-           tr ? 1 : 0, drew ? 1 : 0, g_alpha, QpcMs() < g_depthOffUntil ? "ignorata" : (g_keptOld ? "tenuta_precedente" : (g_keepOk ? "copia" : "revit")), g_partial ? 1 : 0, sc ? 1 : 0, g_ready.size());
+        FT("P;completo;trasparente=%d;disegnato_al_present=%d;opacita=%.2f;profondita=%s;parziale=%d;forbici=%d;blocchi=%zu;prima_interfaccia=%d",
+           tr ? 1 : 0, drew ? 1 : 0, g_alpha, QpcMs() < g_depthOffUntil ? "ignorata" : (g_keptOld ? "tenuta_precedente" : (g_keepOk ? "copia" : "revit")), g_partial ? 1 : 0, sc ? 1 : 0, g_ready.size(), ui ? 1 : 0);
         g_keepThisFrame = false; g_dzArm = false; g_partial = false; g_keptOld = false;
         return;
     }
@@ -1910,7 +1930,11 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     if (bcn) g_bcnDepthChain = bcnDepth;
     if (useBcnCam)
     {
-        if (bcn && g_winOk && g_winDsv && g_winPresent >= g_winAfterFull)
+        if (bcn && ui && g_winModelDsv)
+        {   // voce 268: profondita' del modello disegnato nella finestra in questa immagine, senza scriverla
+            dzUse = g_winModelDsv; g_depthNoWrite = true; g_winUsed++;
+        }
+        else if (bcn && g_winOk && g_winDsv && g_winPresent >= g_winAfterFull)
         {   // voce 264, 267: profondita' del modello disegnato nella finestra (ultima copia di Revit)
             dzUse = g_winDsv; g_winUsed++;
             if (g_seqOn) FT("X;finestra_eta;present=%ld;disegni=%lld", g_presentNo - g_winPresent, g_winDraws);
@@ -1937,11 +1961,35 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         if (cx) cx->Release();
     }
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
-    g_noDepth = false; g_depthBias = 0;
+    g_noDepth = false; g_depthBias = 0; g_depthNoWrite = false;
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
-    FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f;profondita_camera=%s;finestra=%d;copie_finestra=%ld",
-       drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (useBcnCam ? (dzUse == g_winDsv ? "della_finestra" : "del_faro_avvicinata") : (g_keepOk ? "copia" : "revit")), sc ? 1 : 0, g_ready.size(),
-       nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift, bcn ? g_bcnZKind : "-", g_winOk ? 1 : 0, g_winCopies);
+    FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f;profondita_camera=%s;finestra=%d;copie_finestra=%ld;prima_interfaccia=%d",
+       drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (useBcnCam ? (dzUse == g_winModelDsv ? "del_modello_nella_finestra" : dzUse == g_winDsv ? "della_finestra" : "del_faro_avvicinata") : (g_keepOk ? "copia" : "revit")), sc ? 1 : 0, g_ready.size(),
+       nCandHere, g_rjProj, g_rjAsp, g_rjOrtho, g_rjScale, g_rjFocus, g_rjOther, g_rjKmin < 1e8f ? g_rjKmin : 0.0f, g_rjKmax, g_rjShift, bcn ? g_bcnZKind : "-", g_winOk ? 1 : 0, g_winCopies, ui ? 1 : 0);
+}
+
+// voce 268: chiamata da ogni disegno di Revit dopo che ha lasciato il buffer di profondita' del modello nella finestra.
+// Al primo disegno nella finestra con un altro buffer di profondita' (l'interfaccia: cubo, maniglie, testi) si disegna la
+// nuvola, con la logica del Present (FallbackAtPresent) ma nella destinazione attuale e prima di quei disegni.
+static void BeforeUi(ID3D11DeviceContext* c)
+{
+    ID3D11RenderTargetView* rt = nullptr; ID3D11DepthStencilView* ds = nullptr; c->OMGetRenderTargets(1, &rt, &ds);
+    bool go = false;
+    if (rt && g_winModelDsv)
+    {
+        ID3D11Resource *rr = nullptr, *a = nullptr, *b = nullptr; rt->GetResource(&rr); if (ds) ds->GetResource(&a); g_winModelDsv->GetResource(&b);
+        go = IsWindowImage(rr) && a != b;
+        if (rr) rr->Release(); if (a) a->Release(); if (b) b->Release();
+    }
+    if (go && g_fbSwap)
+    {
+        g_uiArm = false;
+        if (g_trRec) TrPut(" NUVOLA-PRIMA-DELL'INTERFACCIA");
+        g_uiRtv = rt;
+        FallbackAtPresent(g_fbSwap, nullptr);
+        g_uiRtv = nullptr;
+    }
+    if (rt) rt->Release(); if (ds) ds->Release();
 }
 
 static long long NodeKey(int layer, int node) { return ((long long)layer << 32) | (unsigned int)node; }
@@ -2167,6 +2215,7 @@ static DrawIndexed_t g_rdefDI = nullptr;
 static DrawIndexedInst_t g_rdefDII = nullptr;
 static std::atomic<int> g_realDone{ 0 };
 static char g_realInfo[700] = "";
+static void BeforeUi(ID3D11DeviceContext* c);
 // voce 263: nelle sequenze, quali texture leggono i disegni (pixel shader, slot 0-3): si vede quando Revit copia
 // l'immagine della scena (#4) nella finestra e quali disegni vengono dopo (cubo di navigazione, maniglie del riquadro)
 static void TrSrv(ID3D11DeviceContext* c)
@@ -2178,10 +2227,10 @@ static void TrSrv(ID3D11DeviceContext* c)
     g_trSrvSig = sig; TrFlush();
     TrPut(" S(#%d,#%d,#%d,#%d)", id[0], id[1], id[2], id[3]);
 }
-static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
-static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
 
@@ -2273,7 +2322,12 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
         if (crt && cds)
         {
             ID3D11Resource *rr = nullptr, *rd = nullptr, *rn = nullptr; crt->GetResource(&rr); cds->GetResource(&rd); if (d) d->GetResource(&rn);
-            if (IsWindowImage(rr) && rn != rd) { WinDepthCopy(c, cds); g_winDraws = g_drawSeq - g_bindSeq; if (g_trRec) TrPut(" COPIA-FINESTRA(%lld)", g_winDraws); }
+            if (IsWindowImage(rr) && rn != rd)
+            {
+                WinDepthCopy(c, cds); g_winDraws = g_drawSeq - g_bindSeq; if (g_trRec) TrPut(" COPIA-FINESTRA(%lld)", g_winDraws);
+                if (g_winModelDsv) g_winModelDsv->Release();
+                g_winModelDsv = cds; cds->AddRef(); g_uiArm = true;   // voce 268
+            }
             if (rr) rr->Release(); if (rd) rd->Release(); if (rn) rn->Release();
         }
         if (crt) crt->Release(); if (cds) cds->Release();
