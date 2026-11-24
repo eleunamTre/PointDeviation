@@ -201,9 +201,9 @@ namespace PointDeviation
             _meshDepth.Text = L.T("In movimento: profondità del modello dalla mesh dell'analisi");
             p.Controls.Add(_meshDepth);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini che Revit mostra in movimento, la parte del modello che Revit non ha ancora ridisegnato copre la nuvola grazie alla mesh dell'ultima analisi (modello e collegamenti). Senza analisi non cambia niente.")));
-            _meshTol.Text = L.T("In movimento: tolleranza di 1 cm sulle superfici del modello");
+            _meshTol.Text = L.T("In movimento: stessa tolleranza di Revit sulle superfici del modello");
             p.Controls.Add(_meshTol);
-            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): i punti rilevati sulle superfici modellate restano visibili anche se stanno pochi millimetri dietro la faccia del modello (rumore dello scanner). Non sposta né la nuvola né il modello: decide solo quale dei due si vede, e solo in movimento. Spento: in movimento le facciate possono comparire a chiazze.")));
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): in movimento la mesh usa lo stesso scarto di profondità che Revit usa da fermo per il suo modello (misurato nei fotogrammi completi; finché non c'è, 1 cm), così i punti sulle superfici modellate si vedono come da fermo. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: in movimento le facciate possono comparire a chiazze.")));
             _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));

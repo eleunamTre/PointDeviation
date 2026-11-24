@@ -1574,6 +1574,13 @@ static long g_meshOnSerial = -1; static long g_meshDraws = 0, g_meshFail = 0;   
 // La nuvola non si tocca: i punti restano nella loro posizione e cambia solo chi vince i pareggi entro la tolleranza.
 // Solo nella profondita' invisibile delle immagini intermedie; spegnibile da Avanzate (PdSetMeshTolerance).
 static bool g_meshTol = true; static ID3D11RasterizerState* g_meshRs = nullptr;
+// voce 276: scarto di profondita' con cui Revit scrive il suo modello (diario della 275: Revit piu' lontano della mesh nel
+// 90% dei pixel, mediana 7-13 cm, quasi costante in una vista). Si misura nei fotogrammi completi (mesh contro copia della
+// profondita' di Revit, stessa camera) e la mesh delle immagini intermedie si scrive con lo stesso scarto: in movimento la
+// nuvola si comporta come da ferma. Finche' non c'e' una misura per la vista vale la tolleranza di 1 cm (274).
+static bool g_meshRevUsed = false;
+static double g_revOff = 0; static long g_revOffGen = -1; static double g_revOffAt = -1e9, g_revOffA = 0;
+static long g_revOffN = 0; static double g_revOffCm = 0;
 extern "C" __declspec(dllexport) void PdSetMeshTolerance(int on) { g_meshTol = on != 0; }
 extern "C" __declspec(dllexport) void PdSetModelMesh(const float* xyz, int tris, const double* origin)
 {
@@ -1661,7 +1668,9 @@ static bool MeshDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const
     in[40] = g_clipOn; in[42] = in[43] = 0;
     {   // voce 274: 1 cm (0,0328 ft) piu' lontano, nella scala della profondita' di questa camera
         double a = sqrt(C[8] * C[8] + C[9] * C[9] + C[10] * C[10]);
-        f[41] = g_meshTol ? (float)(0.0328 * a) : 0.0f;
+        bool rev = g_revOffGen == g_viewGen && g_revOff > 0;   // voce 276: lo scarto di Revit, se misurato in questa vista
+        f[41] = g_meshTol ? (float)(rev ? g_revOff : 0.0328 * a) : 0.0f;
+        g_meshRevUsed = g_meshTol && rev;
     }
     c->Unmap(g_meshCb, 0);
     struct In { In() { g_inOurDraw++; } ~In() { g_inOurDraw--; } } inOur;
@@ -1678,7 +1687,7 @@ static bool MeshDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const
     c->VSSetConstantBuffers(0, 1, &g_meshCb);
     c->VSSetShaderResources(0, 1, &g_meshSrv);
     c->OMSetDepthStencilState(g_sdss, 0);
-    c->RSSetState(g_meshTol && g_meshRs ? g_meshRs : g_srs);
+    c->RSSetState(g_meshTol && !g_meshRevUsed && g_meshRs ? g_meshRs : g_srs);   // con lo scarto di Revit niente quota per l'inclinazione
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(g_bs, zero, 0xffffffff);
     c->Draw((UINT)g_meshTris * 3, 0);
@@ -1692,9 +1701,10 @@ static bool MeshDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const
 // disegnata con la stessa camera, senza tolleranza, in una profondita' a parte. Dice se Revit scrive i muri spinti
 // indietro (e di quanto) e se la mesh coincide con il modello di Revit. Solo nel diario (X;mesh_revit), durante le sequenze.
 static ID3D11Texture2D* g_cmpTex = nullptr; static ID3D11DepthStencilView* g_cmpDsv = nullptr;
-static void MeshVsRevit(ID3D11DeviceContext* c, ID3D11DepthStencilView* revit, const float* cam)
+static void MeshVsRevit(ID3D11DeviceContext* c, ID3D11DepthStencilView* revit, const float* cam, bool log = true)
 {
     if (!c || !revit || !cam || g_meshTris <= 0 || !g_realDev) return;
+    g_revOffAt = QpcMs();   // voce 276: anche se la misura non riesce, non si riprova a ogni fotogramma
     ID3D11Resource* r = nullptr; revit->GetResource(&r);
     if (!r) return;
     D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d); r->Release();
@@ -1729,10 +1739,22 @@ static void MeshVsRevit(ID3D11DeviceContext* c, ID3D11DepthStencilView* revit, c
     double a = sqrt(C[8] * C[8] + C[9] * C[9] + C[10] * C[10]);
     bool ortho = fabs(C[12]) + fabs(C[13]) + fabs(C[14]) < 1e-9;
     size_t m = df.size();
-    if (m == 0) { FT("X;mesh_revit;entrambe=0;solo_mesh=%.1f;solo_revit=%.1f", 100.0 * onlyM / n, 100.0 * onlyR / n); return; }
+    if (m == 0) { if (log) FT("X;mesh_revit;entrambe=0;solo_mesh=%.1f;solo_revit=%.1f", 100.0 * onlyM / n, 100.0 * onlyR / n); return; }
     std::vector<float> s = df; std::sort(s.begin(), s.end());
     auto q = [&](double f) { return (double)s[(size_t)(f * (m - 1))]; };
     double toCm = ortho && a > 0 ? 30.48 / a : 0;   // differenza di profondita' in cm (solo vista ortogonale)
+    {   // voce 276: mediana dei pixel con scarto piccolo (esclusi elementi diversi tra Revit e mesh), con almeno il 2% di pixel
+        std::vector<float> w; w.reserve(m);
+        for (float x : s) if (x > -0.002f && x < 0.002f) w.push_back(x);
+        if (w.size() >= (size_t)(0.02 * n))
+        {
+            double med = w[w.size() / 2];
+            if (med > 0) { g_revOff = med; g_revOffGen = g_viewGen; g_revOffA = a; g_revOffN++; g_revOffCm = med * toCm; }
+            if (log) FT("X;scarto_revit;mediano=%.3g;cm=%.2f;pixel=%zu;usato=%d", med, med * toCm, w.size(), med > 0 ? 1 : 0);
+        }
+    }
+    g_revOffAt = QpcMs();
+    if (!log) return;
     FT("X;mesh_revit;entrambe=%.1f;solo_mesh=%.1f;solo_revit=%.1f;uguali=%.1f;revit_piu_lontana=%.1f;scarto_p10=%.3g;mediano=%.3g;p90=%.3g;medio=%.3g;cm_p10=%.2f;cm_mediano=%.2f;cm_p90=%.2f;ortogonale=%d",
        100.0 * m / n, 100.0 * onlyM / n, 100.0 * onlyR / n, 100.0 * eq / m, 100.0 * rFar / m, q(0.1), q(0.5), q(0.9), sum / m,
        q(0.1) * toCm, q(0.5) * toCm, q(0.9) * toCm, ortho ? 1 : 0);
@@ -2131,10 +2153,16 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
             if (cx && DepthRead(cx, dz, cov, mn, mx, me) && cov > 0) { g_fullCov = cov; g_fullCovGen = g_viewGen; }
             if (cx) cx->Release();
         }
-        if (g_seqOn && dz && g_keepOk && !g_partial && g_hasRef && g_refGen == g_viewGen && g_meshTris > 0)
-        {   // voce 275
-            ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
-            if (cx) { MeshVsRevit(cx, dz, g_refRaw); cx->Release(); }
+        if (dz && g_keepOk && !g_partial && g_hasRef && g_refGen == g_viewGen && g_meshTris > 0 && (g_seqOn || g_meshTol))
+        {   // voce 275 (diario), 276 (scarto di Revit): nelle sequenze sempre, altrimenti ogni 0,7 s o se cambia lo zoom
+            double Cz[16]; ColFormD(g_refRaw, Cz);
+            double az = sqrt(Cz[8] * Cz[8] + Cz[9] * Cz[9] + Cz[10] * Cz[10]);
+            bool due = g_revOffGen != g_viewGen || QpcMs() - g_revOffAt > 700 || (g_revOffA > 0 && fabs(az / g_revOffA - 1) > 0.05);
+            if (g_seqOn || due)
+            {
+                ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+                if (cx) { MeshVsRevit(cx, dz, g_refRaw, g_seqOn); cx->Release(); }
+            }
         }
         if (g_seqOn && dz && sideDepth && g_sideDsv)
         {   // voce 271
@@ -2457,9 +2485,10 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
             g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone, g_bcnZRej);
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; mesh del modello per la profondita': %d triangoli, disegnata in %ld immagini col faro (non riuscita %ld), tolleranza sulle superfici %s%s",
-            g_meshTris, g_meshDraws, g_meshFail, g_meshTol ? "accesa" : "spenta", g_meshShFailed ? ", shader della mesh non compilato" : "");
-        g_meshDraws = g_meshFail = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; mesh del modello per la profondita': %d triangoli, disegnata in %ld immagini col faro (non riuscita %ld), tolleranza sulle superfici %s%s; scarto di Revit misurato %ld volte, ultimo %.3g (%.1f cm)%s",
+            g_meshTris, g_meshDraws, g_meshFail, g_meshTol ? "accesa" : "spenta", g_meshShFailed ? ", shader della mesh non compilato" : "",
+            g_revOffN, g_revOff, g_revOffCm, g_revOffGen == g_viewGen ? "" : " (di un'altra vista: si usa 1 cm)");
+        g_meshDraws = g_meshFail = 0; g_revOffN = 0;
         g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0;
     }
     if (g_trDone && g_trBuf[0])

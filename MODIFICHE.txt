@@ -1707,3 +1707,13 @@ Ottava tornata (28/10/2026): octree
      copia della profondita' di Revit. Riga X;mesh_revit: percentuale di pixel con entrambe, solo mesh, solo Revit,
      uguali, Revit piu' lontana; scarto (Revit meno mesh) al 10%, 50% e 90% e medio, anche in centimetri nelle viste
      ortogonali. Se Revit e' piu' lontana di qualche millimetro in modo costante, la tolleranza della 274 si ricava da li'.
+
+276) Diario della 275 (24/11 15:42): nei fotogrammi completi la profondita' scritta da Revit e' piu' lontana della mesh
+     nel 90% dei pixel, con uno scarto quasi costante nella vista (mediana 7-13 cm, a volte 15); solo lo 0,1-1% dei
+     pixel ha la mesh senza Revit o il contrario, quindi la mesh coincide con il modello mostrato. Revit spinge
+     indietro il suo modello nella profondita' (perche' linee e bordi stiano sopra le facce): per questo da fermi i punti
+     sulle facciate vincono, mentre la tolleranza di 1 cm della 274 era dieci volte piu' piccola e non cambiava niente.
+     Ora lo scarto si misura nei fotogrammi completi (mediana dei pixel con mesh e Revit, ogni 0,7 s o quando cambia lo
+     zoom, sempre nelle sequenze) e la mesh delle immagini intermedie si scrive con lo stesso scarto, senza quota per
+     l'inclinazione; finche' nella vista non c'e' una misura resta 1 cm. Opzione rinominata «In movimento: stessa
+     tolleranza di Revit sulle superfici del modello». Diario: X;scarto_revit; registro: misure e ultimo scarto.
