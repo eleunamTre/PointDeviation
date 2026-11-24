@@ -219,6 +219,7 @@ namespace PointDeviation
         /// <summary>Voce 274: con la mesh, tolleranza di 1 cm (più l'inclinazione) a favore dei punti rilevati sulle
         /// superfici modellate. Spento (predefinito) = tolleranza attiva; acceso = nessuna tolleranza.</summary>
         [DataMember] public bool NoMeshTolerance;
+        [DataMember] public bool NoFlatBeaconFix;   // voce 282
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 
@@ -286,7 +287,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 281;
+        public const int Change = 282;
 
         public static string Describe()
         {

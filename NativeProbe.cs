@@ -39,6 +39,9 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetMeshTolerance(int on);
         private static bool _meshTolMissing;
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetFlatBeaconFix(int on);
+        private static bool _flatFixMissing;
         private static object _meshSent;
         private static bool _meshAny;
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -208,6 +211,10 @@ namespace PointDeviation
                 if (!_meshTolMissing)
                     try { PdSetMeshTolerance(AdvancedSettings.Current.NoMeshTolerance ? 0 : 1); }
                     catch (EntryPointNotFoundException) { _meshTolMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetMeshTolerance: ricompilare la libreria nativa (voce 274)"); }
+                // voce 282: profondita' del fotogramma completo in pianta e sezione
+                if (!_flatFixMissing)
+                    try { PdSetFlatBeaconFix(AdvancedSettings.Current.NoFlatBeaconFix ? 0 : 1); }
+                    catch (EntryPointNotFoundException) { _flatFixMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatBeaconFix: ricompilare la libreria nativa (voce 282)"); }
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }

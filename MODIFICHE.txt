@@ -1758,3 +1758,14 @@ Ottava tornata (28/10/2026): octree
      scompare: Revit sta ridisegnando, e con i collegamenti ogni ridisegno e' lento e a pezzi. La riga «[Fotogrammi]»
      (ogni 5 s) dice ora quanti RefreshActiveView ha chiesto il plugin e perche' (richiesta, fine zoom, camera ferma) e
      da dove arrivano le richieste (file:riga, le 8 piu' frequenti). Nessun cambiamento nel disegno.
+
+282) Pianta e sezione: la nuvola non passa piu' sopra e sotto il modello mentre si sposta o zooma. Nel diario della
+     pianta 009_1_0_FFL (24/11 16:58) le immagini intermedie col faro avevano la riga della profondita' «da nuvola»
+     (0, 0, -5e-7, 0,5: tutti i punti alla stessa profondita'), nessuna matrice del modello con cui correggerla e la stima
+     della 257 non partiva (il faro ha w diverso da 1). Quelle immagini (86 + 22) disegnavano la nuvola tutta davanti, con
+     la copia di profondita' del faro quasi vuota (0-24%), alternate a 100 immagini con la profondita' del fotogramma
+     completo: sopra e sotto. Ora, se la vista e' ortogonale e la direzione e' quella dell'ultimo fotogramma completo, la
+     camera prende x e y dal faro e la riga della profondita' da quel fotogramma, e la nuvola si confronta con la sua
+     profondita' copiata, come nelle altre immagini. Le coordinate dei punti non cambiano: decide solo quale si vede.
+     Opzione in Avanzate «In pianta e sezione: profondita' del fotogramma completo» (accesa). Va ricompilata PdRender.dll.
+

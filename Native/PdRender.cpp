@@ -1964,6 +1964,16 @@ static bool BeaconCamera(float* raw)
 // Se non c'e' (vista ortogonale), si stima la riga dalla camera precedente: stessa scala, direzione del faro, e il punto
 // al centro dello schermo resta alla stessa profondita'.
 static long g_bcnZFound = 0, g_bcnZEst = 0, g_bcnZNone = 0, g_bcnZRej = 0;
+// voce 282 (pianta e sezione del 24/11 16:58, la nuvola andava sopra e sotto): nelle viste ortogonali la riga del faro
+// e' quella «da nuvola» (0, 0, -5e-7, 0,5: tutti i punti a 0,4996), nessuna candidata e la stima non partiva (il faro ha
+// w diverso da 1). La nuvola finiva tutta davanti, con la copia del faro quasi vuota, alternata alle immagini con la
+// profondita' del fotogramma completo: sopra e sotto. Ora, se la vista e' ortogonale e la direzione non cambia (pianta,
+// sezione, prospetto, pan e zoom), si prende la riga della profondita' dell'ultimo fotogramma completo e la sua
+// profondita' copiata: x e y dal faro, profondita' confrontata alla pari con quella del modello. Solo visibilita'.
+static long g_bcnZFlat = 0;
+static bool g_bcnFlatNow = false, g_chainFlat = false;
+static bool g_noFlatFix = false;
+extern "C" __declspec(dllexport) void PdSetFlatBeaconFix(int on) { g_noFlatFix = on == 0; }
 static const char* g_bcnZKind = "";
 static int g_bcnZLogs = 0; static long g_bcnZLogGen = -1;
 // voce 258 (diario e video del 23/11 09:44:21): con la 257 la riga e' sempre «trovata», ma nelle immagini col faro i pixel
@@ -2038,6 +2048,26 @@ static void BeaconFixDepth(float* raw, int nCand, const float* prevRaw)
         PutRaw(B, raw); g_bcnZEst++; g_bcnZKind = "stimata"; return;
     }
     g_bcnZNone++; g_bcnZKind = "del_faro";
+}
+// voce 282: vista ortogonale con la stessa direzione dell'ultimo fotogramma completo: riga della profondita' di quel fotogramma
+static bool BeaconFlatDepth(float* raw)
+{
+    if (g_noFlatFix || g_refGen != g_viewGen) return false;
+    double B[16], R[16]; ColFormD(raw, B); ColFormD(g_refRaw, R);
+    auto ortho = [](const double* M) { return fabs(M[15]) > 0 && fabs(M[12]) + fabs(M[13]) + fabs(M[14]) < 1e-6 * fabs(M[15]); };
+    if (!ortho(B) || !ortho(R)) return false;
+    for (int r = 0; r < 2; r++)
+    {
+        double b = sqrt(B[r * 4] * B[r * 4] + B[r * 4 + 1] * B[r * 4 + 1] + B[r * 4 + 2] * B[r * 4 + 2]);
+        double q = sqrt(R[r * 4] * R[r * 4] + R[r * 4 + 1] * R[r * 4 + 1] + R[r * 4 + 2] * R[r * 4 + 2]);
+        if (!(b > 0) || !(q > 0)) return false;
+        double d = (B[r * 4] * R[r * 4] + B[r * 4 + 1] * R[r * 4 + 1] + B[r * 4 + 2] * R[r * 4 + 2]) / (b * q);
+        if (d < 0.99999) return false;   // direzione cambiata (orbita in 3D ortogonale): no
+    }
+    double f = B[15] / R[15];
+    for (int k = 0; k < 4; k++) B[8 + k] = R[8 + k] * f;
+    PutRaw(B, raw); g_bcnZFlat++; g_bcnZKind = "pianta";
+    return true;
 }
 static void BeaconPresent(bool full)
 {
@@ -2226,7 +2256,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         g_seqGen = g_viewGen; g_seqAt = QpcMs(); g_seqOn = true; g_seqLeft = 12; g_trArm = true; g_trDone = false;
     }
     g_bcnZKind = "";
-    if (bcn) BeaconFixDepth(bcnRaw, nCandHere, g_chainGen == g_viewGen ? g_chainRaw : g_refRaw);   // voce 257
+    g_bcnFlatNow = bcn && BeaconFlatDepth(bcnRaw);   // voce 282: pianta, sezione, prospetto
+    if (bcn && !g_bcnFlatNow) BeaconFixDepth(bcnRaw, nCandHere, g_chainGen == g_viewGen ? g_chainRaw : g_refRaw);   // voce 257
     // voce 256 (diario del 21/11 20:18, faro acceso): nelle immagini senza faro si cercava ancora la camera tra le matrici
     // scritte (212-216, 245). Con i collegamenti quelle matrici sono spesso degli elementi dei collegamenti (camera x
     // trasformazione del collegamento) e passano i controlli: la nuvola si disegnava spostata e il modello le passava
@@ -2275,7 +2306,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     if (curBlocked) { best = -1; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, g_refRaw, sizeof(g_chainRaw)); g_chainGen = g_viewGen; g_chainFromBeacon = false; } }
     const float* camNow = bcn ? bcnRaw : (best >= 0 ? g_cand[best].m : nullptr);
     float camBuf[32];
-    if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; g_chainFromBeacon = bcn; } }
+    if (camNow) { memcpy(camBuf, camNow, sizeof(camBuf)); camNow = camBuf; if (g_refGen == g_viewGen) { memcpy(g_chainRaw, camBuf, sizeof(camBuf)); g_chainGen = g_viewGen; g_chainFromBeacon = bcn; g_chainFlat = bcn && g_bcnFlatNow; } }
     g_nCand = 0; g_cmN = 0;
     if (!g_shaderOn || g_ready.empty() || !g_fbDsv) { FT("P;interrotto;salto=%s", !g_shaderOn ? "spento" : (g_ready.empty() ? "elenco_vuoto" : "niente_profondita")); return; }
     if (!g_hasRef || g_refGen != g_viewGen) { g_fbNoMat++; FT("P;interrotto;salto=camera_di_un'altra_vista"); return; }
@@ -2288,6 +2319,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // i punti che stanno sui muri, confrontati alla pari, finivano dietro (nuvola sparita sull'edificio, 249). Lo stesso
     // nelle immagini senza disegni che riusano quella camera. Senza copia, la profondita' si ignora.
     bool useBcnCam = bcn || (!camNow && g_chainFromBeacon);
+    // voce 282: in pianta e sezione la profondita' e' quella del fotogramma completo, come nelle immagini senza faro
+    if (useBcnCam && (bcn ? g_bcnFlatNow : g_chainFlat)) useBcnCam = false;
     if (bcn) g_bcnDepthChain = bcnDepth;
     if (useBcnCam)
     {
@@ -2514,8 +2547,8 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
-            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone, g_bcnZRej);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, dal fotogramma completo in pianta/sezione %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
+            g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZFlat, g_bcnZNone, g_bcnZRej);
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; immagini senza faro con la camera precedente %ld, di cui con matrici di una camera spostata e nessuna uguale %ld", g_noBcnImgs, g_noBcnMoved);
         g_noBcnImgs = g_noBcnMoved = 0;
@@ -2524,7 +2557,7 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
             g_meshTris, g_meshDraws, g_meshFail, g_meshTol ? "accesa" : "spenta", g_meshShFailed ? ", shader della mesh non compilato" : "",
             g_revOffN, g_revOff, g_revOffCm, g_revOffGen == g_viewGen ? "" : " (di un'altra vista: si usa 1 cm)");
         g_meshDraws = g_meshFail = 0; g_revOffN = 0;
-        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0;
+        g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0; g_bcnZFlat = 0;
     }
     if (g_trDone && g_trBuf[0])
     {
