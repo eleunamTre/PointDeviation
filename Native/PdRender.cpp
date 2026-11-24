@@ -270,7 +270,9 @@ static void FindRevitMatrixEx(ID3D11DeviceContext* c, bool loose)
             if (nb > 512) nb = 512;
             if (slot == g_goodSlot && d.ByteWidth == g_goodW && g_goodOff < nb && g_goodOff2 < nb && !IsBadM(g_goodSlot, g_goodOff, g_goodT, g_goodOff2, g_goodT2))
             {   // voce 288: prima la posizione che ha gia' funzionato
-                float sc = Score(f + g_goodOff * 4, g_goodT, g_goodOff2 >= 0 ? f + g_goodOff2 * 4 : nullptr, g_goodT2, loose);
+                // voce 292: basta il controllo senza la profondita' (nel diario delle 17:46-20:20, appena cambiata vista,
+                // la posizione giusta non passava quello completo e la ricerca prendeva le righe 13, 12 o 0)
+                float sc = Score(f + g_goodOff * 4, g_goodT, g_goodOff2 >= 0 ? f + g_goodOff2 * 4 : nullptr, g_goodT2, true);
                 if (sc >= 0) { best = 1000.0f; bSlot = slot; bOff = g_goodOff; bT = g_goodT; bOff2 = g_goodOff2; bT2 = g_goodT2; g_goodUsed++; }
             }
             for (int o = 0; o < nb; o++)
@@ -575,7 +577,11 @@ static void GpuCollect(ID3D11DeviceContext* c)
                 if (g_qSrc[k] == 0 && !g_noReSearch)
                 {   // voce 285: fotogramma normale, camera di Revit: la posizione della matrice e' sbagliata?
                     if (g_reSearchGen != g_mView) { g_reSearchGen = g_mView; g_reSearchN = 0; }
-                    if (++g_sigOut >= 3 && g_reSearchN < 4) { g_reSearchN++; g_reSearch = true; }
+                    // voce 292: la posizione che ha gia' funzionato non si scarta mai. In sezione e in 3D la nuvola puo' essere
+                    // davvero tutta fuori (piani di ritaglio, zoom su una zona senza punti): la 285 scartava la riga 15,
+                    // quella giusta, e passava alla 11 (nuvola ridotta a una striscia, «come se ruotasse tutto»).
+                    bool isGood = g_mSlot == g_goodSlot && g_mOff == g_goodOff && (g_mT & 1) == g_goodT && g_mOff2 == g_goodOff2 && g_mWidth == g_goodW;
+                    if (++g_sigOut >= 3 && g_reSearchN < 4 && !isGood) { g_reSearchN++; g_reSearch = true; }
                 }
                 if (g_qSrc[k] == 2) { if (now > g_badCurUntil) FT("E;camera_interrotto_fuori_finestra"); g_badCurUntil = now + 1000; }
             }

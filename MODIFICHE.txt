@@ -1828,3 +1828,11 @@ Ottava tornata (28/10/2026): octree
      cioe' si disegna prima dell'interfaccia come in 3D (270). Del «disegno semplice» resta solo l'esclusione delle
      regole dei fotogrammi parziali.
 
+292) Nuvola ridotta a una striscia in pianta e sezione, «come se ruotasse tutto», a caso con lo zoom. Nel diario delle
+     17:46-20:20 succedevano due cose. (1) La 285 scartava la posizione giusta della matrice (riga 15) quando la nuvola
+     era davvero tutta fuori dalla finestra (piani di ritaglio della sezione, zoom su una zona senza punti) e passava
+     alla riga 11, sbagliata: la nuvola si vedeva deformata finche' un altro scarto non tornava alla 15. Ora la
+     posizione che ha gia' funzionato (288) non si scarta mai. (2) Appena cambiata vista la posizione giusta non
+     passava il controllo completo e la ricerca prendeva le righe 13, 12 o 0: ora per quella posizione basta il
+     controllo senza la profondita'. Va ricompilata PdRender.dll.
+
