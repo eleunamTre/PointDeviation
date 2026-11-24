@@ -1816,3 +1816,11 @@ Ottava tornata (28/10/2026): octree
      scriverla). Conteggio «parziali disegnati con la profondita' intera di prima» nel rapporto DirectX. Va ricompilata
      PdRender.dll.
 
+290) Piante, sezioni e prospetti: disegno semplice, come prima di oggi (richiesta del 24/11 19:50: «per le piante non
+     possiamo spegnere il nostro modello di profondita'? quello di Revit andava»). Nelle viste piane la nuvola non usa
+     piu' le regole dei fotogrammi parziali (229-238, 287, 289: elenco e profondita' tenuti dal fotogramma prima) e si
+     disegna al Present invece che prima dell'interfaccia (270): si confronta con la profondita' che Revit ha in quel
+     fotogramma, rispettando le sue forbici. Nelle immagini intermedie resta la copia dell'ultimo fotogramma completo
+     (209). Le correzioni della camera (285, 286, 288) restano. In 3D non cambia niente. Opzione in Avanzate «In
+     pianta e sezione: disegno semplice (come prima)», accesa. Va ricompilata PdRender.dll.
+

@@ -172,6 +172,12 @@ static void ClearForNewView();
 // immagini intermedie, finiva fuori posto o fuori dalla finestra. Nelle viste piane il faro non si usa: le immagini
 // intermedie tornano al sistema di prima (camera dell'ultimo fotogramma, profondita' copiata).
 static bool g_flatView = false, g_flatBeacon = false;
+// voce 290: piante e sezioni come prima di oggi (senza 229-238 «fotogrammi parziali», 270 «prima dell'interfaccia», 289):
+// la nuvola si confronta con la profondita' che Revit ha in quel fotogramma; nelle immagini intermedie (209) resta la
+// copia dell'ultimo fotogramma completo, come sempre. Le correzioni della camera (285, 286, 288) restano.
+static bool g_flatSimple = true;
+extern "C" __declspec(dllexport) void PdSetFlatSimple(int on) { g_flatSimple = on != 0; }
+static bool FlatSimple() { return g_flatView && g_flatSimple; }
 extern "C" __declspec(dllexport) void PdSetFlatView(int flat, int useBeacon) { g_flatView = flat != 0; g_flatBeacon = useBeacon != 0; }
 extern "C" __declspec(dllexport) void PdSetView(long long viewId)
 {
@@ -1312,7 +1318,8 @@ static void ShaderDraw(ID3D11DeviceContext* c)
             if (ns > 0 && PartialRect(sr, g_fbVp, g_partRect))
             {
                 g_scRect = true;
-                if (sameCam || g_noCropFix) { g_partial = true; g_partMarker++; g_partLast = g_partRect; } else g_cropFrames++;
+                if (FlatSimple()) g_cropFrames++;   // voce 290: in pianta/sezione mai «parziale», le forbici si rispettano
+                else if (sameCam || g_noCropFix) { g_partial = true; g_partMarker++; g_partLast = g_partRect; } else g_cropFrames++;
             }
         }
     }
@@ -2503,6 +2510,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
 // nuvola, con la logica del Present (FallbackAtPresent) ma nella destinazione attuale e prima di quei disegni.
 static void BeforeUi(ID3D11DeviceContext* c)
 {
+    if (FlatSimple()) return;   // voce 290: in pianta/sezione la nuvola si disegna al Present, come prima della 270
     // voce 270 (diario della 269): i 540-880 disegni «del modello nella finestra» con il buffer #2 visti dalla 263 erano il
     // NOSTRO disegno al Present dell'immagine prima (la sequenza registrata comincia subito dopo il Present, e il nostro
     // disegno sta dentro il Present): LASCIO mostrava nostro=1. Revit disegna la scena solo nell'immagine a parte (#4/#5) e
