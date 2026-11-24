@@ -136,7 +136,38 @@ namespace PointDeviation
             get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PointDeviation"); }
         }
 
-        public static string FilePath { get { return Path.Combine(Folder, "PointDeviation.log"); } }
+        // voce 283: con due Revit aperti (uno per lavorare, uno per le prove) ognuno scrive i suoi file. Il primo Revit
+        // usa i nomi di sempre, il secondo «PointDeviation-2.log» e «PointDeviation-2-frames.log», e cosi' via. Il numero
+        // e' tenuto da un mutex di Windows per tutta la vita del processo: chiuso Revit, il numero si libera.
+        private static string _instance;
+        private static System.Threading.Mutex _instanceMutex;
+        public static string Instance
+        {
+            get
+            {
+                if (_instance != null) return _instance;
+                lock (_lock)
+                {
+                    if (_instance != null) return _instance;
+                    string tag = "";
+                    try
+                    {
+                        for (int i = 1; i <= 9; i++)
+                        {
+                            bool created;
+                            var m = new System.Threading.Mutex(true, @"Local\PointDeviation_Instance_" + i, out created);
+                            if (created) { _instanceMutex = m; tag = i == 1 ? "" : "-" + i; break; }
+                            m.Dispose();
+                        }
+                    }
+                    catch { tag = ""; }
+                    _instance = tag;
+                    return _instance;
+                }
+            }
+        }
+
+        public static string FilePath { get { return Path.Combine(Folder, "PointDeviation" + Instance + ".log"); } }
 
         public static LogLevel Level { get { return AdvancedSettings.Current.LogLevel; } }
 
@@ -287,7 +318,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 282;
+        public const int Change = 283;
 
         public static string Describe()
         {

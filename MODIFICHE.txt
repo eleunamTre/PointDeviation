@@ -1769,3 +1769,10 @@ Ottava tornata (28/10/2026): octree
      profondita' copiata, come nelle altre immagini. Le coordinate dei punti non cambiano: decide solo quale si vede.
      Opzione in Avanzate «In pianta e sezione: profondita' del fotogramma completo» (accesa). Va ricompilata PdRender.dll.
 
+283) Due Revit aperti insieme (uno per lavorare, uno per le prove): ogni Revit scrive il suo registro e il suo
+     diario. Il primo usa i nomi di sempre (PointDeviation.log, PointDeviation-frames.log), il secondo
+     PointDeviation-2.log e PointDeviation-2-frames.log, e cosi' via; il numero si libera alla chiusura di quel Revit.
+     Nella riga [Versione] compare quale registro si sta usando. Per provare una versione nuova senza chiudere il lavoro
+     basta gia' la voce 203: si compila con Revit aperto, le DLL in uso vengono rinominate e il Revit che si apre dopo
+     carica quelle nuove, mentre quello gia' aperto continua con le sue.
+
