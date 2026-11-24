@@ -1794,3 +1794,11 @@ Ottava tornata (28/10/2026): octree
      fotogramma completo e la sua profondita', come prima della voce 246. In 3D non cambia niente. Opzione in Avanzate
      «In pianta e sezione: camera dal faro» (spenta). Va ricompilata PdRender.dll.
 
+287) Sezioni: la nuvola non usa piu' la profondita' e i blocchi di un fotogramma vecchio mentre si sposta o zooma. Nel
+     diario della Sezione 38 (24/11 17:32) quasi tutti i fotogrammi completi risultavano «parziali» (137 su 138): Revit
+     tiene le forbici sul riquadro di ritaglio della vista in ogni fotogramma, e la 229 le prendeva per il ridisegno
+     attorno a un elemento sotto il mouse. Cosi' la nuvola teneva l'elenco dei blocchi e la profondita' del fotogramma
+     prima, fatti con un'altra camera. Ora un fotogramma e' parziale solo se la camera e' la stessa di quello prima
+     (mouse sopra un elemento, selezione); con la camera cambiata le forbici si rispettano ma il fotogramma vale come
+     completo. Conteggio «forbici con la camera cambiata» nel rapporto DirectX. Va ricompilata PdRender.dll.
+

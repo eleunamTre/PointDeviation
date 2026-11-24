@@ -745,6 +745,8 @@ static void KeepDepthFrom(ID3D11DeviceContext* c);
 // di prima, ma la nuvola si disegnava su tutta la finestra, davanti ai muri. Il rettangolo si legge dalle forbici attive
 // al segnale o dai rettangoli passati a Present1; la nuvola si disegna solo li'.
 static bool g_partial = false; static D3D11_RECT g_partRect = {};
+static bool g_scRect = false, g_noCropFix = false; static long g_cropFrames = 0;   // voce 287
+extern "C" __declspec(dllexport) void PdSetCropFix(int on) { g_noCropFix = on == 0; }
 static long g_partMarker = 0, g_partDirty = 0, g_partScPresent = 0, g_partKeepSkip = 0; static D3D11_RECT g_partLast = {};
 static float g_keepCam[32]; static bool g_keepCamOk = false;
 static bool g_keptOld = false;   // voce 230: in questo fotogramma parziale si usa la profondita' intera di prima
@@ -1260,6 +1262,8 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         if (b) { g_capBuf = b; b->Release(); }
+        // voce 287: camera uguale a quella del fotogramma completo precedente? (serve a riconoscere i veri fotogrammi parziali)
+        bool sameCam = g_hasRef && g_hasLastCap && g_refGen == g_viewGen && memcmp(g_refRaw, g_lastCap, (g_mOff2 >= 0 ? 32 : 16) * 4) == 0;
         if (g_hasLastCap) { memcpy(g_refRaw, g_lastCap, sizeof(g_refRaw)); g_hasRef = true; g_refGen = g_viewGen; memcpy(g_chainRaw, g_lastCap, sizeof(g_chainRaw)); g_chainGen = g_viewGen; g_chainFromBeacon = false; }
         ID3D11RenderTargetView* rtv = nullptr; ID3D11DepthStencilView* dsv = nullptr;
         c->OMGetRenderTargets(1, &rtv, &dsv);
@@ -1269,13 +1273,22 @@ static void ShaderDraw(ID3D11DeviceContext* c)
         g_drawnThisFrame = true;
         g_dzArm = true;
         // voce 229: forbici di Revit attive al segnale = fotogramma parziale
-        g_partial = false;
+        // voce 287 (sezione 38 del 24/11 17:32): nelle sezioni Revit tiene le forbici sul riquadro di ritaglio della vista
+        // in ogni fotogramma, anche mentre si sposta o si zooma. Tutti i fotogrammi risultavano «parziali» (137 su 138):
+        // la nuvola teneva l'elenco dei blocchi e la profondita' del fotogramma prima, con un'altra camera, e si vedeva
+        // tagliata o coperta male. Ora un fotogramma e' parziale solo se la camera non e' cambiata (mouse sopra un
+        // elemento, selezione); altrimenti le forbici si rispettano ma il fotogramma vale come completo.
+        g_partial = false; g_scRect = false;
         ID3D11RasterizerState* rrs = nullptr; c->RSGetState(&rrs);
         D3D11_RASTERIZER_DESC rrd = {}; if (rrs) { rrs->GetDesc(&rrd); rrs->Release(); }
         if (rrd.ScissorEnable)
         {
             UINT ns = 1; D3D11_RECT sr = {}; c->RSGetScissorRects(&ns, &sr);
-            if (ns > 0 && PartialRect(sr, g_fbVp, g_partRect)) { g_partial = true; g_partMarker++; g_partLast = g_partRect; }
+            if (ns > 0 && PartialRect(sr, g_fbVp, g_partRect))
+            {
+                g_scRect = true;
+                if (sameCam || g_noCropFix) { g_partial = true; g_partMarker++; g_partLast = g_partRect; } else g_cropFrames++;
+            }
         }
     }
     {
@@ -1295,7 +1308,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     D3D11_VIEWPORT vp; UINT nv = 1; c->RSGetViewports(&nv, &vp);
     if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
     SavedState st; st.Save(c, false);
-    g_useScissor = g_partial;   // voce 229: le forbici di Revit sono gia' impostate, basta rispettarle
+    g_useScissor = g_partial || g_scRect;   // voce 229, 287: le forbici di Revit sono gia' impostate, basta rispettarle
     g_drawSrc = 0; g_noDepth = false;
     DrawPointsCore(c, rcb, g_mOff, g_mT & 1, g_mOff2, (g_mT >> 1) & 1, vp, g_ptAlpha ? 1 : 0);   // voce 259: i trasparenti al Present
     g_useScissor = false;
@@ -2580,9 +2593,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     {
         size_t L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld",
-            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top);
-        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld)",
             g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept);
