@@ -27,6 +27,7 @@ namespace PointDeviation
         {
             try { L.Init(application.ControlledApplication.Language); } catch { }
             try { NativeClouds.Register(); } catch { }
+            try { Log.CleanOld(); } catch { }   // voce 284
             BuildRibbon(application);
 
             // ciclo di vita dei dati: un DocumentData per ogni progetto aperto

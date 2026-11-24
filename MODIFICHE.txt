@@ -1776,3 +1776,8 @@ Ottava tornata (28/10/2026): octree
      basta gia' la voce 203: si compila con Revit aperto, le DLL in uso vengono rinominate e il Revit che si apre dopo
      carica quelle nuove, mentre quello gia' aperto continua con le sue.
 
+284) Pulizia dei registri: all'avvio di Revit, in background, si cancellano i registri e i diari dei Revit di prova
+     (PointDeviation-2.log, PointDeviation-2-frames.log ... fino a -9) e le copie vecchie dei diari (*-frames.old.log)
+     che non vengono scritti da 7 giorni. I file del Revit principale restano (hanno gia' un tetto: registro 2 MB,
+     diario 40 MB piu' una copia) e quelli del Revit in corso non si toccano.
+

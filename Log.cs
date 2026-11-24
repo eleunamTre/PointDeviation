@@ -171,6 +171,34 @@ namespace PointDeviation
 
         public static LogLevel Level { get { return AdvancedSettings.Current.LogLevel; } }
 
+        /// <summary>
+        /// Voce 284: all'avvio, in background, si cancellano i registri e i diari dei Revit «di prova» (-2 ... -9) e le
+        /// copie vecchie dei diari (*.old.log) non piu' scritti da 7 giorni. I file del Revit principale restano: hanno
+        /// gia' un tetto (registro 2 MB, diario 40 MB piu' una copia). I file in uso non si toccano.
+        /// </summary>
+        public static void CleanOld()
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    if (!Directory.Exists(Folder)) return;
+                    var rx = new System.Text.RegularExpressions.Regex(@"^PointDeviation(-[2-9](-frames)?(\.old)?|(-[2-9])?-frames\.old)\.log$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    int n = 0;
+                    foreach (string f in Directory.GetFiles(Folder, "PointDeviation*.log"))
+                    {
+                        string name = Path.GetFileName(f);
+                        if (!rx.IsMatch(name)) continue;
+                        if (Instance != "" && (name.StartsWith("PointDeviation" + Instance + ".", StringComparison.OrdinalIgnoreCase) || name.StartsWith("PointDeviation" + Instance + "-", StringComparison.OrdinalIgnoreCase))) continue;   // file di questo Revit
+                        if ((DateTime.Now - File.GetLastWriteTime(f)).TotalDays < 7) continue;
+                        try { File.Delete(f); n++; } catch { }
+                    }
+                    if (n > 0) Write("Registro", n + " registri o diari vecchi cancellati (non scritti da 7 giorni, voce 284)");
+                }
+                catch { }
+            });
+        }
+
         /// <summary>Informazioni (livello Info).</summary>
         public static void Write(string where, string message) { Put(LogLevel.Info, where, message); }
 
@@ -318,7 +346,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 283;
+        public const int Change = 284;
 
         public static string Describe()
         {
