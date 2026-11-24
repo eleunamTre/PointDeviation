@@ -1566,6 +1566,14 @@ static ID3D11Buffer* g_meshBuf = nullptr; static ID3D11ShaderResourceView* g_mes
 static double g_meshO[3] = {};
 static ID3D11VertexShader* g_meshVs = nullptr; static ID3D11Buffer* g_meshCb = nullptr; static bool g_meshShFailed = false;
 static long g_meshOnSerial = -1; static long g_meshDraws = 0, g_meshFail = 0;   // g_bcnCopySerial: vicino a g_bcnTex
+// voce 274: tolleranza sulle superfici. I punti rilevati su un muro stanno per meta' pochi millimetri dietro la faccia
+// modellata (rumore dello scanner, modello non identico al reale): con la mesh nella profondita' quei punti sparivano e si
+// vedeva la facciata del modello (273 spostava la nuvola nel confronto, tolto). Ora la mesh si scrive nella profondita'
+// 1 cm piu' lontana, piu' una quota proporzionale all'inclinazione della superficie (polygon offset della scheda video).
+// La nuvola non si tocca: i punti restano nella loro posizione e cambia solo chi vince i pareggi entro la tolleranza.
+// Solo nella profondita' invisibile delle immagini intermedie; spegnibile da Avanzate (PdSetMeshTolerance).
+static bool g_meshTol = true; static ID3D11RasterizerState* g_meshRs = nullptr;
+extern "C" __declspec(dllexport) void PdSetMeshTolerance(int on) { g_meshTol = on != 0; }
 extern "C" __declspec(dllexport) void PdSetModelMesh(const float* xyz, int tris, const double* origin)
 {
     std::lock_guard<std::mutex> l(g_meshMx);
@@ -1582,6 +1590,7 @@ static const char* g_meshHlsl =
 "VO VS(uint vid : SV_VertexID) {\n"
 "  VO o; float4 q = float4(V.Load(vid * 3), V.Load(vid * 3 + 1), V.Load(vid * 3 + 2), 1);\n"
 "  o.pos = float4(dot(R0, q), dot(R1, q), dot(R2, q), dot(R3, q));\n"
+"  o.pos.z += asfloat(Inf.y) * o.pos.w;\n"
 "  float dd[6];\n"
 "  [unroll] for (int k = 0; k < 6; k++) dd[k] = Inf.x != 0 ? dot(Pl[k].xyz, q.xyz) + Pl[k].w : 1.0;\n"
 "  o.cd0 = float4(dd[0], dd[1], dd[2], dd[3]); o.cd1 = float2(dd[4], dd[5]);\n"
@@ -1596,6 +1605,9 @@ static bool MeshReady(ID3D11Device* dev)
         dev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), nullptr, &g_meshVs); vb->Release();
         D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 176; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         dev->CreateBuffer(&bd, nullptr, &g_meshCb);
+        D3D11_RASTERIZER_DESC rd = {}; rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
+        rd.DepthBias = 0; rd.DepthBiasClamp = 0; rd.SlopeScaledDepthBias = 1.5f;   // voce 274
+        dev->CreateRasterizerState(&rd, &g_meshRs);
         if (!g_meshVs || !g_meshCb) { g_meshShFailed = true; FT("E;mesh_shader;creazione_non_riuscita"); return false; }
     }
     if (g_meshShFailed) return false;
@@ -1645,7 +1657,11 @@ static bool MeshDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const
         f[16 + k * 4] = pl[0]; f[17 + k * 4] = pl[1]; f[18 + k * 4] = pl[2];
         f[19 + k * 4] = (float)(pl[3] + pl[0] * g_meshO[0] + pl[1] * g_meshO[1] + pl[2] * g_meshO[2]);
     }
-    in[40] = g_clipOn; in[41] = in[42] = in[43] = 0;
+    in[40] = g_clipOn; in[42] = in[43] = 0;
+    {   // voce 274: 1 cm (0,0328 ft) piu' lontano, nella scala della profondita' di questa camera
+        double a = sqrt(C[8] * C[8] + C[9] * C[9] + C[10] * C[10]);
+        f[41] = g_meshTol ? (float)(0.0328 * a) : 0.0f;
+    }
     c->Unmap(g_meshCb, 0);
     struct In { In() { g_inOurDraw++; } ~In() { g_inOurDraw--; } } inOur;
     SavedState st; st.Save(c, true);
@@ -1661,7 +1677,7 @@ static bool MeshDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const
     c->VSSetConstantBuffers(0, 1, &g_meshCb);
     c->VSSetShaderResources(0, 1, &g_meshSrv);
     c->OMSetDepthStencilState(g_sdss, 0);
-    c->RSSetState(g_srs);
+    c->RSSetState(g_meshTol && g_meshRs ? g_meshRs : g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(g_bs, zero, 0xffffffff);
     c->Draw((UINT)g_meshTris * 3, 0);
@@ -2189,10 +2205,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
             double a = sqrt(Cb[8] * Cb[8] + Cb[9] * Cb[9] + Cb[10] * Cb[10]);
             g_depthBias = (float)((g_bcnExact ? 0.0 : 0.3) * a);   // voce 251: con la trasformazione esatta nessuno spostamento
             if (g_bcnZKind[0] == 's') g_depthBias = (float)(0.3 * a);   // voce 257: profondita' stimata, 9 cm verso chi guarda
-            // voce 273 (video del 24/11 15:15): con la mesh i punti che stanno sulle superfici del modello (muri, facciate)
-            // hanno la stessa profondita' dei triangoli e a tratti perdevano il confronto: facciate bianche del modello al
-            // posto della nuvola. La nuvola si avvicina di 0,2 ft (6 cm) verso chi guarda quando la mesh e' nella copia.
-            if (g_meshOnSerial == g_bcnCopySerial && g_meshTris > 0 && g_depthBias < (float)(0.2 * a)) g_depthBias = (float)(0.2 * a);
+            // voce 274: niente piu' spostamento della nuvola per la mesh (273); la tolleranza sta nella mesh (MeshDepth)
         }
         else { g_noDepth = true; g_bcnDepthMissing++; }
     }
@@ -2389,8 +2402,8 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
             g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone, g_bcnZRej);
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; mesh del modello per la profondita': %d triangoli, disegnata in %ld immagini col faro (non riuscita %ld)%s",
-            g_meshTris, g_meshDraws, g_meshFail, g_meshShFailed ? ", shader della mesh non compilato" : "");
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; mesh del modello per la profondita': %d triangoli, disegnata in %ld immagini col faro (non riuscita %ld), tolleranza sulle superfici %s%s",
+            g_meshTris, g_meshDraws, g_meshFail, g_meshTol ? "accesa" : "spenta", g_meshShFailed ? ", shader della mesh non compilato" : "");
         g_meshDraws = g_meshFail = 0;
         g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0;
     }

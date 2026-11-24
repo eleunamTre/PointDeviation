@@ -36,6 +36,9 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetModelMesh(float[] xyz, int tris, double[] origin);
         private static bool _meshMissing;
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetMeshTolerance(int on);
+        private static bool _meshTolMissing;
         private static TriangleBvh _meshSent;
         private static bool _meshAny;
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -195,6 +198,10 @@ namespace PointDeviation
                 if (!_ptAlphaMissing)
                     try { PdSetPointAlpha(st.PointAlpha ? 1 : 0); }
                     catch (EntryPointNotFoundException) { _ptAlphaMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetPointAlpha: ricompilare la libreria nativa (voce 259)"); }
+                // voce 274: tolleranza sulle superfici della mesh
+                if (!_meshTolMissing)
+                    try { PdSetMeshTolerance(AdvancedSettings.Current.NoMeshTolerance ? 0 : 1); }
+                    catch (EntryPointNotFoundException) { _meshTolMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetMeshTolerance: ricompilare la libreria nativa (voce 274)"); }
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }

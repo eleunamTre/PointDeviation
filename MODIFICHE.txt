@@ -1692,3 +1692,11 @@ Ottava tornata (28/10/2026): octree
      punti che stanno sulle superfici modellate hanno la stessa profondita' dei triangoli della mesh e perdevano il
      confronto. Ora, quando la mesh e' nella copia della profondita', la nuvola si avvicina di 0,2 ft (6 cm) verso chi
      guarda (come gia' si fa con la profondita' stimata).
+
+274) Tolta la 273 (la nuvola non si avvicina piu' nel confronto). La tolleranza sta ora nella mesh: nella profondita'
+     invisibile delle immagini col faro la mesh si scrive 1 cm piu' lontana, piu' una quota proporzionale
+     all'inclinazione della superficie (polygon offset, SlopeScaledDepthBias 1,5). I punti rilevati sulle superfici
+     modellate, che per il rumore dello scanner stanno per meta' pochi millimetri dietro la faccia del modello, restano
+     visibili; la nuvola e il modello restano nelle loro posizioni, cambia solo chi vince i pareggi entro la tolleranza
+     e solo in movimento (da fermi decide la profondita' di Revit). Avanzate › Diagnostica: «In movimento: tolleranza di
+     1 cm sulle superfici del modello», acceso di serie, si puo' spegnere. Nel registro: tolleranza accesa o spenta.

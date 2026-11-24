@@ -33,6 +33,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _native = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _beacon = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _meshDepth = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _meshTol = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -200,6 +201,9 @@ namespace PointDeviation
             _meshDepth.Text = L.T("In movimento: profondità del modello dalla mesh dell'analisi");
             p.Controls.Add(_meshDepth);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini che Revit mostra in movimento, la parte del modello che Revit non ha ancora ridisegnato copre la nuvola grazie alla mesh dell'ultima analisi (modello e collegamenti). Senza analisi non cambia niente.")));
+            _meshTol.Text = L.T("In movimento: tolleranza di 1 cm sulle superfici del modello");
+            p.Controls.Add(_meshTol);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): i punti rilevati sulle superfici modellate restano visibili anche se stanno pochi millimetri dietro la faccia del modello (rumore dello scanner). Non sposta né la nuvola né il modello: decide solo quale dei due si vede, e solo in movimento. Spento: in movimento le facciate possono comparire a chiazze.")));
             _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
@@ -250,6 +254,7 @@ namespace PointDeviation
             _native.Checked = a.NativeDisplay;
             _beacon.Checked = a.BeaconCamera;
             _meshDepth.Checked = !a.NoMeshDepth;
+            _meshTol.Checked = !a.NoMeshTolerance;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -272,6 +277,7 @@ namespace PointDeviation
             a.NativeDisplay = _native.Checked;
             a.BeaconCamera = _beacon.Checked;
             a.NoMeshDepth = !_meshDepth.Checked;
+            a.NoMeshTolerance = !_meshTol.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();

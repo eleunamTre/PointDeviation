@@ -214,6 +214,9 @@ namespace PointDeviation
         /// <summary>Voce 272: con il disegno con shader, nelle immagini intermedie la profondità del modello si completa con
         /// la mesh dell'analisi. Spento (predefinito) = si usa; acceso = solo la profondità copiata da Revit.</summary>
         [DataMember] public bool NoMeshDepth;
+        /// <summary>Voce 274: con la mesh, tolleranza di 1 cm (più l'inclinazione) a favore dei punti rilevati sulle
+        /// superfici modellate. Spento (predefinito) = tolleranza attiva; acceso = nessuna tolleranza.</summary>
+        [DataMember] public bool NoMeshTolerance;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 
@@ -281,7 +284,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 273;
+        public const int Change = 274;
 
         public static string Describe()
         {
