@@ -176,7 +176,7 @@ static bool g_flatView = false, g_flatBeacon = false;
 // dell'interfaccia, resta - voce 291):
 // la nuvola si confronta con la profondita' che Revit ha in quel fotogramma; nelle immagini intermedie (209) resta la
 // copia dell'ultimo fotogramma completo, come sempre. Le correzioni della camera (285, 286, 288) restano.
-static bool g_flatSimple = true;
+static bool g_flatSimple = false;   // voce 293: spento di serie
 extern "C" __declspec(dllexport) void PdSetFlatSimple(int on) { g_flatSimple = on != 0; }
 static bool FlatSimple() { return g_flatView && g_flatSimple; }
 extern "C" __declspec(dllexport) void PdSetFlatView(int flat, int useBeacon) { g_flatView = flat != 0; g_flatBeacon = useBeacon != 0; }

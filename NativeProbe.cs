@@ -321,7 +321,7 @@ namespace PointDeviation
                     try { PdSetFlatView(flat ? 1 : 0, AdvancedSettings.Current.FlatBeacon ? 1 : 0); }
                     catch (EntryPointNotFoundException) { _flatMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatView: ricompilare la libreria nativa (voce 286)"); }
                 if (!_flatSimpleMissing)
-                    try { PdSetFlatSimple(AdvancedSettings.Current.NoFlatSimple ? 0 : 1); }
+                    try { PdSetFlatSimple(AdvancedSettings.Current.FlatSimple ? 1 : 0); }
                     catch (EntryPointNotFoundException) { _flatSimpleMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatSimple: ricompilare la libreria nativa (voce 290)"); }
                 SendCamera(cam);
                 DrawMarker();

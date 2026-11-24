@@ -209,7 +209,7 @@ namespace PointDeviation
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): in movimento la mesh usa lo stesso scarto di profondità che Revit usa da fermo per il suo modello (misurato nei fotogrammi completi; finché non c'è, 1 cm), così i punti sulle superfici modellate si vedono come da fermo. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: in movimento le facciate possono comparire a chiazze.")));
             _flatSimple.Text = L.T("In pianta e sezione: disegno semplice (come prima)");
             p.Controls.Add(_flatSimple);
-            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): in piante, sezioni e prospetti la nuvola si confronta con la profondità che Revit ha in quel fotogramma, senza le correzioni per i fotogrammi parziali (mouse sopra un elemento), come prima. L'interfaccia (maniglie, testi) resta sopra la nuvola e le correzioni della camera restano. Spento: stesse regole della vista 3D.")));
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Spento (consigliato): piante, sezioni e prospetti seguono le stesse regole della vista 3D. Acceso, come riserva se nelle viste 2D qualcosa non va: la nuvola si confronta con la profondità che Revit ha in quel fotogramma, senza le correzioni per i fotogrammi parziali (mouse sopra un elemento). In entrambi i casi l'interfaccia resta sopra la nuvola e le correzioni della camera restano.")));
             _flatBeacon.Text = L.T("In pianta e sezione: camera dal faro");
             p.Controls.Add(_flatBeacon);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Spento (consigliato): in piante, sezioni e prospetti le immagini che Revit mostra mentre sposti o zoomi usano la camera dell'ultimo fotogramma completo, come prima del faro (la nuvola puo' restare indietro di un attimo ma resta al suo posto). Acceso: anche li' si usa la camera del faro, che in queste viste spesso non coincide con quella del modello.")));
@@ -269,7 +269,7 @@ namespace PointDeviation
             _meshTol.Checked = !a.NoMeshTolerance;
             _flatFix.Checked = !a.NoFlatBeaconFix;
             _flatBeacon.Checked = a.FlatBeacon;
-            _flatSimple.Checked = !a.NoFlatSimple;
+            _flatSimple.Checked = a.FlatSimple;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -295,7 +295,7 @@ namespace PointDeviation
             a.NoMeshTolerance = !_meshTol.Checked;
             a.NoFlatBeaconFix = !_flatFix.Checked;
             a.FlatBeacon = _flatBeacon.Checked;
-            a.NoFlatSimple = !_flatSimple.Checked;
+            a.FlatSimple = _flatSimple.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();
