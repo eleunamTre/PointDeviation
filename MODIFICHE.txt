@@ -1726,3 +1726,16 @@ Ottava tornata (28/10/2026): octree
      (spenta = faro acceso), quindi anche chi aveva salvato la vecchia voce spenta parte con il faro; etichetta senza
      «Prova»: «Camera dal faro con i collegamenti», con la nota aggiornata. Nella ROADMAP la profondita' propria per le
      maniglie del riquadro risulta superata dalla 270.
+
+278) Video dell'RCP originale con OBS (24/11 16:16:57): in alcune immagini intermedie Revit con i link disegna solo il
+     link (piccolo, a linee) e salta il modello in uso e la sua stessa nuvola. Il «modello che passa sopra la nuvola»
+     nei nostri video era in buona parte quello: la nostra nuvola resta, il modello in uso manca, il link si vede. La
+     mesh con lo scarto di Revit (272-276) funziona; la registrazione rallenta Revit e moltiplica queste immagini.
+     Decisione: la mesh si integra senza dipendere dall'analisi. DepthMesh.cs la prepara da sola per la vista 3D attiva
+     (elementi della vista, nascosti esclusi, piu' tutti gli elementi dei collegamenti visibili nella vista, triangoli
+     in float rispetto al primo vertice, al massimo 4 M), nell'evento Idling a passi di 40 ms (la geometria si legge
+     solo nel thread di Revit; Revit resta usabile). Si rifa' quando cambia la vista o, dopo 2 s di calma, quando
+     cambiano elementi di modello o collegamenti (DocumentChanged; viste e nuvole ignorate). Finche' non e' pronta vale
+     quella dell'analisi, se c'e'. Solo con disegno con shader, faro e opzione accesi. Registro: riga [Mesh] con
+     elementi, collegamenti, triangoli, tempo di lavoro e tempo totale. Prossimi passi possibili se serve: cache su
+     disco con la versione dei documenti, aggiornamento dei soli elementi modificati.

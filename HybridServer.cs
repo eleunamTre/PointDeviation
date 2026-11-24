@@ -89,8 +89,9 @@ namespace PointDeviation
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
                 // Revit ci richiama subito invece che dopo una lunga pausa
                 FrameDiary.Pump();   // voce 234: righe della libreria nativa anche quando il plugin non disegna
+                bool meshBusy = DepthMesh.Tick(app);   // voce 278: mesh per la profondità, a passi di 40 ms
                 if (NativeProbe.ShaderMode && now - _linksTick > 2000) { _linksTick = now; SendLinks(app.ActiveUIDocument.Document); SendCloudTransforms(app.ActiveUIDocument.Document); }
-                if (_zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
+                if (meshBusy || _zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
             catch { }
         }
@@ -368,10 +369,18 @@ namespace PointDeviation
                         NativeProbe.LastScale = scale;
                         for (int k = 0; k < visible.Count; k++) visible[k].ShaderDraw(st, wants[k], ref uploadBudget, ref drawBudget, scale);
                         NativeProbe.SetClip(cam.ClipPlanes());
-                        // voce 272: mesh dell'analisi di questo documento per la profondità del modello in movimento
+                        // voce 272, 278: mesh per la profondità del modello in movimento: quella preparata da sola per questa
+                        // vista (DepthMesh) se pronta, altrimenti quella dell'analisi del documento
+                        if (AdvancedSettings.Current.NoMeshDepth) NativeProbe.SetModelMesh(null);
+                        else
                         {
-                            AnalysisSnapshot an = AdvancedSettings.Current.NoMeshDepth ? null : AnalysisRegistry.Get(DeviationController.KeyOf(view.Document));
-                            NativeProbe.SetModelMesh(an != null ? an.Bvh : null);
+                            DepthMesh.Mesh dm = DepthMesh.For(view);
+                            if (dm != null) NativeProbe.SetModelMesh(dm, dm.Verts, dm.Origin, "preparata per la vista");
+                            else
+                            {
+                                AnalysisSnapshot an = AnalysisRegistry.Get(DeviationController.KeyOf(view.Document));
+                                NativeProbe.SetModelMesh(an != null ? an.Bvh : null);
+                            }
                         }
                         NativeProbe.EndFrame(st, true);
                         // voce 234: riga del diario dei fotogrammi

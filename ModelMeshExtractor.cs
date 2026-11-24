@@ -116,6 +116,9 @@ namespace PointDeviation
             return new Outline(new XYZ(minX, minY, minZ), new XYZ(maxX, maxY, maxZ));
         }
 
+        /// <summary>Voce 278: triangoli di un elemento (per la mesh della profondità, DepthMesh).</summary>
+        internal static int AddElementPublic(Element e, Options opt, Transform xf, List<double> verts) { return AddElement(e, opt, xf, verts); }
+
         private static int AddElement(Element e, Options opt, Transform xf, List<double> verts)
         {
             if (e.Category == null || e.Category.CategoryType != CategoryType.Model) return 0;

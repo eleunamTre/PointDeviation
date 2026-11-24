@@ -97,6 +97,7 @@ namespace PointDeviation
         private void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
         {
             try { DeviationController.OnDocumentChanged(e.GetDocument(), e.GetAddedElementIds(), e.GetDeletedElementIds(), e.GetModifiedElementIds()); } catch { }
+            DepthMesh.OnChanged(e.GetDocument(), e.GetAddedElementIds(), e.GetDeletedElementIds(), e.GetModifiedElementIds());   // voce 278
             UpdateCloudToggle(e.GetDocument());
         }
 

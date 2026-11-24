@@ -39,7 +39,7 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetMeshTolerance(int on);
         private static bool _meshTolMissing;
-        private static TriangleBvh _meshSent;
+        private static object _meshSent;
         private static bool _meshAny;
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
@@ -156,15 +156,21 @@ namespace PointDeviation
         /// </summary>
         public static void SetModelMesh(TriangleBvh bvh)
         {
-            if (_meshMissing || _state <= 0) return;
             if (bvh != null && bvh.DrawVerts == null) bvh = null;
-            if (ReferenceEquals(bvh, _meshSent) && (bvh != null || !_meshAny)) return;
+            SetModelMesh(bvh, bvh != null ? bvh.DrawVerts : null, bvh != null ? bvh.DrawOrigin : null, "dell'analisi");
+        }
+        /// <summary>Voce 278: mesh qualsiasi (owner = oggetto che la identifica: si invia solo quando cambia).</summary>
+        public static void SetModelMesh(object owner, float[] verts, double[] origin, string what)
+        {
+            if (_meshMissing || _state <= 0) return;
+            if (verts == null || origin == null) owner = null;
+            if (ReferenceEquals(owner, _meshSent) && (owner != null || !_meshAny)) return;
             try
             {
-                if (bvh != null) PdSetModelMesh(bvh.DrawVerts, bvh.DrawVerts.Length / 9, bvh.DrawOrigin);
+                if (owner != null) PdSetModelMesh(verts, verts.Length / 9, origin);
                 else PdSetModelMesh(null, 0, null);
-                _meshSent = bvh; _meshAny = bvh != null;
-                Log.Write("DirectX", bvh != null ? string.Format("mesh del modello per la profondità in movimento: {0:N0} triangoli (voce 272)", bvh.DrawVerts.Length / 9) : "mesh del modello per la profondità tolta (voce 272)");
+                _meshSent = owner; _meshAny = owner != null;
+                Log.Write("DirectX", owner != null ? string.Format("mesh del modello per la profondità in movimento ({0}): {1:N0} triangoli (voce 272, 278)", what, verts.Length / 9) : "mesh del modello per la profondità tolta (voce 272)");
             }
             catch (EntryPointNotFoundException) { _meshMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetModelMesh: ricompilare la libreria nativa (voce 272)"); }
             catch (Exception ex) { Log.Error("DirectX", ex); }

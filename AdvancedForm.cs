@@ -198,9 +198,9 @@ namespace PointDeviation
             _beacon.Text = L.T("Camera dal faro con i collegamenti");
             p.Controls.Add(_beacon);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): nelle immagini che Revit ridisegna in movimento senza chiamare il plugin (con i collegamenti accesi sono molte) la nuvola usa la camera ricavata da pochi punti invisibili consegnati a Revit e segue il modello. Spento: in quelle immagini la nuvola resta indietro di qualche fotogramma. Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica.")));
-            _meshDepth.Text = L.T("In movimento: profondità del modello dalla mesh dell'analisi");
+            _meshDepth.Text = L.T("In movimento: profondità del modello dalla mesh");
             p.Controls.Add(_meshDepth);
-            p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini che Revit mostra in movimento, la parte del modello che Revit non ha ancora ridisegnato copre la nuvola grazie alla mesh dell'ultima analisi (modello e collegamenti). Senza analisi non cambia niente.")));
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini che Revit mostra in movimento, la parte del modello che Revit non ha ancora ridisegnato copre la nuvola grazie a una mesh del modello e dei collegamenti visibili, preparata da sola in background per la vista 3D attiva (qualche secondo, Revit resta usabile) e rifatta dopo le modifiche; finché non è pronta si usa quella dell'ultima analisi, se c'è.")));
             _meshTol.Text = L.T("In movimento: stessa tolleranza di Revit sulle superfici del modello");
             p.Controls.Add(_meshTol);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): in movimento la mesh usa lo stesso scarto di profondità che Revit usa da fermo per il suo modello (misurato nei fotogrammi completi; finché non c'è, 1 cm), così i punti sulle superfici modellate si vedono come da fermo. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: in movimento le facciate possono comparire a chiazze.")));
