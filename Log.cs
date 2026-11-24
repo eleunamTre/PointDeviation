@@ -208,9 +208,11 @@ namespace PointDeviation
         [DataMember] public bool NativeProbe;
         /// <summary>Disegno della nuvola con shader propri dentro DirectX 11 di Revit (voce 194, sperimentale).</summary>
         [DataMember] public bool NativeShader;
-        /// <summary>Prova (voce 255): con lo shader, camera delle immagini intermedie ricavata dal «faro» (pochi punti
-        /// consegnati al motore delle nuvole di Revit). Spento (predefinito): come prima della 246.</summary>
-        [DataMember] public bool BeaconCamera;
+        /// <summary>Voce 255, 277: con lo shader, camera delle immagini intermedie ricavata dal «faro» (pochi punti
+        /// consegnati al motore delle nuvole di Revit). Acceso di serie dalla 277: si salva il contrario (NoBeaconCamera),
+        /// cosi' anche le impostazioni gia' salvate con la vecchia voce spenta partono accese.</summary>
+        [DataMember] public bool NoBeaconCamera;
+        public bool BeaconCamera { get { return !NoBeaconCamera; } set { NoBeaconCamera = !value; } }
         /// <summary>Voce 272: con il disegno con shader, nelle immagini intermedie la profondità del modello si completa con
         /// la mesh dell'analisi. Spento (predefinito) = si usa; acceso = solo la profondità copiata da Revit.</summary>
         [DataMember] public bool NoMeshDepth;
@@ -284,7 +286,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 276;
+        public const int Change = 277;
 
         public static string Describe()
         {

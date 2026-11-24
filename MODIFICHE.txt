@@ -1717,3 +1717,12 @@ Ottava tornata (28/10/2026): octree
      zoom, sempre nelle sequenze) e la mesh delle immagini intermedie si scrive con lo stesso scarto, senza quota per
      l'inclinazione; finche' nella vista non c'e' una misura resta 1 cm. Opzione rinominata «In movimento: stessa
      tolleranza di Revit sulle superfici del modello». Diario: X;scarto_revit; registro: misure e ultimo scarto.
+
+277) Prova della 276 (24/11 15:58): lo scarto di Revit si misura (13 volte in 5 s, 10-16 cm) e la mesh lo usa; in
+     orbita con i link va meglio che senza mesh ma non quanto l'RCP disegnato da Revit, che a sua volta ha qualche
+     incertezza su questo modello (video del 24/11 15:59:19). I difetti rimasti vengono probabilmente dalla camera
+     delle immagini intermedie, non dalla profondita'. Decisione: la mesh resta com'e' (solo se c'e' un'analisi), il
+     filone si chiude qui (ROADMAP aggiornata). Faro acceso di serie: l'impostazione si salva ora come NoBeaconCamera
+     (spenta = faro acceso), quindi anche chi aveva salvato la vecchia voce spenta parte con il faro; etichetta senza
+     «Prova»: «Camera dal faro con i collegamenti», con la nota aggiornata. Nella ROADMAP la profondita' propria per le
+     maniglie del riquadro risulta superata dalla 270.

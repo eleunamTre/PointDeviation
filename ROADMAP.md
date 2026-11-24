@@ -1,7 +1,9 @@
 # PointDeviation – roadmap
 
 ## 0. Disegno con shader – da fare
-- **Profondita' propria della nuvola** (prossimo intervento sul disegno). Oggi la nuvola opaca scrive i suoi punti nel
+- (fatto, voce 270) Maniglie del riquadro, cubo e interfaccia sopra la nuvola: la nuvola si disegna prima del primo
+  disegno di Revit nell'immagine della finestra, cosi' l'interfaccia viene dopo. Il punto sotto resta come storia.
+- **Profondita' propria della nuvola** (superato dalla 270). Oggi la nuvola opaca scrive i suoi punti nel
   buffer di profondita' di Revit: Revit poi considera «nascosti» le maniglie del riquadro di sezione, le quote e gli
   altri elementi di controllo che stanno dietro un punto e li disegna sbiaditi, e trovare la maniglia da trascinare
   diventa difficile. Soluzione: un buffer di profondita' nostro per l'ordine dei punti tra loro, mentre quello di Revit
@@ -13,9 +15,13 @@
   punti piu' grandi per i blocchi grossolani usati come sostituti.
 - Con la trasparenza la nuvola puo' passare davanti agli elementi selezionati (Revit li disegna con una profondita' a
   parte).
-- Mesh del modello per la profondita' in movimento (voce 272): oggi viene dall'ultima analisi. Se la 272 risolve la
-  nuvola davanti al modello in orbita con i link, estrarla in automatico e in background quando si apre una vista 3D
-  con la nuvola (solo triangoli, senza distanze), da rifare quando il modello o i link cambiano.
+- Orbita con i link (voci 271-276): nelle immagini intermedie Revit ricompone la scena senza la profondita' completa
+  del modello; anche l'RCP disegnato da Revit ha qualche incertezza. La mesh dell'analisi con lo scarto di profondita'
+  misurato di Revit (7-16 cm) migliora ma non arriva al livello dell'RCP: i difetti rimasti vengono probabilmente
+  dalla camera delle immagini intermedie (faro, camera precedente), non dalla profondita'. Per ora la mesh si usa
+  solo se c'e' un'analisi. Se si riprende: partire dalla camera. Estrazione automatica della mesh solo se serve
+  davvero (all'apertura a blocchi in Idling, cache su disco con la versione del documento e dei link, filtro per
+  vista degli elementi nascosti).
 
 ## 1. Formati
 - **E57** (lettura diretta, anche con più scansioni e colori/intensità) – fatto e provato su un rilievo reale

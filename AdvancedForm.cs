@@ -195,9 +195,9 @@ namespace PointDeviation
             _shader.Text = L.T("Disegno con shader (sperimentale)");
             p.Controls.Add(_shader);
             p.Controls.Add(Note(L.T("Acceso: la nuvola la disegna la libreria PdRender.dll direttamente nella scheda video, con punti tondi la cui grandezza segue lo zoom senza ricostruire nulla. Serve PdRender.dll accanto al plugin e Revit riavviato. Finché la libreria non è pronta si usa il disegno di sempre. Salva il progetto prima di provarlo.")));
-            _beacon.Text = L.T("Prova: camera dal faro con i collegamenti");
+            _beacon.Text = L.T("Camera dal faro con i collegamenti");
             p.Controls.Add(_beacon);
-            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Spento (consigliato): come sempre. Acceso: con i collegamenti accesi, nelle immagini che Revit ridisegna in movimento senza chiamare il plugin la nuvola usa la camera ricavata da pochi punti invisibili consegnati a Revit. Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica.")));
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): nelle immagini che Revit ridisegna in movimento senza chiamare il plugin (con i collegamenti accesi sono molte) la nuvola usa la camera ricavata da pochi punti invisibili consegnati a Revit e segue il modello. Spento: in quelle immagini la nuvola resta indietro di qualche fotogramma. Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica.")));
             _meshDepth.Text = L.T("In movimento: profondità del modello dalla mesh dell'analisi");
             p.Controls.Add(_meshDepth);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini che Revit mostra in movimento, la parte del modello che Revit non ha ancora ridisegnato copre la nuvola grazie alla mesh dell'ultima analisi (modello e collegamenti). Senza analisi non cambia niente.")));
