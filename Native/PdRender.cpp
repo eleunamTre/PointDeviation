@@ -223,6 +223,12 @@ static bool g_reSearch = false; static int g_reSearchN = 0; static long long g_r
 static int g_sigOut = 0;
 static bool g_noReSearch = false;
 extern "C" __declspec(dllexport) void PdSetMatrixReSearch(int on) { g_noReSearch = on == 0; }
+// voce 288 (diario del 24/11 17:29-17:35): tornando in pianta dalle sezioni la ricerca sceglieva ogni volta una posizione
+// diversa (righe 16, 13, 4, 1) mentre quella giusta, in pianta e in sezione, era sempre la riga 15. Si ricorda l'ultima
+// posizione con cui la nuvola e' risultata dentro la finestra in 3 fotogrammi normali di fila e, cambiando vista, si
+// prova prima quella: se passa i controlli della ricerca si tiene, senza cercarne altre.
+static int g_goodSlot = -1, g_goodOff = 0, g_goodT = 0, g_goodOff2 = -1, g_goodT2 = 0; static UINT g_goodW = 0;
+static int g_sigVis = 0; static long g_goodUsed = 0;
 static bool IsBadM(int slot, int off, int t, int off2, int t2)
 {
     if (g_badGen != g_mView) return false;
@@ -232,7 +238,7 @@ static bool IsBadM(int slot, int off, int t, int off2, int t2)
 }
 static void FindRevitMatrixEx(ID3D11DeviceContext* c, bool loose)
 {
-    g_mTries++;
+    g_mTries++; g_sigVis = 0;
     if (g_camHW <= 0) { _snprintf_s(g_matInfo, sizeof(g_matInfo), _TRUNCATE, "camera non ancora ricevuta"); return; }
     ID3D11Device* dev = nullptr; c->GetDevice(&dev);
     if (!dev) return;
@@ -255,6 +261,11 @@ static void FindRevitMatrixEx(ID3D11DeviceContext* c, bool loose)
             const float* f = (const float*)m.pData;
             int nb = (int)(d.ByteWidth / 16) - 3;        // posizioni di 4 righe da 16 byte
             if (nb > 512) nb = 512;
+            if (slot == g_goodSlot && d.ByteWidth == g_goodW && g_goodOff < nb && g_goodOff2 < nb && !IsBadM(g_goodSlot, g_goodOff, g_goodT, g_goodOff2, g_goodT2))
+            {   // voce 288: prima la posizione che ha gia' funzionato
+                float sc = Score(f + g_goodOff * 4, g_goodT, g_goodOff2 >= 0 ? f + g_goodOff2 * 4 : nullptr, g_goodT2, loose);
+                if (sc >= 0) { best = 1000.0f; bSlot = slot; bOff = g_goodOff; bT = g_goodT; bOff2 = g_goodOff2; bT2 = g_goodT2; g_goodUsed++; }
+            }
             for (int o = 0; o < nb; o++)
                 for (int t = 0; t < 2; t++)
                 {
@@ -561,7 +572,18 @@ static void GpuCollect(ID3D11DeviceContext* c)
                 }
                 if (g_qSrc[k] == 2) { if (now > g_badCurUntil) FT("E;camera_interrotto_fuori_finestra"); g_badCurUntil = now + 1000; }
             }
-            else { g_qVisible++; if (g_qSrc[k] == 0) g_sigOut = 0; }
+            else
+            {
+                g_qVisible++;
+                if (g_qSrc[k] == 0)
+                {
+                    g_sigOut = 0;
+                    if (++g_sigVis >= 3 && g_mSlot >= 0)
+                    {   // voce 288: posizione buona da riprovare per prima alla prossima vista
+                        g_goodSlot = g_mSlot; g_goodOff = g_mOff; g_goodT = g_mT & 1; g_goodOff2 = g_mOff2; g_goodT2 = (g_mT >> 1) & 1; g_goodW = g_mWidth;
+                    }
+                }
+            }
         }
         if (dj.Disjoint || dj.Frequency == 0 || e < b) continue;
         double ms = (double)(e - b) * 1000.0 / (double)dj.Frequency;
@@ -2597,9 +2619,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
             g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames);
         g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld)",
-            g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept);
-        g_qVisible = g_qDepthBlock = g_qCamOut = 0; g_reSearchDone = g_reSearchKept = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld; ripresa la posizione che funzionava %ld volte)",
+            g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept, g_goodUsed);
+        g_qVisible = g_qDepthBlock = g_qCamOut = 0; g_reSearchDone = g_reSearchKept = 0; g_goodUsed = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;

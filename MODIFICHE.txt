@@ -1802,3 +1802,10 @@ Ottava tornata (28/10/2026): octree
      (mouse sopra un elemento, selezione); con la camera cambiata le forbici si rispettano ma il fotogramma vale come
      completo. Conteggio «forbici con la camera cambiata» nel rapporto DirectX. Va ricompilata PdRender.dll.
 
+288) Pianta dopo le sezioni. Nel diario del 24/11 17:29-17:35, tornando in pianta da una sezione, la ricerca della
+     matrice della camera sceglieva ogni volta una posizione diversa del buffer di Revit (righe 16, 13, 4, 1), mentre
+     quella giusta, in pianta e in sezione, era sempre la riga 15: la nuvola finiva fuori posto. Ora si ricorda l'ultima
+     posizione con cui la nuvola e' risultata dentro la finestra in 3 fotogrammi normali di fila e, a ogni cambio di
+     vista, si prova prima quella; se passa i controlli si tiene senza cercarne altre, altrimenti si cerca come prima.
+     Conteggio «ripresa la posizione che funzionava» nel rapporto DirectX. Va ricompilata PdRender.dll.
+
