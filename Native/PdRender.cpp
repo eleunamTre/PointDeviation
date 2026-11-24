@@ -172,7 +172,8 @@ static void ClearForNewView();
 // immagini intermedie, finiva fuori posto o fuori dalla finestra. Nelle viste piane il faro non si usa: le immagini
 // intermedie tornano al sistema di prima (camera dell'ultimo fotogramma, profondita' copiata).
 static bool g_flatView = false, g_flatBeacon = false;
-// voce 290: piante e sezioni come prima di oggi (senza 229-238 «fotogrammi parziali», 270 «prima dell'interfaccia», 289):
+// voce 290: piante e sezioni come prima di oggi (senza 229-238 «fotogrammi parziali», 287, 289; la 270, nuvola prima
+// dell'interfaccia, resta - voce 291):
 // la nuvola si confronta con la profondita' che Revit ha in quel fotogramma; nelle immagini intermedie (209) resta la
 // copia dell'ultimo fotogramma completo, come sempre. Le correzioni della camera (285, 286, 288) restano.
 static bool g_flatSimple = true;
@@ -2510,7 +2511,6 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
 // nuvola, con la logica del Present (FallbackAtPresent) ma nella destinazione attuale e prima di quei disegni.
 static void BeforeUi(ID3D11DeviceContext* c)
 {
-    if (FlatSimple()) return;   // voce 290: in pianta/sezione la nuvola si disegna al Present, come prima della 270
     // voce 270 (diario della 269): i 540-880 disegni «del modello nella finestra» con il buffer #2 visti dalla 263 erano il
     // NOSTRO disegno al Present dell'immagine prima (la sequenza registrata comincia subito dopo il Present, e il nostro
     // disegno sta dentro il Present): LASCIO mostrava nostro=1. Revit disegna la scena solo nell'immagine a parte (#4/#5) e

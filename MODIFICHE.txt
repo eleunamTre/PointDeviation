@@ -1824,3 +1824,7 @@ Ottava tornata (28/10/2026): octree
      (209). Le correzioni della camera (285, 286, 288) restano. In 3D non cambia niente. Opzione in Avanzate «In
      pianta e sezione: disegno semplice (come prima)», accesa. Va ricompilata PdRender.dll.
 
+291) Correzione della 290: anche in pianta e sezione la nuvola resta dietro l'interfaccia (maniglie, testi, cubo),
+     cioe' si disegna prima dell'interfaccia come in 3D (270). Del «disegno semplice» resta solo l'esclusione delle
+     regole dei fotogrammi parziali.
+
