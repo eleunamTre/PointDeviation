@@ -16,6 +16,7 @@
 #include <cmath>
 #include <unordered_map>
 #include <vector>
+#include <algorithm>
 #include <string>
 #include <mutex>
 #include <dxgi1_4.h>
@@ -1687,6 +1688,55 @@ static bool MeshDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const
     g_meshDraws++;
     return true;
 }
+// voce 275: confronto tra la profondita' del modello scritta da Revit (copia di un fotogramma completo) e la nostra mesh
+// disegnata con la stessa camera, senza tolleranza, in una profondita' a parte. Dice se Revit scrive i muri spinti
+// indietro (e di quanto) e se la mesh coincide con il modello di Revit. Solo nel diario (X;mesh_revit), durante le sequenze.
+static ID3D11Texture2D* g_cmpTex = nullptr; static ID3D11DepthStencilView* g_cmpDsv = nullptr;
+static void MeshVsRevit(ID3D11DeviceContext* c, ID3D11DepthStencilView* revit, const float* cam)
+{
+    if (!c || !revit || !cam || g_meshTris <= 0 || !g_realDev) return;
+    ID3D11Resource* r = nullptr; revit->GetResource(&r);
+    if (!r) return;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d); r->Release();
+    D3D11_DEPTH_STENCIL_VIEW_DESC vd = {}; revit->GetDesc(&vd);
+    D3D11_TEXTURE2D_DESC k = {}; if (g_cmpTex) g_cmpTex->GetDesc(&k);
+    if (!g_cmpTex || k.Width != d.Width || k.Height != d.Height || k.Format != d.Format || k.SampleDesc.Count != d.SampleDesc.Count)
+    {
+        if (g_cmpDsv) { g_cmpDsv->Release(); g_cmpDsv = nullptr; }
+        if (g_cmpTex) { g_cmpTex->Release(); g_cmpTex = nullptr; }
+        D3D11_TEXTURE2D_DESC nd = d; nd.Usage = D3D11_USAGE_DEFAULT; nd.BindFlags = D3D11_BIND_DEPTH_STENCIL; nd.CPUAccessFlags = 0; nd.MiscFlags = 0; nd.MipLevels = 1; nd.ArraySize = 1;
+        if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_cmpTex)) && g_cmpTex)
+            if (FAILED(g_realDev->CreateDepthStencilView(g_cmpTex, &vd, &g_cmpDsv))) { g_cmpTex->Release(); g_cmpTex = nullptr; g_cmpDsv = nullptr; }
+    }
+    if (!g_cmpDsv) { FT("X;mesh_revit;copia_non_creata"); return; }
+    c->ClearDepthStencilView(g_cmpDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    bool tol = g_meshTol; g_meshTol = false;
+    bool ok = MeshDepth(c, g_cmpDsv, cam);
+    g_meshTol = tol;
+    if (!ok) { FT("X;mesh_revit;mesh_non_disegnata"); return; }
+    g_meshDraws--;   // non e' un'immagine col faro
+    std::vector<float> zr, zm;
+    if (!DepthGrid(c, revit, zr) || !DepthGrid(c, g_cmpDsv, zm) || zr.size() != zm.size() || zr.empty()) { FT("X;mesh_revit;lettura_non_riuscita"); return; }
+    std::vector<float> df; df.reserve(zr.size());
+    long n = (long)zr.size(), onlyM = 0, onlyR = 0, eq = 0, rFar = 0; double sum = 0;
+    for (long i = 0; i < n; i++)
+    {
+        bool vr = zr[i] > 0, vm = zm[i] > 0;
+        if (vm && !vr) onlyM++; else if (vr && !vm) onlyR++;
+        else if (vr && vm) { float x = zr[i] - zm[i]; df.push_back(x); sum += x; if (fabs(x) < 2e-6f) eq++; else if (x > 0) rFar++; }
+    }
+    double C[16]; ColFormD(cam, C);
+    double a = sqrt(C[8] * C[8] + C[9] * C[9] + C[10] * C[10]);
+    bool ortho = fabs(C[12]) + fabs(C[13]) + fabs(C[14]) < 1e-9;
+    size_t m = df.size();
+    if (m == 0) { FT("X;mesh_revit;entrambe=0;solo_mesh=%.1f;solo_revit=%.1f", 100.0 * onlyM / n, 100.0 * onlyR / n); return; }
+    std::vector<float> s = df; std::sort(s.begin(), s.end());
+    auto q = [&](double f) { return (double)s[(size_t)(f * (m - 1))]; };
+    double toCm = ortho && a > 0 ? 30.48 / a : 0;   // differenza di profondita' in cm (solo vista ortogonale)
+    FT("X;mesh_revit;entrambe=%.1f;solo_mesh=%.1f;solo_revit=%.1f;uguali=%.1f;revit_piu_lontana=%.1f;scarto_p10=%.3g;mediano=%.3g;p90=%.3g;medio=%.3g;cm_p10=%.2f;cm_mediano=%.2f;cm_p90=%.2f;ortogonale=%d",
+       100.0 * m / n, 100.0 * onlyM / n, 100.0 * onlyR / n, 100.0 * eq / m, 100.0 * rFar / m, q(0.1), q(0.5), q(0.9), sum / m,
+       q(0.1) * toCm, q(0.5) * toCm, q(0.9) * toCm, ortho ? 1 : 0);
+}
 static void BeaconDzDisarm() { g_bcnDzArm = false; if (g_bcnDzRef) { g_bcnDzRef->Release(); g_bcnDzRef = nullptr; } g_bcnDzSrc = nullptr; }
 static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char* kind)
 {
@@ -2080,6 +2130,11 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
             double cov, mn, mx, me;
             if (cx && DepthRead(cx, dz, cov, mn, mx, me) && cov > 0) { g_fullCov = cov; g_fullCovGen = g_viewGen; }
             if (cx) cx->Release();
+        }
+        if (g_seqOn && dz && g_keepOk && !g_partial && g_hasRef && g_refGen == g_viewGen && g_meshTris > 0)
+        {   // voce 275
+            ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+            if (cx) { MeshVsRevit(cx, dz, g_refRaw); cx->Release(); }
         }
         if (g_seqOn && dz && sideDepth && g_sideDsv)
         {   // voce 271

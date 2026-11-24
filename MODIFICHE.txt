@@ -1700,3 +1700,10 @@ Ottava tornata (28/10/2026): octree
      visibili; la nuvola e il modello restano nelle loro posizioni, cambia solo chi vince i pareggi entro la tolleranza
      e solo in movimento (da fermi decide la profondita' di Revit). Avanzate › Diagnostica: «In movimento: tolleranza di
      1 cm sulle superfici del modello», acceso di serie, si puo' spegnere. Nel registro: tolleranza accesa o spenta.
+
+275) Domanda: senza link tutto va bene, con la mesh serve una tolleranza; Revit nei fotogrammi completi spinge gia'
+     indietro i suoi muri nella profondita'? Controllo nel diario: nei fotogrammi completi delle sequenze la mesh si
+     disegna con la camera vera, senza tolleranza, in una profondita' a parte e si confronta pixel per pixel con la
+     copia della profondita' di Revit. Riga X;mesh_revit: percentuale di pixel con entrambe, solo mesh, solo Revit,
+     uguali, Revit piu' lontana; scarto (Revit meno mesh) al 10%, 50% e 90% e medio, anche in centimetri nelle viste
+     ortogonali. Se Revit e' piu' lontana di qualche millimetro in modo costante, la tolleranza della 274 si ricava da li'.
