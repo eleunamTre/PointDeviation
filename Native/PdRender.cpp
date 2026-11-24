@@ -608,6 +608,7 @@ struct SavedState
 // voce 250: spostamento della nuvola verso chi guarda, in profondita' normalizzata (0 = nessuno). Si usa solo con la
 // camera ricavata dal faro, la cui profondita' e' approssimata di qualche centimetro.
 static float g_depthBias = 0;
+static int g_inOurDraw = 0;   // voce 269: dentro un nostro disegno (DrawPointsCore): i disegni che passano dagli agganci sono nostri
 static ID3D11DepthStencilView* g_winModelDsv = nullptr;
 static bool g_uiArm = false, g_uiDone = false, g_uiFull = false, g_depthNoWrite = false;
 static ID3D11RenderTargetView* g_uiRtv = nullptr;
@@ -621,6 +622,7 @@ extern "C" __declspec(dllexport) void PdSetPointAlpha(int on) { g_ptAlpha = on !
 // Disegno dei punti in g_ready con la matrice in matBuf (righe off..off+3, e off2..off2+3 se c'e' la seconda).
 static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off, int t, int off2, int t2, const D3D11_VIEWPORT& vp, int sel = 0)
 {
+    struct In { In() { g_inOurDraw++; } ~In() { g_inOurDraw--; } } inOur;
     int qk = GpuBegin(c);
     c->IASetInputLayout(nullptr);
     c->IASetIndexBuffer(g_quadIb, DXGI_FORMAT_R32_UINT, 0);
@@ -2227,10 +2229,10 @@ static void TrSrv(ID3D11DeviceContext* c)
     g_trSrvSig = sig; TrFlush();
     TrPut(" S(#%d,#%d,#%d,#%d)", id[0], id[1], id[2], id[3]);
 }
-static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
-static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_uiArm && !g_ourDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { if (g_uiArm && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
 
@@ -2316,13 +2318,19 @@ static void STDMETHODCALLTYPE HookRDrawAuto(ID3D11DeviceContext* c) { g_cDrawOth
 static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d)
 {
     g_cOMSet++;
-    if (g_bbRes && !g_ourDraw && g_drawSeq - g_bindSeq >= 200)   // 266: l'interfaccia (#3) ha circa 150 disegni, il modello 540-680
+    // voce 269: nel diario della 268 (come nella 267) la copia della finestra non si faceva mai: la condizione «non e' un
+    // nostro disegno» (g_ourDraw) risultava sempre falsa per motivi non chiari. I nostri ripristini si riconoscono ora dal
+    // buffer di profondita': e' una delle nostre copie (scena, faro, finestra). Nelle sequenze: LASCIO(...) con i motivi.
+    if (g_drawSeq - g_bindSeq >= 200)   // 266: l'interfaccia (#3) ha circa 150 disegni, il modello 540-680
     {   // voce 264: Revit lascia il buffer di profondita' con cui ha disegnato il modello nell'immagine della finestra
         ID3D11RenderTargetView* crt = nullptr; ID3D11DepthStencilView* cds = nullptr; c->OMGetRenderTargets(1, &crt, &cds);
         if (crt && cds)
         {
             ID3D11Resource *rr = nullptr, *rd = nullptr, *rn = nullptr; crt->GetResource(&rr); cds->GetResource(&rd); if (d) d->GetResource(&rn);
-            if (IsWindowImage(rr) && rn != rd)
+            bool ours = rd && (rd == (ID3D11Resource*)g_keepTex || rd == (ID3D11Resource*)g_bcnTex || rd == (ID3D11Resource*)g_winTex);
+            bool win = IsWindowImage(rr);
+            if (g_trRec && win) TrPut(" LASCIO(finestra_nota=%d,nostro=%d,flag=%d,stesso=%d,disegni=%lld)", g_bbRes ? 1 : 0, ours ? 1 : 0, g_ourDraw ? 1 : 0, rn == rd ? 1 : 0, g_drawSeq - g_bindSeq);
+            if (win && !ours && rn != rd)
             {
                 WinDepthCopy(c, cds); g_winDraws = g_drawSeq - g_bindSeq; if (g_trRec) TrPut(" COPIA-FINESTRA(%lld)", g_winDraws);
                 if (g_winModelDsv) g_winModelDsv->Release();

@@ -1640,3 +1640,10 @@ Ottava tornata (28/10/2026): octree
      l'interfaccia viene disegnata dopo, sopra la nuvola. Se quel momento non arriva, si disegna al Present come prima.
      g_ourDraw ora vale per thread. Diario: prima_interfaccia=0/1 nelle righe P, profondita=del_modello_nella_finestra,
      NUVOLA-PRIMA-DELL'INTERFACCIA nelle sequenze.
+
+269) Diario della 268 (24/11 10:18): il nuovo disegno prima dell'interfaccia non e' mai partito (prima_interfaccia=0
+     in tutte le 781 righe P) e la copia della finestra non si e' mai fatta, come nella 267: dalla 267 la condizione
+     «non e' un nostro disegno» (g_ourDraw) blocca tutto, per motivi non chiari. Ora: i nostri ripristini di stato si
+     riconoscono dal buffer di profondita' (una delle nostre copie), e i nostri disegni da un contatore attivo solo dentro
+     DrawPointsCore. Nelle sequenze del diario, a ogni cambio di destinazione dopo almeno 200 disegni nella finestra,
+     LASCIO(...) con i valori della condizione, per vedere subito se manca ancora qualcosa.
