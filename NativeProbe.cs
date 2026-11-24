@@ -49,6 +49,9 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetView(long viewId);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetFlatView(int flat, int useBeacon);
+        private static bool _flatMissing;
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdViewOff(long viewId);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern int PdShaderUpload(int layer, int node, byte[] data, int count);
@@ -292,7 +295,7 @@ namespace PointDeviation
         }
 
         /// <summary>Durante il nostro disegno: segnale e (ogni 5 s) cattura delle chiamate fatte dentro il nostro disegno.</summary>
-        public static void Begin(ViewCam cam, long viewId)
+        public static void Begin(ViewCam cam, long viewId, bool flat = false)
         {
             _capturing = false;
             // voce 218: opzione spenta a Revit aperto. Va fatto prima dell'uscita qui sotto: con «Prova DirectX» spenta
@@ -310,6 +313,10 @@ namespace PointDeviation
             {
                 if (Environment.TickCount - _lastLog >= 5000) { PdCaptureBegin(); _capturing = true; }
                 PdSetView(viewId);
+                // voce 286: piante e sezioni senza la camera del faro (opzione in Avanzate)
+                if (!_flatMissing)
+                    try { PdSetFlatView(flat ? 1 : 0, AdvancedSettings.Current.FlatBeacon ? 1 : 0); }
+                    catch (EntryPointNotFoundException) { _flatMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatView: ricompilare la libreria nativa (voce 286)"); }
                 SendCamera(cam);
                 DrawMarker();
                 _frames++;

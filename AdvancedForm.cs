@@ -35,6 +35,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _meshDepth = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _meshTol = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFix = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _flatBeacon = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -205,6 +206,9 @@ namespace PointDeviation
             _meshTol.Text = L.T("In movimento: stessa tolleranza di Revit sulle superfici del modello");
             p.Controls.Add(_meshTol);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): in movimento la mesh usa lo stesso scarto di profondità che Revit usa da fermo per il suo modello (misurato nei fotogrammi completi; finché non c'è, 1 cm), così i punti sulle superfici modellate si vedono come da fermo. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: in movimento le facciate possono comparire a chiazze.")));
+            _flatBeacon.Text = L.T("In pianta e sezione: camera dal faro");
+            p.Controls.Add(_flatBeacon);
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Spento (consigliato): in piante, sezioni e prospetti le immagini che Revit mostra mentre sposti o zoomi usano la camera dell'ultimo fotogramma completo, come prima del faro (la nuvola puo' restare indietro di un attimo ma resta al suo posto). Acceso: anche li' si usa la camera del faro, che in queste viste spesso non coincide con quella del modello.")));
             _flatFix.Text = L.T("In pianta e sezione: profondità del fotogramma completo");
             p.Controls.Add(_flatFix);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): in piante, sezioni e prospetti, mentre sposti o zoomi, la nuvola si confronta con la profondità del modello dell'ultimo fotogramma completo, come da fermo, invece che con quella approssimata del faro: non passa più sopra e sotto il modello. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: comportamento della voce 281.")));
@@ -260,6 +264,7 @@ namespace PointDeviation
             _meshDepth.Checked = !a.NoMeshDepth;
             _meshTol.Checked = !a.NoMeshTolerance;
             _flatFix.Checked = !a.NoFlatBeaconFix;
+            _flatBeacon.Checked = a.FlatBeacon;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -284,6 +289,7 @@ namespace PointDeviation
             a.NoMeshDepth = !_meshDepth.Checked;
             a.NoMeshTolerance = !_meshTol.Checked;
             a.NoFlatBeaconFix = !_flatFix.Checked;
+            a.FlatBeacon = _flatBeacon.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();

@@ -1781,3 +1781,16 @@ Ottava tornata (28/10/2026): octree
      che non vengono scritti da 7 giorni. I file del Revit principale restano (hanno gia' un tetto: registro 2 MB,
      diario 40 MB piu' una copia) e quelli del Revit in corso non si toccano.
 
+285) Matrice della camera sbagliata in pianta. Nel diario della pianta 009_1_0_FFL (24/11 17:20) la ricerca, all'apertura
+     della vista, aveva scelto una coppia di matrici del buffer di Revit (riga 2 e seconda matrice 7) che porta la camera
+     al centro dello schermo ma non il modello: nei fotogrammi normali la nuvola finiva tutta fuori dalla finestra (67
+     disegni su 73) e non si vedeva mai. Ora, se nei fotogrammi normali la nuvola esce tutta dalla finestra 3 volte di
+     fila, quella posizione si scarta per la vista e si cerca di nuovo (al massimo 4 volte per vista; se non si trova
+     altro si tiene quella di prima). Riga E;matrice_nuvola_fuori_finestra nel diario, conteggio nel rapporto DirectX.
+
+286) Piante, sezioni e prospetti come prima del faro. Nelle viste piane la camera ricavata dal faro non coincide con
+     quella del modello (righe diverse del 95%, «camera dal faro uguale alla vera 0 su 13»): nelle immagini intermedie
+     la nuvola finiva fuori posto. Li' il faro non si usa piu': le immagini intermedie usano la camera dell'ultimo
+     fotogramma completo e la sua profondita', come prima della voce 246. In 3D non cambia niente. Opzione in Avanzate
+     «In pianta e sezione: camera dal faro» (spenta). Va ricompilata PdRender.dll.
+

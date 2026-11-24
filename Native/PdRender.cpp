@@ -167,6 +167,12 @@ static int g_mForce = 0;
 // voce 215: cambiando vista l'elenco dei blocchi e la finestra restavano quelli della vista precedente finche' il plugin
 // non mandava il nuovo elenco: per un attimo si vedeva la nuvola della vista di prima, senza il riquadro di sezione.
 static void ClearForNewView();
+// voce 286: vista piana (pianta, sezione, prospetto). Li' la camera ricavata dal faro non e' quella del modello (diario del
+// 24/11 17:21: righe diverse dalla camera vera del 95%, «camera dal faro uguale alla vera 0 su 13») e la nuvola, nelle
+// immagini intermedie, finiva fuori posto o fuori dalla finestra. Nelle viste piane il faro non si usa: le immagini
+// intermedie tornano al sistema di prima (camera dell'ultimo fotogramma, profondita' copiata).
+static bool g_flatView = false, g_flatBeacon = false;
+extern "C" __declspec(dllexport) void PdSetFlatView(int flat, int useBeacon) { g_flatView = flat != 0; g_flatBeacon = useBeacon != 0; }
 extern "C" __declspec(dllexport) void PdSetView(long long viewId)
 {
     if (viewId != g_mView) { g_mView = viewId; g_mSlot = -1; g_mForce = 1; g_viewGen++; ClearForNewView(); }
@@ -205,6 +211,25 @@ static float Score(const float* A, int ta, const float* B, int tb, bool loose = 
     return 10.0f - (fabsf(x) + fabsf(y)) - fabsf(dx - 1.0f);
 }
 
+// voce 285 (pianta 009_1_0_FFL del 24/11 17:20): aperta la vista, la ricerca ha scelto una coppia di matrici (riga 2 e
+// seconda matrice 7) che porta la camera al centro dello schermo ma non il modello: nei fotogrammi normali la nuvola
+// finiva tutta fuori dalla finestra (67 disegni su 73, «nuvola fuori dalla finestra») e non si vedeva mai. Ora, se nei
+// fotogrammi normali la nuvola esce tutta dalla finestra 3 volte di fila (con i blocchi che il plugin ha scelto perche'
+// dentro l'inquadratura), quella posizione si scarta per questa vista e si cerca di nuovo; al massimo 4 volte per vista,
+// e se non si trova altro si torna a quella di prima.
+struct BadM { int slot, off, t, off2, t2; };
+static BadM g_badM[8]; static int g_badN = 0; static long long g_badGen = -1;
+static bool g_reSearch = false; static int g_reSearchN = 0; static long long g_reSearchGen = -1; static long g_reSearchDone = 0, g_reSearchKept = 0;
+static int g_sigOut = 0;
+static bool g_noReSearch = false;
+extern "C" __declspec(dllexport) void PdSetMatrixReSearch(int on) { g_noReSearch = on == 0; }
+static bool IsBadM(int slot, int off, int t, int off2, int t2)
+{
+    if (g_badGen != g_mView) return false;
+    for (int i = 0; i < g_badN; i++)
+        if (g_badM[i].slot == slot && g_badM[i].off == off && g_badM[i].t == t && g_badM[i].off2 == off2 && (off2 < 0 || g_badM[i].t2 == t2)) return true;
+    return false;
+}
 static void FindRevitMatrixEx(ID3D11DeviceContext* c, bool loose)
 {
     g_mTries++;
@@ -234,7 +259,7 @@ static void FindRevitMatrixEx(ID3D11DeviceContext* c, bool loose)
                 for (int t = 0; t < 2; t++)
                 {
                     float sc = Score(f + o * 4, t, nullptr, 0, loose);
-                    if (sc > best) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = -1; }
+                    if (sc > best && !IsBadM(slot, o, t, -1, 0)) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = -1; }
                 }
             if (best < 0)   // nessuna matrice unica: coppie (vista e proiezione separate)
                 for (int o = 0; o < nb; o++)
@@ -245,7 +270,7 @@ static void FindRevitMatrixEx(ID3D11DeviceContext* c, bool loose)
                             for (int t2 = 0; t2 < 2; t2++)
                             {
                                 float sc = Score(f + o * 4, t, f + o2 * 4, t2, loose);
-                                if (sc > best) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = o2; bT2 = t2; }
+                                if (sc > best && !IsBadM(slot, o, t, o2, t2)) { best = sc; bSlot = slot; bOff = o; bT = t; bOff2 = o2; bT2 = t2; }
                             }
                     }
             c->Unmap(st, 0);
@@ -319,6 +344,20 @@ static bool CheckMatrix(ID3D11DeviceContext* c)
 // matrice di Revit valida per questo disegno? Se il buffer ha cambiato dimensione o è cambiata la vista si cerca di nuovo.
 static bool EnsureMatrix(ID3D11DeviceContext* c)
 {
+    if (g_reSearch && g_mSlot >= 0)
+    {   // voce 285: la posizione attuale mette la nuvola fuori dalla finestra
+        g_reSearch = false;
+        if (g_badGen != g_mView) { g_badGen = g_mView; g_badN = 0; }
+        int t2 = (g_mT >> 1) & 1;
+        if (g_badN < 8) g_badM[g_badN++] = BadM{ g_mSlot, g_mOff, g_mT & 1, g_mOff2, t2 };
+        int os = g_mSlot, oo = g_mOff, ot = g_mT, oo2 = g_mOff2; UINT ow = g_mWidth;
+        g_mSlot = -1; FindRevitMatrix(c);
+        bool found = g_mSlot >= 0;
+        if (!found) { g_mSlot = os; g_mOff = oo; g_mT = ot; g_mOff2 = oo2; g_mWidth = ow; g_reSearchKept++; g_reSearchN = 99; }
+        else { g_reSearchDone++; g_viewGen++; }   // camere salvate con la posizione vecchia: non piu' valide
+        g_sigOut = 0;
+        FT("E;matrice_nuvola_fuori_finestra;scartata=b%d_riga%d_%d;ricerca=%s;b%d_riga=%d;seconda=%d", os, oo, oo2, found ? "trovata" : "niente_tenuta_precedente", g_mSlot, g_mOff, g_mOff2);
+    }
     if (g_mSlot >= 0)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
@@ -515,9 +554,14 @@ static void GpuCollect(ID3D11DeviceContext* c)
             else if (ps.CPrimitives == 0)
             {   // nessun punto nella finestra: con una camera presa da un fotogramma interrotto, la si scarta per 1 s
                 g_qCamOut++;
+                if (g_qSrc[k] == 0 && !g_noReSearch)
+                {   // voce 285: fotogramma normale, camera di Revit: la posizione della matrice e' sbagliata?
+                    if (g_reSearchGen != g_mView) { g_reSearchGen = g_mView; g_reSearchN = 0; }
+                    if (++g_sigOut >= 3 && g_reSearchN < 4) { g_reSearchN++; g_reSearch = true; }
+                }
                 if (g_qSrc[k] == 2) { if (now > g_badCurUntil) FT("E;camera_interrotto_fuori_finestra"); g_badCurUntil = now + 1000; }
             }
-            else g_qVisible++;
+            else { g_qVisible++; if (g_qSrc[k] == 0) g_sigOut = 0; }
         }
         if (dj.Disjoint || dj.Frequency == 0 || e < b) continue;
         double ms = (double)(e - b) * 1000.0 / (double)dj.Frequency;
@@ -2224,7 +2268,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     g_rjProj = g_rjAsp = g_rjOrtho = g_rjScale = g_rjFocus = g_rjOther = 0; g_rjKmin = 1e9f; g_rjKmax = 0; g_rjShift = 0;
     int nCandHere = g_nCand;
     // voce 247: camera dal faro, se Revit l'ha disegnato in questa immagine
-    float bcnRaw[32]; bool bcn = bcnSnap && g_hasRef && g_refGen == g_viewGen && BeaconCamera(bcnRaw);
+    float bcnRaw[32]; bool bcn = bcnSnap && g_hasRef && g_refGen == g_viewGen && !(g_flatView && !g_flatBeacon) && BeaconCamera(bcnRaw);
     // voce 249 (video del 21/11 19:35:40): passando col mouse sul modello (camera ferma) la nuvola spariva sopra l'edificio.
     // La camera ricavata dal faro ha x e y giuste ma la profondita' solo approssimata; diventata camera «precedente», le
     // immagini successive confrontavano la nuvola con la profondita' vera del modello e la perdevano (pixel visibili da
@@ -2264,7 +2308,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     // sopra o sotto (in quelle immagini 0,9-1,2 pixel per triangolo contro 0,35 dei fotogrammi completi). Con il faro
     // attivo, un'immagine senza faro usa la camera precedente: se Revit ha ridisegnato il modello con una camera nuova
     // il faro c'e' (28 immagini su 29 nella prova delle 19:16).
-    bool noGuess = g_bcnLocked && !bcn;
+    bool noGuess = g_bcnLocked && !bcn && !(g_flatView && !g_flatBeacon);   // voce 286: in pianta come prima del faro
     if (noGuess && !bcnStill && g_chainGen == g_viewGen)
     {   // voce 279 (24/11 16:23, senza registrazione: la nuvola sfarfalla in orbita con i link, l'RCP no). Immagini senza
         // faro: la nuvola usa la camera precedente. Se in quell'immagine Revit ha disegnato qualcosa con una camera nuova
@@ -2540,9 +2584,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
             g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top);
         g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0;
         L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld",
-            g_qVisible, g_qDepthBlock, g_qCamOut);
-        g_qVisible = g_qDepthBlock = g_qCamOut = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld)",
+            g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept);
+        g_qVisible = g_qDepthBlock = g_qCamOut = 0; g_reSearchDone = g_reSearchKept = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; camere dei fotogrammi interrotti ricavate dai collegamenti %ld, riconosciute dalle coppie camera/collegamento %ld (trasformazioni ricevute %d)", g_linkHits, g_hostHits, g_nLinks);
         g_linkHits = 0; g_hostHits = 0;

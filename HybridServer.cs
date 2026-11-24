@@ -342,7 +342,7 @@ namespace PointDeviation
                 for (int k = 0; k < visible.Count; k++) visible[k].Prepare(st, budget, wants[k], pxs[k], shaderMode);
                 if (!shaderMode) for (int k = 0; k < visible.Count; k++) visible[k].Refine(st, budget, wants[k]);
                 long f2 = System.Diagnostics.Stopwatch.GetTimestamp();
-                NativeProbe.Begin(cam, view.Id.Value);
+                NativeProbe.Begin(cam, view.Id.Value, !(view is View3D));
                 try
                 {
                     // voce 194: con il disegno con shader acceso e la libreria pronta, i punti li disegna la libreria al
