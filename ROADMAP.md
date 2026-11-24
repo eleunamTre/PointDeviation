@@ -18,10 +18,11 @@
 - Orbita con i link (voci 271-276): nelle immagini intermedie Revit ricompone la scena senza la profondita' completa
   del modello; anche l'RCP disegnato da Revit ha qualche incertezza. La mesh dell'analisi con lo scarto di profondita'
   misurato di Revit (7-16 cm) migliora ma non arriva al livello dell'RCP: i difetti rimasti vengono probabilmente
-  dalla camera delle immagini intermedie (faro, camera precedente), non dalla profondita'. Per ora la mesh si usa
-  solo se c'e' un'analisi. Se si riprende: partire dalla camera. Estrazione automatica della mesh solo se serve
-  davvero (all'apertura a blocchi in Idling, cache su disco con la versione del documento e dei link, filtro per
-  vista degli elementi nascosti).
+  dalla camera delle immagini intermedie (faro, camera precedente), non dalla profondita'. Il video dell'RCP con OBS
+  (24/11) mostra che Revit con i link a volte disegna solo il link e salta modello e nuvola: buona parte dei difetti
+  era quello. Dalla 278 la mesh si prepara da sola per la vista 3D attiva (DepthMesh.cs, Idling a passi di 40 ms).
+  Possibili sviluppi: cache su disco con la versione del documento e dei link, aggiornamento dei soli elementi
+  modificati, filtro dei collegamenti per ingombro della nuvola.
 
 ## 1. Formati
 - **E57** (lettura diretta, anche con più scansioni e colori/intensità) – fatto e provato su un rilievo reale
