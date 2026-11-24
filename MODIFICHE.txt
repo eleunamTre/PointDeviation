@@ -1809,3 +1809,10 @@ Ottava tornata (28/10/2026): octree
      vista, si prova prima quella; se passa i controlli si tiene senza cercarne altre, altrimenti si cerca come prima.
      Conteggio «ripresa la posizione che funzionava» nel rapporto DirectX. Va ricompilata PdRender.dll.
 
+289) Sezioni, passaggio del mouse: la nuvola andava ogni tanto sopra il modello (Sezione 39, 24/11 17:52). Nei
+     fotogrammi parziali (camera ferma, Revit ridisegna solo la zona attorno all'elemento sotto il mouse) la profondita'
+     di Revit al momento del nostro disegno non contiene tutto il modello e la nuvola passava davanti. Con la camera
+     uguale c'e' la profondita' intera del fotogramma completo precedente: ora la nuvola si confronta con quella (senza
+     scriverla). Conteggio «parziali disegnati con la profondita' intera di prima» nel rapporto DirectX. Va ricompilata
+     PdRender.dll.
+

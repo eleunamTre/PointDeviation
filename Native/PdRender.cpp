@@ -781,6 +781,9 @@ static bool PartialRect(D3D11_RECT r, const D3D11_VIEWPORT& vp, D3D11_RECT& out)
     out = r; return true;
 }
 static bool KeepStillGood();
+static ID3D11DepthStencilView* KeepDsvForPartial();   // voce 289
+static bool g_noPartialKeep = false; static long g_partialKeepDraws = 0;
+extern "C" __declspec(dllexport) void PdSetPartialKeepDepth(int on) { g_noPartialKeep = on == 0; }
 
 // =====================================================================================================================
 // Voce 224: diagnostica per la trasparenza nella VistaIniziale (nuvola davanti ai muri solo li'). Ogni 5 s si registra
@@ -1329,11 +1332,24 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     if (!rcb) return;
     D3D11_VIEWPORT vp; UINT nv = 1; c->RSGetViewports(&nv, &vp);
     if (nv == 0 || vp.Width < 1) { rcb->Release(); return; }
-    SavedState st; st.Save(c, false);
+    // voce 289 (Sezione 39 del 24/11 17:52: passando col mouse la nuvola andava ogni tanto sopra il modello). Nei
+    // fotogrammi parziali (camera ferma, Revit ridisegna solo un rettangolo attorno all'elemento sotto il mouse) la
+    // profondita' di Revit in quel momento non contiene tutto il modello: la nuvola disegnata al segnale passava davanti.
+    // Con la camera uguale c'e' la profondita' intera del fotogramma completo di prima: si usa quella, senza scriverla.
+    ID3D11DepthStencilView* pdz = (g_partial && !g_noPartialKeep && KeepStillGood()) ? KeepDsvForPartial() : nullptr;
+    SavedState st; st.Save(c, pdz != nullptr);
+    if (pdz)
+    {
+        ID3D11RenderTargetView* crt = nullptr; ID3D11DepthStencilView* cds = nullptr; c->OMGetRenderTargets(1, &crt, &cds);
+        c->OMSetRenderTargets(1, &crt, pdz);
+        if (crt) crt->Release(); if (cds) cds->Release();
+        g_depthNoWrite = true; g_partialKeepDraws++;
+    }
     g_useScissor = g_partial || g_scRect;   // voce 229, 287: le forbici di Revit sono gia' impostate, basta rispettarle
     g_drawSrc = 0; g_noDepth = false;
     DrawPointsCore(c, rcb, g_mOff, g_mT & 1, g_mOff2, (g_mT >> 1) & 1, vp, g_ptAlpha ? 1 : 0);   // voce 259: i trasparenti al Present
     g_useScissor = false;
+    if (pdz) g_depthNoWrite = false;
     st.Restore(c);
     rcb->Release();
 }
@@ -1418,6 +1434,7 @@ static bool KeepStillGood()
 {
     return g_partial && g_keepOk && g_keepCamOk && memcmp(g_keepCam, g_refRaw, sizeof(g_keepCam)) == 0;
 }
+static ID3D11DepthStencilView* KeepDsvForPartial() { return g_keepOk ? g_keepDsv : nullptr; }
 static void KeepDepth()
 {
     ID3D11DeviceContext* c = nullptr; if (g_realDev) g_realDev->GetImmediateContext(&c);
@@ -2615,9 +2632,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     {
         size_t L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld",
-            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames);
-        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld; ripresa la posizione che funzionava %ld volte)",
             g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept, g_goodUsed);
