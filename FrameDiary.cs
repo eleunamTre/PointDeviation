@@ -27,7 +27,7 @@ namespace PointDeviation
         private static readonly byte[] _buf = new byte[1 << 20];
         private const long MaxBytes = 40L << 20;
 
-        public static string FilePath { get { return Path.Combine(Log.Folder, "PointDeviation" + Log.Instance + "-frames.log");   // voce 283 } }
+        public static string FilePath { get { return Path.Combine(Log.Folder, "PointDeviation" + Log.Instance + "-frames.log"); } }   // voce 283
         public static double NowMs { get { return Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency; } }
 
         private static bool Ensure()
