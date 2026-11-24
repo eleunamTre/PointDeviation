@@ -1753,3 +1753,8 @@ Ottava tornata (28/10/2026): octree
      «Contrasto See-through» nel pannello Aspetto e nella descrizione del pulsante, per distinguere il plugin dal
      prodotto da cui e' partita l'idea. «Normali» resta: e' il termine geometrico (lo usa anche Revit). Nomi interni
      (DisplayMode.XRay, comando, icona) invariati.
+
+281) Diagnostica dei ridisegni. Nel video della 52 con i link la camera e' ferma ma l'ombra del modello compare e
+     scompare: Revit sta ridisegnando, e con i collegamenti ogni ridisegno e' lento e a pezzi. La riga «[Fotogrammi]»
+     (ogni 5 s) dice ora quanti RefreshActiveView ha chiesto il plugin e perche' (richiesta, fine zoom, camera ferma) e
+     da dove arrivano le richieste (file:riga, le 8 piu' frequenti). Nessun cambiamento nel disegno.

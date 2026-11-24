@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
@@ -3214,7 +3215,29 @@ namespace PointDeviation
     {
         private static int _needed;
         private static long _lastRequest;
-        public static void Request() { Interlocked.Exchange(ref _needed, 1); Interlocked.Exchange(ref _lastRequest, Environment.TickCount); }
+        // voce 281: chi chiede i ridisegni (file:riga) e quanti RefreshActiveView partono, per la riga «[Fotogrammi]».
+        // Con i collegamenti ogni ridisegno di Revit e' lento e a pezzi (ombre e modello che compaiono e spariscono):
+        // serve sapere se da fermi li chiediamo noi.
+        private static readonly ConcurrentDictionary<string, int> _who = new ConcurrentDictionary<string, int>();
+        private static readonly ConcurrentDictionary<string, int> _refreshes = new ConcurrentDictionary<string, int>();
+        public static void Request([CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
+        {
+            Interlocked.Exchange(ref _needed, 1); Interlocked.Exchange(ref _lastRequest, Environment.TickCount);
+            try { _who.AddOrUpdate(Path.GetFileNameWithoutExtension(file) + ":" + line, 1, (k, v) => v + 1); } catch { }
+        }
+        /// <summary>Voce 281: un RefreshActiveView partito, col motivo.</summary>
+        public static void NoteRefresh(string why) { try { _refreshes.AddOrUpdate(why, 1, (k, v) => v + 1); } catch { } }
+        /// <summary>Voce 281: riepilogo di richieste e ridisegni dall'ultima chiamata (e azzera).</summary>
+        public static string Describe()
+        {
+            var r = _refreshes.ToArray(); _refreshes.Clear();
+            var w = _who.ToArray(); _who.Clear();
+            int nr = r.Sum(x => x.Value);
+            string s = string.Format("; ridisegni chiesti a Revit {0}", nr);
+            if (nr > 0) s += " (" + string.Join(", ", r.OrderByDescending(x => x.Value).Select(x => x.Key + " " + x.Value)) + ")";
+            if (w.Length > 0) s += "; richieste da " + string.Join(", ", w.OrderByDescending(x => x.Value).Take(8).Select(x => x.Key + " " + x.Value));
+            return s;
+        }
         /// <summary>Millisecondi dall'ultima richiesta di ridisegno.</summary>
         public static long SinceLastMs { get { return Environment.TickCount - Interlocked.Read(ref _lastRequest); } }
         public static bool Take() { return Interlocked.Exchange(ref _needed, 0) == 1; }

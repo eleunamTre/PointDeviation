@@ -72,18 +72,20 @@ namespace PointDeviation
                 // dettaglio lo chiede il disegno) e i ridisegni per i blocchi in arrivo al massimo ogni 700 ms.
                 bool flat = !(app.ActiveUIDocument.ActiveView is View3D);
                 bool refresh = false;
+                string why = null;   // voce 281
                 if (_zoomDirty && now - _zoomTick >= ZoomSettleMs)
                 {
                     _zoomDirty = false;
-                    if (!flat) refresh = true;
+                    if (!flat) { refresh = true; why = "fine zoom"; }
                 }
-                if (Redraw.Pending && now - _lastRefresh >= (flat ? MinRefreshFlatMs : MinRefreshMs)) { Redraw.Take(); refresh = true; }
+                if (Redraw.Pending && now - _lastRefresh >= (flat ? MinRefreshFlatMs : MinRefreshMs)) { Redraw.Take(); refresh = true; why = why ?? "richiesta"; }
                 // voce 232: un ridisegno quando la camera e' ferma da abbastanza tempo, per passare al dettaglio da fermi
                 long settle = Interlocked.Read(ref _settleAt);
-                if (settle > 0 && now - settle >= 0) { Interlocked.Exchange(ref _settleAt, 0); if (!flat) refresh = true; }
+                if (settle > 0 && now - settle >= 0) { Interlocked.Exchange(ref _settleAt, 0); if (!flat) { refresh = true; why = why ?? "camera ferma"; } }
                 if (refresh)
                 {
                     _lastRefresh = now;
+                    Redraw.NoteRefresh(why ?? "altro");
                     app.ActiveUIDocument.RefreshActiveView();
                 }
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
@@ -546,7 +548,7 @@ namespace PointDeviation
                 _intervals > 0 ? string.Format(", in movimento un fotogramma ogni {0:F0} ms (≈ {1:F1} al secondo), il più lento {2:F0} ms", _intSum / _intervals, 1000.0 / Math.Max(1, _intSum / _intervals), _intMax) : "",
                 _ourSum / Math.Max(1, _frames), _lodSum / Math.Max(1, _frames), _prepSum / Math.Max(1, _frames), _drawSum / Math.Max(1, _frames), _ourMax,
                 _views, _views > 0 ? _waitSum / _views : 0, _waitMax, _forced, big, small, g0, g1, g2,
-                OutOfFrame > 0 ? string.Format("; «fuori dall'inquadratura» {0} volte", OutOfFrame) : "") + DrawGovernor.Describe());
+                OutOfFrame > 0 ? string.Format("; «fuori dall'inquadratura» {0} volte", OutOfFrame) : "") + DrawGovernor.Describe() + Redraw.Describe());
             _winStart = now; _gc0 = GC.CollectionCount(0); _gc1 = GC.CollectionCount(1); _gc2 = GC.CollectionCount(2);
             _frames = _moving = _intervals = 0; _intSum = _intMax = _ourSum = _ourMax = _lodSum = _prepSum = _drawSum = 0;
             _views = _forced = 0; _waitSum = _waitMax = 0; OutOfFrame = 0;
