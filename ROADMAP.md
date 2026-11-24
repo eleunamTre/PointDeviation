@@ -13,6 +13,9 @@
   punti piu' grandi per i blocchi grossolani usati come sostituti.
 - Con la trasparenza la nuvola puo' passare davanti agli elementi selezionati (Revit li disegna con una profondita' a
   parte).
+- Mesh del modello per la profondita' in movimento (voce 272): oggi viene dall'ultima analisi. Se la 272 risolve la
+  nuvola davanti al modello in orbita con i link, estrarla in automatico e in background quando si apre una vista 3D
+  con la nuvola (solo triangoli, senza distanze), da rifare quando il modello o i link cambiano.
 
 ## 1. Formati
 - **E57** (lettura diretta, anche con più scansioni e colori/intensità) – fatto e provato su un rilievo reale
@@ -64,6 +67,26 @@ oggi non risulta rosso perché lì non c'è nuvola da colorare). Da fare dopo av
 - Risultato: colori in Revit (verde, giallo parziale, rosso non trovato, grigio non verificabile), elenco
   ordinabile per percentuale con zoom, selezione, isolamento ed esportazione CSV, come per le Zone mancanti.
 - Presentato come elenco da verificare, non come verdetto (restano casi come un muro coperto da un armadio).
+
+## 2d. Report esportabile delle verifiche
+Report da consegnare con quello che l'analisi trova, dopo aver chiuso i problemi di profondita' del disegno.
+- Elementi fuori tolleranza: nell'estrazione della mesh ogni triangolo porta l'ID dell'elemento e del collegamento da
+  cui viene; per ogni elemento punti vicini, scostamento medio e massimo, percentuale di punti oltre la tolleranza.
+  Elenco ordinato dal peggiore, con selezione dell'elemento in Revit.
+- Zone non modellate: i gruppi delle Zone mancanti con posizione, ingombro, punti, livello e quota.
+- Immagini generate dal plugin (non dall'esportazione di Revit, che non vede la nostra nuvola): vista dall'alto e
+  laterale di ogni elemento o zona, punti colorati per scostamento e contorno del modello.
+- Formato: Excel con le tabelle e gli ID, PDF con le immagini.
+
+## 2e. Parti della nuvola da escludere (opzione)
+Poter spegnere parti della nuvola, nella vista e nell'analisi (e quindi nel report), per non segnalare come «non
+modellato» quello che non va modellato:
+- per scansione: riconoscere le diverse scansioni quando il file le distingue (E57 con piu' scansioni, RCP con piu'
+  RCS) e accenderle o spegnerle una per una;
+- per classe, se la nuvola e' classificata (LAS: vegetazione, terreno, ...);
+- vegetazione riconosciuta con regole (punti sparsi e non planari, colore prevalentemente verde, gruppi piccoli);
+  un classificatore addestrato solo se le regole non bastano;
+- zone escluse disegnate dall'utente.
 
 ## 2c. Analisi con i modelli collegati: lentezza
 Con l'analisi estesa ai modelli collegati sia l'analisi sia la navigazione diventano molto lente (log del
