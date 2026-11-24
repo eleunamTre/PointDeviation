@@ -88,7 +88,7 @@ namespace PointDeviation
             d["«{0}»\n{1:N0} di {2:N0} punti ({3:F0}%){4}"] = "«{0}»\n{1:N0} of {2:N0} points ({3:F0}%){4}";
             d["Ci sono più nuvole: seleziona quella da usare come riferimento e riprova."] = "There are several clouds: select the one to use as reference and try again.";
             d["Clicca sui punti della nuvola  |  INVIO o ESC termina"] = "Click points on the cloud  |  ENTER or ESC to finish";
-            d["Contrasto X-ray"] = "X-ray contrast";
+            d["Contrasto See-through"] = "See-through contrast";
             d["Coordinate condivise impostate. Le nuove nuvole inserite con «Coordinate condivise» cadranno nella stessa posizione."] = "Shared coordinates set. New clouds inserted with «Shared coordinates» will land in the same position.";
             d["Da lontano i punti sono di un pixel; da vicino, dove sono radi, si ingrandiscono secondo la dimensione scelta (0 = sempre un pixel). Luminosità e contrasto non cambiano i colori dell'analisi, per restare fedeli alla legenda."] = "From afar points are one pixel; up close, where they are sparse, they grow to the chosen size (0 = always one pixel). Brightness and contrast do not change analysis colors, to stay true to the legend.";
             d["Dimensione punti (%)"] = "Point size (%)";
@@ -119,11 +119,11 @@ namespace PointDeviation
             d["Colori originali della scansione."] = "Original scan colors.";
             d["Normali"] = "Normals";
             d["Colori in base all'orientamento delle superfici: rende leggibili forme e spigoli."] = "Colors by surface orientation: makes shapes and edges readable.";
-            d["X-ray"] = "X-ray";
+            d["See-through"] = "See-through";
             d["Punti grigi semitrasparenti: si vede attraverso la nuvola e risalta il modello."] = "Semi-transparent gray points: see through the cloud and make the model stand out.";
             d["Un colore per ogni nuvola (si cambia dal pannello Visibilità)."] = "One color per cloud (change it in the Visibility panel).";
             d["Colori in base all'altezza dei punti, dal basso (blu) all'alto (rosso): fa leggere piani, pendenze, gradini e terreno."] = "Colors by point height, from low (blue) to high (red): makes floors, slopes, steps and terrain readable.";
-            d["Dimensione dei punti, luminosità, contrasto, trasparenza e contrasto X-ray."] = "Point size, brightness, contrast, transparency and X-ray contrast.";
+            d["Dimensione dei punti, luminosità, contrasto, trasparenza e contrasto See-through."] = "Point size, brightness, contrast, transparency and See-through contrast.";
             d["Modelli confrontati, profilo colore, nuvola senza modello, punti per le statistiche."] = "Compared models, color profile, cloud without model, points for statistics.";
             d["Nasconde o mostra le nuvole nella vista attiva (come «Nascondi elemento» di Revit). Le nuvole si gestiscono anche da Visibilità/Grafica e Gestisci collegamenti."] = "Hides or shows the clouds in the active view (like Revit's «Hide Element»). Clouds can also be managed from Visibility/Graphics and Manage Links.";
             d["Visibilità"] = "Visibility";

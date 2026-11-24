@@ -5,7 +5,7 @@ using System.Windows.Forms;
 namespace PointDeviation
 {
     /// <summary>
-    /// Pannello «Aspetto»: dimensione dei punti, luminosità, contrasto, trasparenza e contrasto X-ray.
+    /// Pannello «Aspetto»: dimensione dei punti, luminosità, contrasto, trasparenza e contrasto See-through.
     /// I valori si applicano quando il cursore si ferma (niente ridisegni a ogni scatto).
     /// </summary>
     internal sealed class DisplayForm : PdForm
@@ -42,7 +42,7 @@ namespace PointDeviation
             Row(tl, L.T("Luminosità"), _bri, _briV);
             Row(tl, L.T("Contrasto"), _con, _conV);
             Row(tl, L.T("Trasparenza (%)"), _tra, _traV);
-            Row(tl, L.T("Contrasto X-ray"), _xray, _xrayV);
+            Row(tl, L.T("Contrasto See-through"), _xray, _xrayV);
 
             var note = new Label
             {

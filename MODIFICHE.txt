@@ -1748,3 +1748,8 @@ Ottava tornata (28/10/2026): octree
      resta indietro di un'immagine e salta. Diagnostica: in quelle immagini si classificano le matrici scritte da Revit
      (anche tolta la trasformazione di ogni collegamento) in uguali alla camera usata, spostate (stessa scala, x, y, w
      diversi) o altre. Diario X;senza_faro; registro: immagini senza faro e quante con camera spostata e nessuna uguale.
+
+280) Nomi: la modalita' «X-ray» si chiama ora «See-through» (anche in inglese), e «Contrasto X-ray» diventa
+     «Contrasto See-through» nel pannello Aspetto e nella descrizione del pulsante, per distinguere il plugin dal
+     prodotto da cui e' partita l'idea. «Normali» resta: e' il termine geometrico (lo usa anche Revit). Nomi interni
+     (DisplayMode.XRay, comando, icona) invariati.

@@ -207,13 +207,13 @@ namespace PointDeviation
                 _modeButtons[m] = _modeSplit.AddPushButton(Push(name, text, asm, cmd, icon, tip));
             mode(DisplayMode.Rgb, "DisplayRgb", "RGB", typeof(DisplayRgbCommand), "rgb", "Colori originali della scansione.");
             mode(DisplayMode.Normali, "DisplayNormals", "Normali", typeof(DisplayNormalsCommand), "normals", "Colori in base all'orientamento delle superfici: rende leggibili forme e spigoli.");
-            mode(DisplayMode.XRay, "DisplayXray", "X-ray", typeof(DisplayXrayCommand), "xray", "Punti grigi semitrasparenti: si vede attraverso la nuvola e risalta il modello.");
+            mode(DisplayMode.XRay, "DisplayXray", "See-through", typeof(DisplayXrayCommand), "xray", "Punti grigi semitrasparenti: si vede attraverso la nuvola e risalta il modello.");
             mode(DisplayMode.Nuvola, "DisplayCloud", "Nuvola", typeof(DisplayCloudCommand), "cloud_single", "Un colore per ogni nuvola (si cambia da Gestisci nuvole).");
             mode(DisplayMode.Quota, "DisplayElevation", "Quota", typeof(DisplayElevationCommand), "elevation", "Colori in base all'altezza dei punti, dal basso (blu) all'alto (rosso): fa leggere piani, pendenze, gradini e terreno.");
 
             var qData = new ComboBoxData("Quality") { ToolTip = L.T("Quanti punti disegnare: Automatica si adatta alla vista, Media alleggerisce, Fine mostra più dettaglio.") };
             PushButtonData appData = Push("Appearance", "Aspetto", asm, typeof(AppearanceCommand), "appearance",
-                "Dimensione dei punti, luminosità, contrasto, trasparenza e contrasto X-ray.");
+                "Dimensione dei punti, luminosità, contrasto, trasparenza e contrasto See-through.");
             pDisplay.AddSeparator();
             IList<RibbonItem> stack = pDisplay.AddStackedItems(qData, appData);
             _quality = stack[0] as Autodesk.Revit.UI.ComboBox;
