@@ -32,6 +32,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _probe = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _native = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _beacon = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly ComboBox _thin = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -196,6 +197,9 @@ namespace PointDeviation
             _beacon.Text = L.T("Prova: camera dal faro con i collegamenti");
             p.Controls.Add(_beacon);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Spento (consigliato): come sempre. Acceso: con i collegamenti accesi, nelle immagini che Revit ridisegna in movimento senza chiamare il plugin la nuvola usa la camera ricavata da pochi punti invisibili consegnati a Revit. Dopo il cambio ricarica la nuvola in Gestisci › Gestisci collegamenti › Nuvole di punti › Ricarica.")));
+            foreach (string t in new[] { "Come sempre", "Non disegnare la nuvola", "Nuvola trasparente" }) _thin.Items.Add(L.T(t));
+            p.Controls.Add(Row(L.T("In movimento, immagini con poca profondità del modello"), _thin));
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. In movimento, con i collegamenti, Revit a volte mostra immagini in cui il plugin ha solo una parte della profondità del modello e la nuvola passerebbe davanti. «Non disegnare la nuvola»: in quelle immagini la nuvola manca (può lampeggiare). «Nuvola trasparente»: si vede trasparente sopra tutto.")));
             _fullWait.Text = L.T("Analisi: aspetta il calcolo completo delle distanze");
             p.Controls.Add(_fullWait);
             p.Controls.Add(Note(L.T("Spento (consigliato): la finestra si chiude quando sono pronti i livelli principali (circa un terzo del tempo) e il dettaglio fine si completa in background. Acceso: si aspetta tutto, poi ogni zoom è pronto e la percentuale di punti vicini al modello è esatta.")));
@@ -245,6 +249,7 @@ namespace PointDeviation
             _fixedBudget.Checked = a.FixedBudget;
             _native.Checked = a.NativeDisplay;
             _beacon.Checked = a.BeaconCamera;
+            _thin.SelectedIndex = Math.Max(0, Math.Min(2, a.ThinDepth));
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -266,6 +271,7 @@ namespace PointDeviation
             a.FixedBudget = _fixedBudget.Checked;
             a.NativeDisplay = _native.Checked;
             a.BeaconCamera = _beacon.Checked;
+            a.ThinDepth = Math.Max(0, _thin.SelectedIndex);
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();

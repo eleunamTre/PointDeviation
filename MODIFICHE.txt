@@ -1660,3 +1660,16 @@ Ottava tornata (28/10/2026): octree
      destinazione «finestra» si riconosce a ogni cambio di destinazione (g_curWin), non a ogni disegno.
      Il problema della nuvola davanti al modello in orbita con i link resta da affrontare a parte (la copia della scena
      nelle immagini col faro a volte e' parziale).
+
+271) Con la 270 la nuvola sta sotto l'interfaccia (cubo, maniglie). Resta la nuvola davanti al modello in orbita con
+     i link: nel diario della 270 la copia della profondita' della scena nelle immagini col faro copre da 0 a 40% della
+     finestra (piu' di meta' delle volte meno del 25%). Le sequenze mostrano che in ogni immagine intermedia Revit usa con
+     l'immagine della scena (#4) due buffer di profondita': #5 (faro e modello nuovo, quello che copiamo, gia' nel momento
+     giusto, subito prima della finestra) e #6, usato anche con due immagini a 10 bit (#7/#8) lette da un disegno che
+     scrive in #4. Ipotesi: #7/#8 sono la scena tenuta da prima e #6 la sua profondita'. Misura: si tengono gli ultimi
+     due buffer di profondita' della scena e, copiando quello del faro, si copia anche l'altro; nel diario X;faro_altra
+     e X;completo_altra con copertura della scena, dell'altro, dell'unione, scarto medio dove ci sono entrambi e quale e'
+     piu' vicino. Ripiego in Avanzate › Diagnostica, «In movimento, immagini con poca profondità del modello»: Come
+     sempre (predefinito), Non disegnare la nuvola, Nuvola trasparente; vale quando la copia e' meno della meta' di
+     quella dell'ultimo fotogramma completo della stessa vista. Nel registro: altro buffer copiato, immagini saltate o
+     trasparenti.

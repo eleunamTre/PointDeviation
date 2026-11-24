@@ -831,6 +831,56 @@ static bool DepthRead(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, doubl
     st->Release(); r->Release();
     return ok;
 }
+// voce 271: valori di profondita' di un buffer, un punto ogni 8 pixel (0 = vuoto)
+static bool DepthGrid(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, std::vector<float>& z)
+{
+    z.clear();
+    if (!dsv || !g_realDev) return false;
+    ID3D11Resource* r = nullptr; dsv->GetResource(&r);
+    if (!r) return false;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+    bool d24 = d.Format == DXGI_FORMAT_R24G8_TYPELESS || d.Format == DXGI_FORMAT_D24_UNORM_S8_UINT;
+    bool f32 = d.Format == DXGI_FORMAT_R32_TYPELESS || d.Format == DXGI_FORMAT_D32_FLOAT;
+    if ((!d24 && !f32) || d.SampleDesc.Count != 1) { r->Release(); return false; }
+    D3D11_TEXTURE2D_DESC sd = d; sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ; sd.MiscFlags = 0;
+    sd.MipLevels = 1; sd.ArraySize = 1;
+    ID3D11Texture2D* st = nullptr;
+    if (FAILED(g_realDev->CreateTexture2D(&sd, nullptr, &st)) || !st) { r->Release(); return false; }
+    c->CopyResource(st, r);
+    D3D11_MAPPED_SUBRESOURCE m; bool ok = false;
+    if (SUCCEEDED(c->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+    {
+        for (UINT y = 0; y < d.Height; y += 8)
+        {
+            const unsigned char* row = (const unsigned char*)m.pData + (size_t)y * m.RowPitch;
+            for (UINT x = 0; x < d.Width; x += 8)
+            {
+                double v = d24 ? (double)(((const unsigned int*)row)[x] & 0xFFFFFF) / 16777215.0 : (double)((const float*)row)[x];
+                z.push_back(v < 0.99999 && v > 0.00001 ? (float)v : 0.0f);
+            }
+        }
+        ok = true;
+        c->Unmap(st, 0);
+    }
+    st->Release(); r->Release();
+    return ok;
+}
+// voce 271: confronto tra la copia della scena (a) e l'altro buffer di profondita' della scena (b), per il diario
+static void DepthPairLog(ID3D11DeviceContext* c, ID3D11DepthStencilView* a, ID3D11DepthStencilView* b, const char* tag)
+{
+    std::vector<float> za, zb;
+    if (!DepthGrid(c, a, za) || !DepthGrid(c, b, zb) || za.size() != zb.size() || za.empty()) { FT("X;%s;confronto_non_fatto", tag); return; }
+    long n = (long)za.size(), ka = 0, kb = 0, ku = 0, kk = 0, bNear = 0, aNear = 0; double diff = 0, mn = 1, mx = 0;
+    for (long i = 0; i < n; i++)
+    {
+        bool va = za[i] > 0, vb = zb[i] > 0;
+        if (va) ka++; if (vb) { kb++; if (zb[i] < mn) mn = zb[i]; if (zb[i] > mx) mx = zb[i]; }
+        if (va || vb) ku++;
+        if (va && vb) { kk++; diff += fabs((double)za[i] - zb[i]); if (zb[i] < za[i] - 0.0005f) bNear++; else if (za[i] < zb[i] - 0.0005f) aNear++; }
+    }
+    FT("X;%s;scena=%.0f;altra=%.0f;unione=%.0f;entrambe=%.0f;scarto_medio=%.5f;altra_piu_vicina=%.0f;scena_piu_vicina=%.0f;altra_z=%.4f-%.4f",
+       tag, 100.0 * ka / n, 100.0 * kb / n, 100.0 * ku / n, 100.0 * kk / n, kk ? diff / kk : 0.0, kk ? 100.0 * bNear / kk : 0.0, kk ? 100.0 * aNear / kk : 0.0, kb ? mn : 0.0, kb ? mx : 0.0);
+}
 static void ColFormD(const float* raw, double* C);
 static double g_cloudT[8][16]; static int g_nCloudT = 0;
 // profondita' (0..1) del centro della nuvola con la camera cam (formato del buffer di Revit), -1 se non si sa
@@ -1442,9 +1492,54 @@ static void WinDepthCopy(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* src)
 }
 static ID3D11Resource* g_bcnDzRef = nullptr;   // voce 250: con riferimento, per la copia al Present se Revit non lo lascia prima
 static bool g_bcnDepthChain = false;            // la copia vale anche per le immagini che riusano la camera del faro
+// voce 271: nelle immagini intermedie Revit usa con l'immagine della scena (#4) due buffer di profondita': quello dove
+// disegna il faro e il modello nuovo (#5, quello che copiamo) e un altro (#6, usato anche con le immagini a 10 bit #7/#8).
+// Si tengono gli ultimi due buffer di profondita' della scena (grandi come la finestra, non della finestra, non nostri) e,
+// quando si copia quello del faro, si copia anche l'altro: per ora solo per il diario (X;faro_altra, X;completo_altra).
+static ID3D11Resource* g_sideRef[2] = { nullptr, nullptr };   // con riferimento
+static ID3D11Texture2D* g_sideTex = nullptr; static ID3D11DepthStencilView* g_sideDsv = nullptr;
+static bool g_sideOk = false; static long g_sideCopies = 0;
+// voce 271: immagini intermedie con la copia della scena molto piu' scarsa di quella dell'ultimo fotogramma completo
+// (meno della meta'): 0 = come prima, 1 = la nuvola non si disegna, 2 = si disegna trasparente senza profondita'
+static int g_thinMode = 0; static double g_fullCov = -1; static long g_fullCovGen = -1;
+static long g_thinSkip = 0, g_thinGhost = 0;
+extern "C" __declspec(dllexport) void PdSetThinDepth(int mode) { g_thinMode = mode < 0 ? 0 : (mode > 2 ? 2 : mode); }
+static void SideNote(ID3D11Resource* r)
+{
+    if (!r || r == g_sideRef[0]) return;
+    if (r == g_sideRef[1]) { g_sideRef[1] = g_sideRef[0]; g_sideRef[0] = r; return; }
+    if (g_sideRef[1]) g_sideRef[1]->Release();
+    g_sideRef[1] = g_sideRef[0]; g_sideRef[0] = r; r->AddRef();
+}
+static bool DepthCopyTo(ID3D11DeviceContext* ctx, ID3D11Resource* r, ID3D11Texture2D*& tex, ID3D11DepthStencilView*& dsv)
+{
+    if (!r || !g_realDev) return false;
+    D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
+    D3D11_TEXTURE2D_DESC k = {}; if (tex) tex->GetDesc(&k);
+    if (!tex || k.Width != d.Width || k.Height != d.Height || k.Format != d.Format || k.SampleDesc.Count != d.SampleDesc.Count)
+    {
+        if (dsv) { dsv->Release(); dsv = nullptr; }
+        if (tex) { tex->Release(); tex = nullptr; }
+        D3D11_TEXTURE2D_DESC nd = d; nd.Usage = D3D11_USAGE_DEFAULT; nd.BindFlags = D3D11_BIND_DEPTH_STENCIL; nd.CPUAccessFlags = 0; nd.MiscFlags = 0; nd.MipLevels = 1; nd.ArraySize = 1;
+        if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &tex)) && tex)
+            if (FAILED(g_realDev->CreateDepthStencilView(tex, &g_bcnDzDesc, &dsv))) { tex->Release(); tex = nullptr; dsv = nullptr; }
+    }
+    if (tex && dsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(tex, r); return true; }
+    return false;
+}
+// copia dell'altro buffer della scena, quello che non e' del faro
+static void SideCopy(ID3D11DeviceContext* ctx, ID3D11Resource* bcn)
+{
+    ID3D11Resource* o = g_sideRef[0] && g_sideRef[0] != bcn ? g_sideRef[0] : (g_sideRef[1] && g_sideRef[1] != bcn ? g_sideRef[1] : nullptr);
+    if (!o || !bcn) return;
+    D3D11_TEXTURE2D_DESC a = {}, b = {}; ((ID3D11Texture2D*)o)->GetDesc(&a); ((ID3D11Texture2D*)bcn)->GetDesc(&b);
+    if (a.Format != b.Format || a.Width != b.Width || a.Height != b.Height) return;
+    if (DepthCopyTo(ctx, o, g_sideTex, g_sideDsv)) { g_sideOk = true; g_sideCopies++; if (g_trRec) TrPut(" COPIA-ALTRA(#%d)", TrId(o)); }
+}
 static void BeaconDepthCopyRes(ID3D11DeviceContext* ctx, ID3D11Resource* r)
 {
     if (!r || !g_realDev) return;
+    SideCopy(ctx, r);   // voce 271
     D3D11_TEXTURE2D_DESC d = {}; ((ID3D11Texture2D*)r)->GetDesc(&d);
     D3D11_TEXTURE2D_DESC k = {}; if (g_bcnTex) g_bcnTex->GetDesc(&k);
     if (!g_bcnTex || k.Width != d.Width || k.Height != d.Height || k.Format != d.Format || k.SampleDesc.Count != d.SampleDesc.Count)
@@ -1777,6 +1872,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     }
     BeaconDzDisarm();
     bool bcnDepth = g_bcnDepthOk; g_bcnDepthOk = false;   // voce 248
+    bool sideDepth = g_sideOk; g_sideOk = false;          // voce 271
     if (g_trRec && g_drawnThisFrame && g_keepThisFrame && g_keepOk && g_realDev)
     {
         ID3D11DeviceContext* c = nullptr; g_realDev->GetImmediateContext(&c);
@@ -1843,6 +1939,18 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         ID3D11DepthStencilView* dz = g_keepOk ? g_keepDsv : g_fbDsv;
         bool tr = Transparent(), drew = false;
         g_drawSrc = 1; g_noDepth = QpcMs() < g_depthOffUntil;
+        if (g_thinMode && dz && g_keepOk && !g_partial)
+        {   // voce 271: copertura della copia della scena nell'ultimo fotogramma completo di questa vista
+            ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+            double cov, mn, mx, me;
+            if (cx && DepthRead(cx, dz, cov, mn, mx, me) && cov > 0) { g_fullCov = cov; g_fullCovGen = g_viewGen; }
+            if (cx) cx->Release();
+        }
+        if (g_seqOn && dz && sideDepth && g_sideDsv)
+        {   // voce 271
+            ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+            if (cx) { DepthPairLog(cx, dz, g_sideDsv, "completo_altra"); cx->Release(); }
+        }
         if (g_seqOn && dz && g_hasRef)
         {   // voce 262: stesso confronto per i fotogrammi completi
             ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
@@ -1952,7 +2060,32 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
         }
         else { g_noDepth = true; g_bcnDepthMissing++; }
     }
+    // voce 271: copia della scena molto piu' scarsa di quella dell'ultimo fotogramma completo
+    float alphaWas = -1; double thinCov = -1;
+    if (g_thinMode && useBcnCam && dzUse == g_bcnDsv && !g_noDepth && g_fullCov > 0 && g_fullCovGen == g_viewGen && g_realDev)
+    {
+        ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+        double cov, mn, mx, me;
+        if (cx && DepthRead(cx, dzUse, cov, mn, mx, me)) thinCov = cov;
+        if (cx) cx->Release();
+        if (thinCov >= 0 && thinCov < 0.5 * g_fullCov)
+        {
+            if (g_thinMode == 1)
+            {
+                g_thinSkip++; g_depthBias = 0;
+                FT("P;interrotto;salto=profondita_scarsa;coperto=%.0f;completo=%.0f;prima_interfaccia=%d", thinCov, g_fullCov, ui ? 1 : 0);
+                return;
+            }
+            g_thinGhost++; g_noDepth = true; alphaWas = g_alpha; if (g_alpha > 0.35f) g_alpha = 0.35f;
+            FT("X;profondita_scarsa;coperto=%.0f;completo=%.0f;nuvola=trasparente", thinCov, g_fullCov);
+        }
+    }
     bool depthOff = g_noDepth;
+    if (g_seqOn && useBcnCam && dzUse == g_bcnDsv && sideDepth && g_sideDsv && g_realDev)
+    {   // voce 271: l'altro buffer della scena contiene il resto del modello?
+        ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
+        if (cx) { DepthPairLog(cx, dzUse, g_sideDsv, bcn ? "faro_altra" : "faro_altra_precedente"); cx->Release(); }
+    }
     if (g_seqOn && useBcnCam && (dzUse == g_bcnDsv || dzUse == g_winDsv) && g_realDev)
     {   // voce 262: cosa c'e' nella copia e dove cade la nuvola con questa camera
         ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx);
@@ -1965,6 +2098,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
     }
     bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
     g_noDepth = false; g_depthBias = 0; g_depthNoWrite = false;
+    if (alphaWas >= 0 && g_alpha == 0.35f) g_alpha = alphaWas;   // voce 271 (se nel frattempo il plugin non l'ha cambiata)
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
     FT("P;interrotto;disegnato=%d;camera=%s%s;collegamenti=%d;profondita=%s;forbici=%d;blocchi=%zu;matrici=%d;scarti=proiezione:%d,proporzioni:%d,assi:%d,scala:%d,fuoco:%d,altro:%d;scala_min=%.2f;scala_max=%.2f;spostamento_max=%.2f;profondita_camera=%s;finestra=%d;copie_finestra=%ld;prima_interfaccia=%d",
        drew ? 1 : 0, camNow ? (bcn ? "dal_faro" : host >= 0 ? "del_fotogramma_riconosciuta_dai_collegamenti" : "del_fotogramma") : (curBlocked ? "precedente_sua_scartata" : "precedente"), camNow && g_candLink ? "_da_collegamento" : "", g_nLinks, depthOff ? "ignorata" : (useBcnCam ? (dzUse == g_winModelDsv ? "del_modello_nella_finestra" : dzUse == g_winDsv ? "della_finestra" : "del_faro_avvicinata") : (g_keepOk ? "copia" : "revit")), sc ? 1 : 0, g_ready.size(),
@@ -2118,6 +2252,10 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; faro: fotogrammi con il disegno a punti, completi %ld, intermedi %ld; disegni del faro nascosti %ld; %s; camera dal faro uguale alla vera %ld su %ld fotogrammi completi; immagini intermedie disegnate con la camera del faro %ld (profondita' della stessa immagine copiata %ld volte, mancante %ld), con la camera esatta perche' ferma %ld; profondita' del modello nelle immagini col faro: trovata %ld, stimata %ld, quella del faro %ld (candidate con x, y, w uguali ma profondita' lontana dalla camera vera %ld)",
             g_bcnFull, g_bcnInt, g_bcnHidden, g_bcnExact ? "trasformazione della nuvola esatta (dalle API)" : g_bcnLocked ? "posizione della matrice appresa (trasformazione dedotta)" : "posizione della matrice non ancora appresa", g_bcnAgree, g_bcnCompared, g_bcnUsed, g_bcnDepthCopies, g_bcnDepthMissing, g_bcnStill, g_bcnZFound, g_bcnZEst, g_bcnZNone, g_bcnZRej);
+        L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; altro buffer della scena copiato %ld volte; immagini con profondita' scarsa (meno della meta' del fotogramma completo, %s): saltate %ld, trasparenti %ld; ultima copertura del fotogramma completo %.0f%%",
+            g_sideCopies, g_thinMode == 1 ? "nuvola saltata" : g_thinMode == 2 ? "nuvola trasparente" : "nessun ripiego", g_thinSkip, g_thinGhost, g_fullCov);
+        g_sideCopies = 0; g_thinSkip = g_thinGhost = 0;
         g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0;
     }
     if (g_trDone && g_trBuf[0])
@@ -2350,6 +2488,22 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
         bool w = false;
         if (n > 0 && r && r[0]) { ID3D11Resource* rr = nullptr; r[0]->GetResource(&rr); w = IsWindowImage(rr); if (rr) rr->Release(); }
         g_curWin = w;
+        // voce 271: buffer di profondita' della scena (non della finestra, non nostri, grandi come la finestra)
+        if (!w && d && g_bbRes)
+        {
+            ID3D11Resource* rn = nullptr; d->GetResource(&rn);
+            if (rn)
+            {
+                D3D11_RESOURCE_DIMENSION dim; rn->GetType(&dim);
+                bool ours = rn == (ID3D11Resource*)g_keepTex || rn == (ID3D11Resource*)g_bcnTex || rn == (ID3D11Resource*)g_winTex || rn == (ID3D11Resource*)g_sideTex;
+                if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D && !ours)
+                {
+                    D3D11_TEXTURE2D_DESC dd = {}; ((ID3D11Texture2D*)rn)->GetDesc(&dd);
+                    if (dd.Width == g_bbDesc.Width && dd.Height == g_bbDesc.Height && dd.SampleDesc.Count == 1 && dd.MipLevels == 1 && dd.ArraySize == 1) SideNote(rn);
+                }
+                rn->Release();
+            }
+        }
     }
     if (g_trRec) { TrFlush(); TrPut(" T(r#%d d#%d)", (n > 0 && r) ? TrView(r[0]) : 0, TrView(d)); }
     // voce 227: dopo il segnale, la prima volta che Revit lascia il buffer di profondita' della scena se ne fa una copia:

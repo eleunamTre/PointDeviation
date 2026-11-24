@@ -211,6 +211,10 @@ namespace PointDeviation
         /// <summary>Prova (voce 255): con lo shader, camera delle immagini intermedie ricavata dal «faro» (pochi punti
         /// consegnati al motore delle nuvole di Revit). Spento (predefinito): come prima della 246.</summary>
         [DataMember] public bool BeaconCamera;
+        /// <summary>Voce 271: immagini intermedie in cui la profondità copiata della scena è molto più scarsa di quella
+        /// dell'ultimo fotogramma completo (meno della metà). 0 (predefinito) = come prima, 1 = nuvola non disegnata,
+        /// 2 = nuvola trasparente senza confronto di profondità.</summary>
+        [DataMember] public int ThinDepth;
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
         [DataMember] public HardwareProfile Profile = HardwareProfile.Automatico;
 
@@ -278,7 +282,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 270;
+        public const int Change = 271;
 
         public static string Describe()
         {

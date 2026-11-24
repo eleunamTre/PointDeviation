@@ -34,6 +34,9 @@ namespace PointDeviation
         private static extern void PdSetPointAlpha(int on);
         private static bool _ptAlphaMissing;
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetThinDepth(int mode);
+        private static bool _thinMissing;
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetView(long viewId);
@@ -171,6 +174,10 @@ namespace PointDeviation
                 if (!_ptAlphaMissing)
                     try { PdSetPointAlpha(st.PointAlpha ? 1 : 0); }
                     catch (EntryPointNotFoundException) { _ptAlphaMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetPointAlpha: ricompilare la libreria nativa (voce 259)"); }
+                // voce 271: immagini intermedie con poca profondità
+                if (!_thinMissing)
+                    try { PdSetThinDepth(Math.Max(0, Math.Min(2, AdvancedSettings.Current.ThinDepth))); }
+                    catch (EntryPointNotFoundException) { _thinMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetThinDepth: ricompilare la libreria nativa (voce 271)"); }
                 PdShaderEndFrame(on ? 1 : 0, maxPx, 0.5f, ShaderWanted ? 1 : 0);
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }
