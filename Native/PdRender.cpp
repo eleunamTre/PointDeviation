@@ -2189,6 +2189,10 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
             double a = sqrt(Cb[8] * Cb[8] + Cb[9] * Cb[9] + Cb[10] * Cb[10]);
             g_depthBias = (float)((g_bcnExact ? 0.0 : 0.3) * a);   // voce 251: con la trasformazione esatta nessuno spostamento
             if (g_bcnZKind[0] == 's') g_depthBias = (float)(0.3 * a);   // voce 257: profondita' stimata, 9 cm verso chi guarda
+            // voce 273 (video del 24/11 15:15): con la mesh i punti che stanno sulle superfici del modello (muri, facciate)
+            // hanno la stessa profondita' dei triangoli e a tratti perdevano il confronto: facciate bianche del modello al
+            // posto della nuvola. La nuvola si avvicina di 0,2 ft (6 cm) verso chi guarda quando la mesh e' nella copia.
+            if (g_meshOnSerial == g_bcnCopySerial && g_meshTris > 0 && g_depthBias < (float)(0.2 * a)) g_depthBias = (float)(0.2 * a);
         }
         else { g_noDepth = true; g_bcnDepthMissing++; }
     }

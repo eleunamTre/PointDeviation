@@ -1685,3 +1685,10 @@ Ottava tornata (28/10/2026): octree
      Diagnostica: «In movimento: profondità del modello dalla mesh dell'analisi», acceso di serie. Senza analisi nel
      documento non cambia niente. Diario: X;mesh_profondita (copertura prima e dopo), E;mesh_caricata; registro: mesh
      inviata e immagini in cui e' stata disegnata.
+
+273) Prova della 272 (24/11 15:15): la mesh si carica (1,85 M triangoli) e si disegna in tutte le immagini col faro;
+     la copertura della profondita' sale (per esempio da 1% a 17%, da 0% a 61%) e all'inizio la nuvola stava meglio
+     dietro al modello. Nel video pero' a tratti le facciate del modello comparivano bianche al posto della nuvola: i
+     punti che stanno sulle superfici modellate hanno la stessa profondita' dei triangoli della mesh e perdevano il
+     confronto. Ora, quando la mesh e' nella copia della profondita', la nuvola si avvicina di 0,2 ft (6 cm) verso chi
+     guarda (come gia' si fa con la profondita' stimata).
