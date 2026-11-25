@@ -37,6 +37,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _flatFix = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatBeacon = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatSimple = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _flatPost = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -207,6 +208,9 @@ namespace PointDeviation
             _meshTol.Text = L.T("In movimento: stessa tolleranza di Revit sulle superfici del modello");
             p.Controls.Add(_meshTol);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): in movimento la mesh usa lo stesso scarto di profondità che Revit usa da fermo per il suo modello (misurato nei fotogrammi completi; finché non c'è, 1 cm), così i punti sulle superfici modellate si vedono come da fermo. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: in movimento le facciate possono comparire a chiazze.")));
+            _flatPost.Text = L.T("In pianta e sezione: nuvola sotto i riempimenti del modello");
+            p.Controls.Add(_flatPost);
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): in piante, sezioni e prospetti Revit decide cosa sta sopra con l'ordine dei disegni, non con la profondità. Nelle immagini che Revit mostra mentre sposti, zoomi o passi col mouse la nuvola si disegna nello stesso punto dei fotogrammi completi (prima dei riempimenti del modello), invece che sopra tutto. Spento: in quelle immagini la nuvola può coprire il modello.")));
             _flatSimple.Text = L.T("In pianta e sezione: disegno semplice (come prima)");
             p.Controls.Add(_flatSimple);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Spento (consigliato): piante, sezioni e prospetti seguono le stesse regole della vista 3D. Acceso, come riserva se nelle viste 2D qualcosa non va: la nuvola si confronta con la profondità che Revit ha in quel fotogramma, senza le correzioni per i fotogrammi parziali (mouse sopra un elemento). In entrambi i casi l'interfaccia resta sopra la nuvola e le correzioni della camera restano.")));
@@ -270,6 +274,7 @@ namespace PointDeviation
             _flatFix.Checked = !a.NoFlatBeaconFix;
             _flatBeacon.Checked = a.FlatBeacon;
             _flatSimple.Checked = a.FlatSimple;
+            _flatPost.Checked = !a.NoFlatPostDraw;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -296,6 +301,7 @@ namespace PointDeviation
             a.NoFlatBeaconFix = !_flatFix.Checked;
             a.FlatBeacon = _flatBeacon.Checked;
             a.FlatSimple = _flatSimple.Checked;
+            a.NoFlatPostDraw = !_flatPost.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();

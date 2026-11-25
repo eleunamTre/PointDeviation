@@ -1839,3 +1839,13 @@ Ottava tornata (28/10/2026): octree
 293) L'opzione «In pianta e sezione: disegno semplice (come prima)» (290) resta, ma spenta di serie: la causa della
      nuvola deformata nelle viste 2D era la matrice della camera (292), non la profondita'. Si accende solo come riserva.
 
+294) Pianta e sezione: la nuvola non va piu' sopra il modello nelle immagini intermedie (video del 25/11 10:29:25:
+     cliccando con la rotella, zoomando o passando col mouse). Nel diario: in pianta Revit non mette il modello nella
+     profondita' (al segnale e' un piano uniforme, z 0,547-0,550), e cosa sta sopra lo decide l'ordine dei disegni. Nei
+     fotogrammi completi la nuvola si disegna al segnale e i riempimenti che Revit disegna dopo (11-69 disegni) le
+     passano sopra; nelle immagini intermedie (402 su 640) la nuvola si disegnava alla fine della scena, sopra tutto. Ora
+     nei fotogrammi completi si impara il primo disegno di Revit dopo il segnale (shader e posizione nella scena) e nelle
+     immagini intermedie la nuvola si disegna nella scena subito prima di quel disegno, con la profondita' che Revit sta
+     usando; se quel disegno non arriva resta il disegno prima dell'interfaccia (270). Solo viste piane. Opzione in
+     Avanzate «In pianta e sezione: nuvola sotto i riempimenti del modello» (accesa). Va ricompilata PdRender.dll.
+

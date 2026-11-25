@@ -52,6 +52,9 @@ namespace PointDeviation
         private static extern void PdSetFlatView(int flat, int useBeacon);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetFlatSimple(int on);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetFlatPostDraw(int on);
+        private static bool _flatPostMissing;
         private static bool _flatSimpleMissing;
         private static bool _flatMissing;
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -322,7 +325,10 @@ namespace PointDeviation
                     catch (EntryPointNotFoundException) { _flatMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatView: ricompilare la libreria nativa (voce 286)"); }
                 if (!_flatSimpleMissing)
                     try { PdSetFlatSimple(AdvancedSettings.Current.FlatSimple ? 1 : 0); }
-                    catch (EntryPointNotFoundException) { _flatSimpleMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatSimple: ricompilare la libreria nativa (voce 290)"); }
+                    catch (EntryPointNotFoundException) { _flatSimpleMissing = true; _flatPostMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatSimple: ricompilare la libreria nativa (voce 290)"); }
+                if (!_flatPostMissing)
+                    try { PdSetFlatPostDraw(AdvancedSettings.Current.NoFlatPostDraw ? 0 : 1); }
+                    catch (EntryPointNotFoundException) { _flatPostMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatPostDraw: ricompilare la libreria nativa (voce 294)"); }
                 SendCamera(cam);
                 DrawMarker();
                 _frames++;
