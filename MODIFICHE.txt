@@ -1849,3 +1849,13 @@ Ottava tornata (28/10/2026): octree
      usando; se quel disegno non arriva resta il disegno prima dell'interfaccia (270). Solo viste piane. Opzione in
      Avanzate «In pianta e sezione: nuvola sotto i riempimenti del modello» (accesa). Va ricompilata PdRender.dll.
 
+295) Nuvola spenta o nascosta: il plugin non rallenta piu' Revit e la nuvola non resta a schermo cambiando file o scheda.
+     Nel registro del 25/11 (nuvola nascosta dalle 14:50 alle 16:21): 510 ridisegni chiesti a Revit (437 «fine zoom»)
+     e la mesh per la profondita' rifatta decine di volte (fino a 10 s di lavoro ciascuna) a ogni modifica del riquadro
+     di sezione, anche se la nuvola non si vedeva. Ora, se nella vista attiva la nuvola e' spenta o nascosta, niente
+     ridisegni chiesti a Revit e niente mesh (caricamento e analisi vanno avanti). Inoltre la libreria dimenticava la
+     nuvola solo se la vista era quella dell'ultimo disegno: cambiando file o scheda continuava a ridisegnare la nuvola
+     di prima nelle immagini senza il plugin. Ora la dimentica a ogni cambio di vista e quando il plugin dice che in una
+     vista non c'e' nuvola. I ganci DirectX restano attivi (si tolgono solo riavviando Revit con lo shader spento): il
+     loro costo e' piccolo. Va ricompilata PdRender.dll.
+

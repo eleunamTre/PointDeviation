@@ -109,6 +109,7 @@ namespace PointDeviation
                 UIApplication uiapp = sender as UIApplication ?? new UIApplication(e.Document.Application);
                 DeviationController.OnViewActivated(uiapp, e.Document);
                 UpdateCloudToggle(e.Document);
+                NativeProbe.ViewOff(-1);   // voce 295: cambio di vista, scheda o file: la libreria dimentica la nuvola di prima
             }
             catch { }
         }

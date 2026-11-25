@@ -2685,9 +2685,14 @@ static void ClearForNewView()
 }
 // voce 223: il plugin non disegna piu' nella vista (nuvola spenta o nascosta): niente da ridisegnare nei fotogrammi
 // senza il plugin, altrimenti restava a schermo l'ultima nuvola
+// voce 295 (25/11: «a volte resta a schermo la nuvola quando cambio file o scheda»): la libreria dimenticava l'elenco solo
+// se la vista era quella dell'ultimo disegno; con un'altra vista (altro file, altra scheda) continuava a ridisegnare la
+// nuvola di prima nelle immagini senza il plugin. Ora -1 (cambio di vista dal plugin) o una vista diversa: si dimentica
+// l'elenco e la finestra dell'ultimo fotogramma, finche' il plugin non disegna di nuovo.
 extern "C" __declspec(dllexport) void PdViewOff(long long viewId)
 {
-    if (viewId == g_mView) { g_ready.clear(); g_build.clear(); }
+    g_ready.clear(); g_build.clear();
+    if (viewId == -1) { g_fbSwap = nullptr; g_drawnThisFrame = false; }
 }
 
 extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)

@@ -54,6 +54,26 @@ namespace PointDeviation
         /// Idling: ridisegna la vista attiva quando ci sono novità (blocchi caricati, dettaglio da aggiungere, zoom cambiato),
         /// con un ritmo limitato. Dopo uno zoom aspetta che la vista sia ferma prima di ricalcolare il dettaglio.
         /// </summary>
+        // voce 295: la nuvola si vede nella vista attiva? (controllo al massimo ogni 500 ms)
+        private static long _shownAt = -100000, _shownView = -1; private static bool _shown;
+        internal static bool CloudShownIn(UIDocument ud)
+        {
+            try
+            {
+                View v = ud != null ? ud.ActiveView : null;
+                if (v == null) return false;
+                long now = Environment.TickCount;
+                if (v.Id.Value == _shownView && now - _shownAt < 500) return _shown;
+                _shownView = v.Id.Value; _shownAt = now; _shown = false;
+                if (v is ViewSheet || v is ViewSchedule) return false;
+                DocumentData d = DeviationController.GetData(ud.Document);
+                if (d == null || d.Style == null || !d.Style.Visible || d.Layers.Count == 0) return false;
+                foreach (CloudLayer l in d.Layers) if (l.VisibleIn(v)) { _shown = true; break; }
+                return _shown;
+            }
+            catch { return false; }
+        }
+
         public static void OnIdling(object sender, IdlingEventArgs e)
         {
             try
@@ -62,6 +82,9 @@ namespace PointDeviation
                 if (app == null || app.ActiveUIDocument == null) return;
                 DocumentData d = DeviationController.GetData(app.ActiveUIDocument.Document);
                 if (d == null || d.Layers.Count == 0) { Redraw.Take(); return; }
+                // voce 295: nuvola spenta o nascosta nella vista attiva: niente ridisegni chiesti a Revit (437 «fine zoom»
+                // in 90 minuti con la nuvola nascosta, 25/11) e niente mesh; il resto (caricamento, analisi) va avanti
+                bool shown = CloudShownIn(app.ActiveUIDocument);
 
                 long now = Environment.TickCount;
                 if (ZoomCache.Update(app.ActiveUIDocument)) { _zoomDirty = true; _zoomTick = now; }
@@ -82,6 +105,7 @@ namespace PointDeviation
                 // voce 232: un ridisegno quando la camera e' ferma da abbastanza tempo, per passare al dettaglio da fermi
                 long settle = Interlocked.Read(ref _settleAt);
                 if (settle > 0 && now - settle >= 0) { Interlocked.Exchange(ref _settleAt, 0); if (!flat) { refresh = true; why = why ?? "camera ferma"; } }
+                if (refresh && !shown) { refresh = false; Redraw.Take(); }   // voce 295
                 if (refresh)
                 {
                     _lastRefresh = now;
@@ -91,7 +115,7 @@ namespace PointDeviation
                 // lavoro in sospeso (o appena concluso: il caricatore può finire dopo questo controllo):
                 // Revit ci richiama subito invece che dopo una lunga pausa
                 FrameDiary.Pump();   // voce 234: righe della libreria nativa anche quando il plugin non disegna
-                bool meshBusy = DepthMesh.Tick(app);   // voce 278: mesh per la profondità, a passi di 40 ms
+                bool meshBusy = shown && DepthMesh.Tick(app);   // voce 295   // voce 278: mesh per la profondità, a passi di 40 ms
                 if (NativeProbe.ShaderMode && now - _linksTick > 2000) { _linksTick = now; SendLinks(app.ActiveUIDocument.Document); SendCloudTransforms(app.ActiveUIDocument.Document); }
                 if (meshBusy || _zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
