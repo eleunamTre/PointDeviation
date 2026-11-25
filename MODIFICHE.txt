@@ -1859,3 +1859,9 @@ Ottava tornata (28/10/2026): octree
      vista non c'e' nuvola. I ganci DirectX restano attivi (si tolgono solo riavviando Revit con lo shader spento): il
      loro costo e' piccolo. Va ricompilata PdRender.dll.
 
+296) Mesh per la profondita' solo con i collegamenti. La mesh (272, 278) serve per lo sfarfallio con i link accesi;
+     senza collegamenti visibili la profondita' di Revit basta. Nel registro del 25/11 sul modello 009 (0 collegamenti)
+     la mesh veniva rifatta decine di volte a ogni modifica, a passi di 40 ms mentre Revit era libero. Ora nelle viste
+     3D senza collegamenti visibili non si prepara (e in movimento non se ne usa nessuna, nemmeno quella dell'analisi).
+     Opzione in Avanzate «Mesh anche senza collegamenti» (spenta).
+

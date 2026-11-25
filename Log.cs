@@ -280,6 +280,7 @@ namespace PointDeviation
         [DataMember] public bool NoMeshTolerance;
         [DataMember] public bool NoFlatBeaconFix;   // voce 282
         [DataMember] public bool NoFlatPostDraw;    // voce 294
+        [DataMember] public bool MeshWithoutLinks;  // voce 296: mesh anche nelle viste senza collegamenti (spento)
         [DataMember] public bool FlatSimple;        // voce 290, 293: spento di serie (riserva se le viste 2D non vanno)
         [DataMember] public bool FlatBeacon;        // voce 286: faro anche in pianta e sezione (spento: come prima del faro)
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
@@ -349,7 +350,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 295;
+        public const int Change = 296;
 
         public static string Describe()
         {

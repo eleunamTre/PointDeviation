@@ -401,7 +401,8 @@ namespace PointDeviation
                         else
                         {
                             DepthMesh.Mesh dm = DepthMesh.For(view);
-                            if (dm != null) NativeProbe.SetModelMesh(dm, dm.Verts, dm.Origin, "preparata per la vista");
+                            if (dm != null && dm.Triangles == 0) NativeProbe.SetModelMesh(null);   // voce 296: vista senza collegamenti
+                            else if (dm != null) NativeProbe.SetModelMesh(dm, dm.Verts, dm.Origin, "preparata per la vista");
                             else
                             {
                                 AnalysisSnapshot an = AnalysisRegistry.Get(DeviationController.KeyOf(view.Document));

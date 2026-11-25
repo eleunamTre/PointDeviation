@@ -38,6 +38,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _flatBeacon = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatSimple = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatPost = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _meshNoLinks = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -205,6 +206,9 @@ namespace PointDeviation
             _meshDepth.Text = L.T("In movimento: profondità del modello dalla mesh");
             p.Controls.Add(_meshDepth);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini che Revit mostra in movimento, la parte del modello che Revit non ha ancora ridisegnato copre la nuvola grazie a una mesh del modello e dei collegamenti visibili, preparata da sola in background per la vista 3D attiva (qualche secondo, Revit resta usabile) e rifatta dopo le modifiche; finché non è pronta si usa quella dell'ultima analisi, se c'è.")));
+            _meshNoLinks.Text = L.T("Mesh anche senza collegamenti");
+            p.Controls.Add(_meshNoLinks);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Spento (consigliato): la mesh del modello si prepara solo nelle viste 3D con collegamenti visibili, dove serve (senza collegamenti la profondità di Revit basta) e Revit resta più leggero. Acceso: la mesh si prepara in tutte le viste 3D.")));
             _meshTol.Text = L.T("In movimento: stessa tolleranza di Revit sulle superfici del modello");
             p.Controls.Add(_meshTol);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): in movimento la mesh usa lo stesso scarto di profondità che Revit usa da fermo per il suo modello (misurato nei fotogrammi completi; finché non c'è, 1 cm), così i punti sulle superfici modellate si vedono come da fermo. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: in movimento le facciate possono comparire a chiazze.")));
@@ -275,6 +279,7 @@ namespace PointDeviation
             _flatBeacon.Checked = a.FlatBeacon;
             _flatSimple.Checked = a.FlatSimple;
             _flatPost.Checked = !a.NoFlatPostDraw;
+            _meshNoLinks.Checked = a.MeshWithoutLinks;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -302,6 +307,7 @@ namespace PointDeviation
             a.FlatBeacon = _flatBeacon.Checked;
             a.FlatSimple = _flatSimple.Checked;
             a.NoFlatPostDraw = !_flatPost.Checked;
+            a.MeshWithoutLinks = _meshNoLinks.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();

@@ -83,6 +83,14 @@ namespace PointDeviation
                     if (!dirty && _ready != null && _ready.Key == key) return false;
                     _job = Start(doc, view, key);
                     if (dirty) _dirtyKey = null;
+                    // voce 296: la mesh serve per i collegamenti (senza, la profondita' di Revit basta). Senza collegamenti
+                    // visibili non si prepara: si segna una mesh vuota per questa vista e niente mesh in movimento.
+                    if (_job.Sources.Count <= 1 && !AdvancedSettings.Current.MeshWithoutLinks)
+                    {
+                        _ready = new Mesh { Key = key, Verts = new float[0], Origin = new double[3], Triangles = 0 };
+                        _job = null;
+                        return false;
+                    }
                 }
                 Step(_job);
                 if (_job.Index < 0) { Finish(_job); _job = null; return false; }
