@@ -189,6 +189,14 @@ static bool g_postWant = false, g_postOk = false, g_postDone = false, g_postNow 
 static void* g_postVS = nullptr; static void* g_postPS = nullptr; static long long g_postIdx = 0, g_imgStart = 0;
 static long g_postDraws = 0, g_postLearn = 0;
 extern "C" __declspec(dllexport) void PdSetFlatPostDraw(int on) { g_noPost = on == 0; }
+// voce 297 (25/11 18:45: in pianta «continuiamo ad andare sopra e sotto»; la 294 riconosceva il punto giusto solo in
+// 22 immagini su 933). In pianta e sezione l'ordine dei disegni decide cosa sta sopra, e Revit disegna le sue nuvole
+// (l'RCP, e il nostro faro) nello stesso punto in TUTTE le immagini, complete e intermedie: per questo l'RCP non salta.
+// Ora nelle viste piane la nuvola si disegna li', al posto del faro, in ogni immagine, con la camera dell'ultimo
+// fotogramma completo; al segnale e nelle immagini intermedie non si disegna piu'. Stesso ordine dell'RCP ovunque.
+static bool g_faroDrawn = false, g_noFaroDraw = false; static long g_faroDraws = 0, g_faroFail = 0;
+extern "C" __declspec(dllexport) void PdSetFlatFaroDraw(int on) { g_noFaroDraw = on == 0; }
+static bool FaroMode() { return g_flatView && !g_noFaroDraw; }
 extern "C" __declspec(dllexport) void PdSetFlatView(int flat, int useBeacon) { g_flatView = flat != 0; g_flatBeacon = useBeacon != 0; }
 extern "C" __declspec(dllexport) void PdSetView(long long viewId)
 {
@@ -1361,6 +1369,7 @@ static void ShaderDraw(ID3D11DeviceContext* c)
     // fotogrammi parziali (camera ferma, Revit ridisegna solo un rettangolo attorno all'elemento sotto il mouse) la
     // profondita' di Revit in quel momento non contiene tutto il modello: la nuvola disegnata al segnale passava davanti.
     // Con la camera uguale c'e' la profondita' intera del fotogramma completo di prima: si usa quella, senza scriverla.
+    if (FaroMode() && g_faroDrawn) { rcb->Release(); return; }   // voce 297: gia' disegnata al posto del faro
     ID3D11DepthStencilView* pdz = (g_partial && !g_noPartialKeep && KeepStillGood()) ? KeepDsvForPartial() : nullptr;
     SavedState st; st.Save(c, pdz != nullptr);
     if (pdz)
@@ -1881,6 +1890,23 @@ static void MeshVsRevit(ID3D11DeviceContext* c, ID3D11DepthStencilView* revit, c
        100.0 * m / n, 100.0 * onlyM / n, 100.0 * onlyR / n, 100.0 * eq / m, 100.0 * rFar / m, q(0.1), q(0.5), q(0.9), sum / m,
        q(0.1) * toCm, q(0.5) * toCm, q(0.9) * toCm, ortho ? 1 : 0);
 }
+static void DrawFaro(ID3D11DeviceContext* c)
+{   // voce 297
+    if (!FaroMode() || g_faroDrawn || g_inOurDraw || !g_shaderOn || g_ready.empty() || !g_hasRef || g_refGen != g_viewGen) return;
+    ID3D11RenderTargetView* rt = nullptr; ID3D11DepthStencilView* ds = nullptr; c->OMGetRenderTargets(1, &rt, &ds);
+    if (rt && ds)
+    {
+        float cam[32]; memcpy(cam, g_refRaw, sizeof(cam));
+        SavedState st; st.Save(c, true);
+        g_uiRtv = rt; g_drawSrc = 3; g_noDepth = false;
+        bool ok = DrawAtPresent(g_fbSwap, cam, ds, nullptr);
+        g_uiRtv = nullptr;
+        st.Restore(c);
+        if (ok) { g_faroDrawn = true; g_faroDraws++; } else g_faroFail++;
+        if (g_trRec) TrPut(ok ? " NUVOLA-AL-FARO" : " NUVOLA-AL-FARO-NON-RIUSCITA");
+    }
+    if (rt) rt->Release(); if (ds) ds->Release();
+}
 static void BeaconDzDisarm() { g_bcnDzArm = false; if (g_bcnDzRef) { g_bcnDzRef->Release(); g_bcnDzRef = nullptr; } g_bcnDzSrc = nullptr; }
 static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char* kind)
 {
@@ -1901,6 +1927,7 @@ static bool BeaconSeen(ID3D11DeviceContext* c, UINT count, UINT inst, const char
         }
         g_bcnSnapOk = true;
         if (g_trRec) { TrFlush(); ID3D11DepthStencilView* tv = nullptr; c->OMGetRenderTargets(0, nullptr, &tv); TrPut(" FARO(d#%d)", TrView(tv)); if (tv) tv->Release(); }   // voce 260
+        DrawFaro(c);   // voce 297
         if (g_bcnLocked)   // voce 250: profondita' di questa immagine, da copiare quando Revit la lascia
         {
             ID3D11DepthStencilView* cur = nullptr; c->OMGetRenderTargets(0, nullptr, &cur);
@@ -2515,7 +2542,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
             FT("X;finestra_copia;coperto=%.0f;z=%.4f-%.4f;media=%.4f;disegni=%lld", cov, mn, mx, me, g_winDraws);
         if (cx) cx->Release();
     }
-    bool drew = DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);
+    bool drew = (FaroMode() && g_faroDrawn) ? false : DrawAtPresent(s, camNow ? camNow : g_chainRaw, dzUse, sc, bcn);   // voce 297
     g_noDepth = false; g_depthBias = 0; g_depthNoWrite = false;
     if (alphaWas >= 0 && g_alpha == 0.35f) g_alpha = alphaWas;   // voce 271 (se nel frattempo il plugin non l'ha cambiata)
     if (drew) { g_fbDrawn++; if (camNow) g_camUsed++; else g_camStale++; }
@@ -2529,6 +2556,7 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
 // nuvola, con la logica del Present (FallbackAtPresent) ma nella destinazione attuale e prima di quei disegni.
 static void BeforeUi(ID3D11DeviceContext* c)
 {
+    if (FaroMode() && g_faroDrawn) { g_uiArm = false; return; }   // voce 297
     // voce 270 (diario della 269): i 540-880 disegni «del modello nella finestra» con il buffer #2 visti dalla 263 erano il
     // NOSTRO disegno al Present dell'immagine prima (la sequenza registrata comincia subito dopo il Present, e il nostro
     // disegno sta dentro il Present): LASCIO mostrava nostro=1. Revit disegna la scena solo nell'immagine a parte (#4/#5) e
@@ -2556,7 +2584,7 @@ static void BeforeUi(ID3D11DeviceContext* c)
 // voce 294: vedi g_postWant
 static void PostCheck(ID3D11DeviceContext* c)
 {
-    if (g_inOurDraw || !g_flatView || g_noPost) { g_postWant = false; return; }
+    if (g_inOurDraw || !g_flatView || g_noPost || (FaroMode() && !g_noFaroDraw)) { g_postWant = false; return; }   // voce 297: la 294 non serve
     if (g_postWant)
     {
         g_postWant = false;
@@ -2703,9 +2731,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     {
         size_t L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte)",
-            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn);
-        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld)",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld; ripresa la posizione che funzionava %ld volte)",
             g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept, g_goodUsed);
@@ -3171,8 +3199,8 @@ static void OnRealSwapChain(IDXGISwapChain* s)
     dev->Release();
 }
 
-static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { FallbackAtPresent(s, nullptr); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; } return g_origPresent(s, a, f); }
-static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { FallbackAtPresent(s, p); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; } return g_origPresent1(s, a, f, p); }
+static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { FallbackAtPresent(s, nullptr); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; g_faroDrawn = false; } return g_origPresent(s, a, f); }
+static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { FallbackAtPresent(s, p); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; g_faroDrawn = false; } return g_origPresent1(s, a, f, p); }
 
 static void* Patch(void** vt, int index, void* hook);
 

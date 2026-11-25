@@ -1865,3 +1865,12 @@ Ottava tornata (28/10/2026): octree
      3D senza collegamenti visibili non si prepara (e in movimento non se ne usa nessuna, nemmeno quella dell'analisi).
      Opzione in Avanzate «Mesh anche senza collegamenti» (spenta).
 
+297) Pianta e sezione: la nuvola si disegna nello stesso punto in cui Revit disegna le sue nuvole (come un RCP), in
+     tutte le immagini. Registro e diario del 25/11 18:45: la 294 riconosceva il punto «prima dei riempimenti» solo in
+     22 immagini intermedie su 933, e la nuvola continuava ad andare sopra e sotto. In pianta l'ordine dei disegni decide
+     cosa sta sopra; Revit disegna le nuvole (l'RCP e il nostro faro, 246) nello stesso punto in ogni immagine, completa
+     o intermedia: per questo l'RCP non salta. Ora nelle viste piane la nuvola si disegna al posto del faro, con la
+     camera dell'ultimo fotogramma completo, e non piu' al segnale ne' nelle immagini intermedie (209, 270, 294). Mentre
+     si sposta la vista puo' restare indietro di un'immagine. In 3D non cambia niente. Opzione in Avanzate «In pianta e
+     sezione: nuvola nello stesso punto dell'RCP» (accesa). Va ricompilata PdRender.dll.
+
