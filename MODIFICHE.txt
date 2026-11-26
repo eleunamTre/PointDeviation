@@ -1901,3 +1901,14 @@ Ottava tornata (28/10/2026): octree
      pronta per 5 s): la posizione buona delle piante e sezioni non c'era ancora e quella del 3D (la stessa riga 15)
      era messa da parte dalla 298. Ora, se quella del tipo di vista non c'e' o non va, si prova quella dell'altro tipo
      prima della ricerca completa. Va ricompilata PdRender.dll.
+
+300) Diagnostica per pianta e sezione (prova della 299, registro e video del 26/11 18:16:35). Nel rapporto DirectX
+     delle 18:17:04 ogni immagine e' coperta (7 al faro + 221 «scena tenuta da Revit» su 228 Present), ma in quello
+     delle 18:16:46 (sezione, passaggio del mouse) la scena tenuta e' 0: 123 immagini al faro e circa 300 col ripiego
+     sopra tutto. Nel video la sezione alterna proprio cosi': nuvola sotto i riempimenti (immagini al faro) e nuvola
+     fitta sopra tutto. Ipotesi: al passaggio del mouse Revit ridisegna nella scena solo il rettangolo attorno
+     all'elemento (forbici) e il faro, fuori da quel rettangolo, non arriva; la scena risulta ridisegnata e la 299 fa
+     il ripiego. Prima di correggere serve vederlo: nel diario una riga X;scena_immagine per ogni immagine in pianta e
+     sezione (come si e' disegnata la nuvola, disegni di Revit nella scena, a che punto arriva il faro, forbici e
+     rettangolo al primo disegno nella scena); nel rapporto DirectX «scena ridisegnata senza faro: con le forbici N,
+     intera M». Nessun cambio di comportamento. Va ricompilata PdRender.dll.
