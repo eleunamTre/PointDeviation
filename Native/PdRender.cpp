@@ -204,10 +204,10 @@ extern "C" __declspec(dllexport) void PdSetFlatFaroDepth(int on) { g_noFaroDss =
 // sopra i riempimenti del modello un'immagine si' e una no. Si ridisegna solo se Revit ha ridisegnato la scena senza faro.
 static void* g_sceneRes = nullptr; static bool g_sceneBound = false, g_sceneDrawn = false, g_noFaroKeep = false; static long g_faroKept = 0;
 extern "C" __declspec(dllexport) void PdSetFlatFaroKeep(int on) { g_noFaroKeep = on == 0; }
-static bool FaroCovers() { return FaroMode() && (g_faroDrawn || (!g_noFaroKeep && g_sceneRes && !g_sceneDrawn)); }
 static void GoodSwap(bool flat);
 extern "C" __declspec(dllexport) void PdSetFlatFaroDraw(int on) { g_noFaroDraw = on == 0; }
 static bool FaroMode() { return g_flatView && !g_noFaroDraw; }
+static bool FaroCovers() { return FaroMode() && (g_faroDrawn || (!g_noFaroKeep && g_sceneRes && !g_sceneDrawn)); }
 extern "C" __declspec(dllexport) void PdSetFlatView(int flat, int useBeacon) { if ((flat != 0) != g_flatView) GoodSwap(flat != 0); g_flatView = flat != 0; g_flatBeacon = useBeacon != 0; }
 extern "C" __declspec(dllexport) void PdSetView(long long viewId)
 {
