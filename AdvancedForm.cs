@@ -40,6 +40,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _flatPost = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _meshNoLinks = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaro = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _flatFaroDepth = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -216,6 +217,9 @@ namespace PointDeviation
             _flatFaro.Text = L.T("In pianta e sezione: nuvola nello stesso punto dell'RCP");
             p.Controls.Add(_flatFaro);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): in piante, sezioni e prospetti Revit decide cosa sta sopra con l'ordine dei disegni; la nuvola si disegna nel punto in cui Revit disegna le sue nuvole (come un RCP), in tutte le immagini, con la camera dell'ultimo fotogramma completo: niente più nuvola che salta sopra e sotto il modello. Mentre sposti la vista può restare indietro di un attimo. Spento: come prima (voce 294).")));
+            _flatFaroDepth.Text = L.T("In pianta e sezione: profondità come l'RCP");
+            p.Controls.Add(_flatFaroDepth);
+            p.Controls.Add(Note(L.T("Solo con «nuvola nello stesso punto dell'RCP». Acceso (consigliato): al posto del faro la nuvola usa le stesse regole di profondità che Revit usa per le sue nuvole, così si vede come un RCP invece di sparire dietro il modello in un'immagine sì e una no. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: regole di profondità del plugin (voce 297).")));
             _flatPost.Text = L.T("In pianta e sezione: nuvola sotto i riempimenti del modello");
             p.Controls.Add(_flatPost);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): in piante, sezioni e prospetti Revit decide cosa sta sopra con l'ordine dei disegni, non con la profondità. Nelle immagini che Revit mostra mentre sposti, zoomi o passi col mouse la nuvola si disegna nello stesso punto dei fotogrammi completi (prima dei riempimenti del modello), invece che sopra tutto. Spento: in quelle immagini la nuvola può coprire il modello.")));
@@ -285,6 +289,7 @@ namespace PointDeviation
             _flatPost.Checked = !a.NoFlatPostDraw;
             _meshNoLinks.Checked = a.MeshWithoutLinks;
             _flatFaro.Checked = !a.NoFlatFaroDraw;
+            _flatFaroDepth.Checked = !a.NoFlatFaroDepth;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -314,6 +319,7 @@ namespace PointDeviation
             a.NoFlatPostDraw = !_flatPost.Checked;
             a.MeshWithoutLinks = _meshNoLinks.Checked;
             a.NoFlatFaroDraw = !_flatFaro.Checked;
+            a.NoFlatFaroDepth = !_flatFaroDepth.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();

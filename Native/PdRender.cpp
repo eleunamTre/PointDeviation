@@ -195,9 +195,14 @@ extern "C" __declspec(dllexport) void PdSetFlatPostDraw(int on) { g_noPost = on 
 // Ora nelle viste piane la nuvola si disegna li', al posto del faro, in ogni immagine, con la camera dell'ultimo
 // fotogramma completo; al segnale e nelle immagini intermedie non si disegna piu'. Stesso ordine dell'RCP ovunque.
 static bool g_faroDrawn = false, g_noFaroDraw = false; static long g_faroDraws = 0, g_faroFail = 0;
+// voce 298: al posto del faro si usa lo stato di profondita' che Revit ha impostato per le sue nuvole (come un RCP)
+static bool g_noFaroDss = false; static ID3D11DepthStencilState* g_faroDss = nullptr; static UINT g_faroDssRef = 0;
+static long g_faroVis = 0, g_faroHid = 0, g_faroDssUsed = 0; static char g_faroDssInfo[96] = "nessuno";
+extern "C" __declspec(dllexport) void PdSetFlatFaroDepth(int on) { g_noFaroDss = on == 0; }
+static void GoodSwap(bool flat);
 extern "C" __declspec(dllexport) void PdSetFlatFaroDraw(int on) { g_noFaroDraw = on == 0; }
 static bool FaroMode() { return g_flatView && !g_noFaroDraw; }
-extern "C" __declspec(dllexport) void PdSetFlatView(int flat, int useBeacon) { g_flatView = flat != 0; g_flatBeacon = useBeacon != 0; }
+extern "C" __declspec(dllexport) void PdSetFlatView(int flat, int useBeacon) { if ((flat != 0) != g_flatView) GoodSwap(flat != 0); g_flatView = flat != 0; g_flatBeacon = useBeacon != 0; }
 extern "C" __declspec(dllexport) void PdSetView(long long viewId)
 {
     if (viewId != g_mView) { g_mView = viewId; g_mSlot = -1; g_mForce = 1; g_viewGen++; ClearForNewView(); }
@@ -254,6 +259,16 @@ extern "C" __declspec(dllexport) void PdSetMatrixReSearch(int on) { g_noReSearch
 // prova prima quella: se passa i controlli della ricerca si tiene, senza cercarne altre.
 static int g_goodSlot = -1, g_goodOff = 0, g_goodT = 0, g_goodOff2 = -1, g_goodT2 = 0; static UINT g_goodW = 0;
 static int g_sigVis = 0; static long g_goodUsed = 0;
+// voce 298: una posizione buona per le viste 3D e una per piante e sezioni (in 3D Revit usa un'altra posizione: provarla
+// per prima in pianta portava alla riga 12 con la seconda matrice 4, nuvola ruotata e poi sparita)
+struct GoodPos { int slot, off, t, off2, t2; UINT w; };
+static GoodPos g_goodOther = { -1, 0, 0, -1, 0, 0 };
+static void GoodSwap(bool)
+{
+    GoodPos cur = { g_goodSlot, g_goodOff, g_goodT, g_goodOff2, g_goodT2, g_goodW };
+    g_goodSlot = g_goodOther.slot; g_goodOff = g_goodOther.off; g_goodT = g_goodOther.t; g_goodOff2 = g_goodOther.off2; g_goodT2 = g_goodOther.t2; g_goodW = g_goodOther.w;
+    g_goodOther = cur;
+}
 static bool IsBadM(int slot, int off, int t, int off2, int t2)
 {
     if (g_badGen != g_mView) return false;
@@ -562,7 +577,7 @@ static bool g_noDepth = false;     // disegno senza confronto di profondita' (ve
 static double g_depthOffUntil = 0; // fino a quando i disegni al Present ignorano la profondita' copiata
 static double g_badCurUntil = 0;   // fino a quando non si usano le camere trovate nei fotogrammi interrotti
 static long g_qDepthBlock = 0, g_qCamOut = 0, g_qVisible = 0;
-static const char* SrcName(int k) { return k == 0 ? "segnale" : k == 1 ? "present_completo" : k == 2 ? "interrotto_sua_camera" : "interrotto_precedente"; }
+static const char* SrcName(int k) { return k == 0 ? "segnale" : k == 1 ? "present_completo" : k == 2 ? "interrotto_sua_camera" : k == 4 ? "faro" : "interrotto_precedente"; }
 static int g_qIdx = 0;
 static double g_gpuEma = -1, g_gpuSum = 0, g_gpuMax = 0; static long g_gpuN = 0;
 static long g_skipMatrix = 0, g_skipEmpty = 0;
@@ -584,7 +599,8 @@ static void GpuCollect(ID3D11DeviceContext* c)
         if (hasOcc && hasSt && g_qPts[k] > 20000)
         {
             double now = QpcMs();
-            if (ps.CPrimitives > 2000 && occ == 0 && !g_qNoDepth[k])
+            if (g_qSrc[k] == 4) { if (ps.CPrimitives > 2000 && occ == 0) g_faroHid++; else if (occ > 0) g_faroVis++; }   // voce 298
+            if (ps.CPrimitives > 2000 && occ == 0 && !g_qNoDepth[k] && g_qSrc[k] != 4)
             {   // punti nella finestra ma nessun pixel oltre la profondita': per 400 ms al Present si disegna senza
                 g_qDepthBlock++;
                 if (g_qSrc[k] != 0) { if (now > g_depthOffUntil) FT("E;profondita_copre_tutto;fonte=%s;in_finestra=%llu", SrcName(g_qSrc[k]), ps.CPrimitives); g_depthOffUntil = now + 400; }
@@ -592,7 +608,7 @@ static void GpuCollect(ID3D11DeviceContext* c)
             else if (ps.CPrimitives == 0)
             {   // nessun punto nella finestra: con una camera presa da un fotogramma interrotto, la si scarta per 1 s
                 g_qCamOut++;
-                if (g_qSrc[k] == 0 && !g_noReSearch)
+                if ((g_qSrc[k] == 0 || g_qSrc[k] == 4) && !g_noReSearch)   // voce 298: in pianta e sezione la nuvola si disegna al faro
                 {   // voce 285: fotogramma normale, camera di Revit: la posizione della matrice e' sbagliata?
                     if (g_reSearchGen != g_mView) { g_reSearchGen = g_mView; g_reSearchN = 0; }
                     // voce 292: la posizione che ha gia' funzionato non si scarta mai. In sezione e in 3D la nuvola puo' essere
@@ -606,7 +622,7 @@ static void GpuCollect(ID3D11DeviceContext* c)
             else
             {
                 g_qVisible++;
-                if (g_qSrc[k] == 0)
+                if (g_qSrc[k] == 0 || g_qSrc[k] == 4)
                 {
                     g_sigOut = 0;
                     if (++g_sigVis >= 3 && g_mSlot >= 0)
@@ -734,7 +750,8 @@ static void DrawPointsCore(ID3D11DeviceContext* c, ID3D11Buffer* matBuf, int off
     bool tr = Transparent();
     bool blend = tr || sel == 2;
     if (sel == 2) g_ptAlphaDraws++;
-    c->OMSetDepthStencilState(g_noDepth && g_sdssOff ? g_sdssOff : (blend || g_depthNoWrite ? g_sdssNoWrite : g_sdss), 0);
+    if (g_faroDss) { c->OMSetDepthStencilState(g_faroDss, g_faroDssRef); g_faroDssUsed++; }   // voce 298: come le nuvole di Revit
+    else c->OMSetDepthStencilState(g_noDepth && g_sdssOff ? g_sdssOff : (blend || g_depthNoWrite ? g_sdssNoWrite : g_sdss), 0);
     c->RSSetState(g_useScissor && g_srsSc ? g_srsSc : g_srs);
     FLOAT zero[4] = { 0, 0, 0, 0 };
     c->OMSetBlendState(blend ? g_bsAlpha : g_bs, zero, 0xffffffff);
@@ -1897,9 +1914,15 @@ static void DrawFaro(ID3D11DeviceContext* c)
     if (rt && ds)
     {
         float cam[32]; memcpy(cam, g_refRaw, sizeof(cam));
+        ID3D11DepthStencilState* rd = nullptr; UINT rref = 0; c->OMGetDepthStencilState(&rd, &rref);
+        if (rd) { D3D11_DEPTH_STENCIL_DESC dd; rd->GetDesc(&dd); _snprintf_s(g_faroDssInfo, sizeof(g_faroDssInfo), _TRUNCATE, "profondita' %s, confronto %d, scrittura %s, stencil %s", dd.DepthEnable ? "si'" : "no", (int)dd.DepthFunc, dd.DepthWriteMask ? "si'" : "no", dd.StencilEnable ? "si'" : "no"); }
+        else _snprintf_s(g_faroDssInfo, sizeof(g_faroDssInfo), _TRUNCATE, "stato predefinito");
         SavedState st; st.Save(c, true);
-        g_uiRtv = rt; g_drawSrc = 3; g_noDepth = false;
+        g_uiRtv = rt; g_drawSrc = 4; g_noDepth = false;   // voce 298: fonte "faro" (misure come al segnale)
+        if (!g_noFaroDss && rd) { g_faroDss = rd; g_faroDssRef = rref; }
         bool ok = DrawAtPresent(g_fbSwap, cam, ds, nullptr);
+        g_faroDss = nullptr;
+        if (rd) rd->Release();
         g_uiRtv = nullptr;
         st.Restore(c);
         if (ok) { g_faroDrawn = true; g_faroDraws++; } else g_faroFail++;
@@ -2731,9 +2754,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     {
         size_t L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld)",
-            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail);
-        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s)",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld; ripresa la posizione che funzionava %ld volte)",
             g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept, g_goodUsed);
