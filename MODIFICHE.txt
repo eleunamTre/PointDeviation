@@ -1888,3 +1888,16 @@ Ottava tornata (28/10/2026): octree
      (come un RCP). Non cambia nessuna posizione: decide solo chi copre chi. Opzione in Avanzate «In pianta e sezione:
      profondita' come l'RCP» (accesa). Rapporto DirectX: nuvola al faro visibile / coperta dalla profondita', e lo
      stato di profondita' di Revit. Va ricompilata PdRender.dll.
+
+299) Prova della 298 (registro e video del 26/11 17:45:46). Al faro la nuvola ora si vede sempre (78 su 78; Revit
+     disegna le sue nuvole senza confronto di profondita'). Restavano due cose. (1) Passaggio del mouse in pianta e
+     sezione: la nuvola cambiava a ogni immagine («sembra che la ricarichi»). In quelle immagini Revit non ridisegna la
+     scena (360 immagini su 388 senza faro) e riusa l'immagine di prima, che contiene gia' la nuvola disegnata al
+     faro, sotto i riempimenti del modello; il plugin la ridisegnava anche sopra l'interfaccia, quindi sopra i
+     riempimenti: un'immagine con la nuvola sotto e una sopra. Ora in pianta e sezione, se in un'immagine Revit non ha
+     ridisegnato la scena, la nuvola non si ridisegna; si ridisegna come prima solo se Revit ha ridisegnato la scena
+     senza faro. Opzione in Avanzate «In pianta e sezione: niente ridisegno sopra l'interfaccia al passaggio del mouse»
+     (accesa); contatore nel rapporto DirectX. (2) Sezione lenta a comparire dopo il riavvio di Revit (matrice non
+     pronta per 5 s): la posizione buona delle piante e sezioni non c'era ancora e quella del 3D (la stessa riga 15)
+     era messa da parte dalla 298. Ora, se quella del tipo di vista non c'e' o non va, si prova quella dell'altro tipo
+     prima della ricerca completa. Va ricompilata PdRender.dll.
