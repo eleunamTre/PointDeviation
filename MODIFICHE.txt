@@ -1912,3 +1912,18 @@ Ottava tornata (28/10/2026): octree
      sezione (come si e' disegnata la nuvola, disegni di Revit nella scena, a che punto arriva il faro, forbici e
      rettangolo al primo disegno nella scena); nel rapporto DirectX «scena ridisegnata senza faro: con le forbici N,
      intera M». Nessun cambio di comportamento. Va ricompilata PdRender.dll.
+
+301) Pianta e sezione con la trasparenza del profilo: una nuvola sola. Registro, diario e video della 300 (26/11
+     18:31:16; trasparenza del profilo 20%, gia' cosi' nella prova della 299). Nei fotogrammi completi la nuvola si
+     disegnava due volte: al posto del faro (sotto i riempimenti, come un RCP) e di nuovo al Present con la regola della
+     trasparenza (voce 217), sopra tutto il modello. In pianta, spostando la vista, le due nuvole non coincidevano
+     («si muove tutto»); in sezione, al passaggio del mouse, una copia sotto i riempimenti e una sopra. Ora, se la
+     nuvola e' gia' stata disegnata al faro, al Present non si ridisegna: la trasparenza si applica gia' al faro.
+     Rapporto DirectX: «trasparenti non ridisegnati al Present perche' gia' al faro N». Nel diario la riga
+     X;scena_immagine dice anche se il faro arriva dopo il segnale (camera di quella immagine) o prima (camera
+     dell'immagine precedente). Opzione in Avanzate «In pianta e sezione: nuvola trasparente solo al posto dell'RCP»
+     (accesa). Non cambia nessuna posizione. Va ricompilata PdRender.dll.
+     Dal diario della 300 (767 immagini in sezione e pianta): 297 fotogrammi completi con la scena intera e la nuvola
+     al faro (giusti); 180 immagini al passaggio del mouse con ~30 disegni di Revit nella scena senza faro e ripiego
+     sopra tutto, 70 con ~30 disegni e il faro in fondo, 134 con la scena tenuta. Le prime due vanno ancora sistemate
+     (prossima voce, dopo la prova di questa).

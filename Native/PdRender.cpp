@@ -207,6 +207,11 @@ static void* g_sceneRes = nullptr; static bool g_sceneBound = false, g_sceneDraw
 // forbici, a che punto arriva il faro e come si e' disegnata la nuvola (al faro, scena tenuta, ripiego sopra tutto)
 static long g_sceneDraws = 0, g_sceneFaroAt = -1, g_scenePartNoFaro = 0, g_sceneFullNoFaro = 0; static long long g_sceneFirst = -1;
 static int g_sceneScOn = 0; static D3D11_RECT g_sceneSc = {};
+// voce 301: con la trasparenza del profilo, nei fotogrammi completi in pianta/sezione la nuvola era disegnata due volte:
+// al faro (sotto i riempimenti, camera dell'ultimo segnale) e di nuovo al Present (217, sopra tutto). Ora se e' gia'
+// stata disegnata al faro, al Present non si ridisegna (la trasparenza si applica gia' al faro).
+static bool g_noFaroAlpha = false; static long g_faroAlphaSkip = 0; static int g_faroAfterSig = -1;
+extern "C" __declspec(dllexport) void PdSetFlatFaroAlpha(int on) { g_noFaroAlpha = on == 0; }
 extern "C" __declspec(dllexport) void PdSetFlatFaroKeep(int on) { g_noFaroKeep = on == 0; }
 static void GoodSwap(bool flat);
 extern "C" __declspec(dllexport) void PdSetFlatFaroDraw(int on) { g_noFaroDraw = on == 0; }
@@ -1937,6 +1942,7 @@ static void DrawFaro(ID3D11DeviceContext* c)
         if (!g_noFaroDss && rd) { g_faroDss = rd; g_faroDssRef = rref; }
         { ID3D11Resource* sr = nullptr; rt->GetResource(&sr); g_sceneRes = sr; g_sceneBound = true; g_sceneDrawn = true; if (sr) sr->Release(); }   // voce 299
         g_sceneFaroAt = g_sceneDraws;   // voce 300
+        g_faroAfterSig = g_drawnThisFrame ? 1 : 0;   // voce 301: segnale (camera di questa immagine) gia' arrivato?
         bool ok = DrawAtPresent(g_fbSwap, cam, ds, nullptr);
         g_faroDss = nullptr;
         if (rd) rd->Release();
@@ -2398,9 +2404,11 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
                 FT("X;finestra_copia;coperto=%.0f;z=%.4f-%.4f;media=%.4f;disegni=%lld;completo=1", cov, mn, mx, me, g_winDraws);
             if (cx) cx->Release();
         }
-        if (tr && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) { g_fbAlpha++; drew = true; }
+        bool faroHas = FaroMode() && g_faroDrawn && !g_noFaroAlpha;   // voce 301: gia' disegnata (con la trasparenza) al faro
+        if (faroHas && (tr || g_ptAlpha)) g_faroAlphaSkip++;
+        if (tr && !faroHas && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc)) { g_fbAlpha++; drew = true; }
         // voce 259: punti trasparenti (link) sopra il modello finito, con la camera vera e la profondita' copiata
-        else if (!tr && g_ptAlpha && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc, false, 2)) drew = true;
+        else if (!tr && !faroHas && g_ptAlpha && g_shaderOn && !g_ready.empty() && g_hasRef && g_refGen == g_viewGen && DrawAtPresent(s, g_refRaw, dz, sc, false, 2)) drew = true;
         g_noDepth = false;
         FT("P;completo;trasparente=%d;disegnato_al_present=%d;opacita=%.2f;profondita=%s;parziale=%d;forbici=%d;blocchi=%zu;prima_interfaccia=%d",
            tr ? 1 : 0, drew ? 1 : 0, g_alpha, QpcMs() < g_depthOffUntil ? "ignorata" : (g_keptOld ? "tenuta_precedente" : (g_keepOk ? "copia" : "revit")), g_partial ? 1 : 0, sc ? 1 : 0, g_ready.size(), ui ? 1 : 0);
@@ -2772,9 +2780,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     {
         size_t L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; immagini con la scena tenuta da Revit, nuvola gia' dentro %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s; scena ridisegnata senza faro: con le forbici %ld, intera %ld)",
-            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroKept, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo, g_scenePartNoFaro, g_sceneFullNoFaro);
-        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0; g_faroKept = 0; g_scenePartNoFaro = g_sceneFullNoFaro = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; immagini con la scena tenuta da Revit, nuvola gia' dentro %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s; scena ridisegnata senza faro: con le forbici %ld, intera %ld; trasparenti non ridisegnati al Present perche' gia' al faro %ld)",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroKept, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo, g_scenePartNoFaro, g_sceneFullNoFaro, g_faroAlphaSkip);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0; g_faroKept = 0; g_scenePartNoFaro = g_sceneFullNoFaro = 0; g_faroAlphaSkip = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld; ripresa la posizione che funzionava %ld volte)",
             g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept, g_goodUsed);
@@ -2928,10 +2936,10 @@ static void SceneImageLog()
     {
         const char* how = g_faroDrawn ? "al_faro" : FaroCovers() ? "scena_tenuta" : "ripiego_sopra_tutto";
         if (!g_faroDrawn && g_sceneDraws > 0) { if (g_sceneScOn) g_scenePartNoFaro++; else g_sceneFullNoFaro++; }
-        FT("X;scena_immagine;nuvola=%s;disegni_scena=%ld;primo_disegno=%lld;faro_dopo_disegni_scena=%ld;forbici=%d;rettangolo=%ld,%ld-%ld,%ld;disegni_immagine=%lld",
-           how, g_sceneDraws, g_sceneFirst, g_sceneFaroAt, g_sceneScOn, (long)g_sceneSc.left, (long)g_sceneSc.top, (long)g_sceneSc.right, (long)g_sceneSc.bottom, g_drawSeq - g_imgStart);
+        FT("X;scena_immagine;nuvola=%s;disegni_scena=%ld;primo_disegno=%lld;faro_dopo_disegni_scena=%ld;faro_dopo_il_segnale=%d;forbici=%d;rettangolo=%ld,%ld-%ld,%ld;disegni_immagine=%lld",
+           how, g_sceneDraws, g_sceneFirst, g_sceneFaroAt, g_faroAfterSig, g_sceneScOn, (long)g_sceneSc.left, (long)g_sceneSc.top, (long)g_sceneSc.right, (long)g_sceneSc.bottom, g_drawSeq - g_imgStart);
     }
-    g_sceneDraws = 0; g_sceneFaroAt = -1; g_sceneFirst = -1;
+    g_sceneDraws = 0; g_sceneFaroAt = -1; g_sceneFirst = -1; g_faroAfterSig = -1;
 }
 static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { SceneHit(c); PostCheck(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { SceneHit(c); PostCheck(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
