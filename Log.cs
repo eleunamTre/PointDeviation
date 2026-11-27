@@ -288,6 +288,7 @@ namespace PointDeviation
         [DataMember] public bool NoFlatHoverFix;    // voce 303
         [DataMember] public bool FlatHoverRestore;  // voce 304: spento = al faro non si disegna (nuovo); acceso = copia rimessa (303)
         [DataMember] public bool NoFastMatrixRetry; // voce 304
+        [DataMember] public bool NoOtherBufferSkip; // voce 308
         [DataMember] public bool CloudNotSelectable; // voce 307: nuvole del plugin tolte dalla selezione
         [DataMember] public bool MeshWithoutLinks;  // voce 296: mesh anche nelle viste senza collegamenti (spento)
         [DataMember] public bool FlatSimple;        // voce 290, 293: spento di serie (riserva se le viste 2D non vanno)
@@ -359,7 +360,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 307;
+        public const int Change = 308;
 
         public static string Describe()
         {

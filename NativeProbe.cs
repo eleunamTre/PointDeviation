@@ -75,6 +75,9 @@ namespace PointDeviation
         private static extern void PdSetFlatHoverSkip(int on);
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetFastMatrixRetry(int on);
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetOtherBufferSkip(int on);
+        private static bool _v308Missing;
         private static bool _v304Missing;
         private static bool _flatFaroMissing;
         private static bool _flatPostMissing;
@@ -373,6 +376,9 @@ namespace PointDeviation
                 if (!_v304Missing)
                     try { PdSetFlatHoverSkip(AdvancedSettings.Current.FlatHoverRestore ? 0 : 1); PdSetFastMatrixRetry(AdvancedSettings.Current.NoFastMatrixRetry ? 0 : 1); }
                     catch (EntryPointNotFoundException) { _v304Missing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatHoverSkip: ricompilare la libreria nativa (voce 304)"); }
+                if (!_v308Missing)
+                    try { PdSetOtherBufferSkip(AdvancedSettings.Current.NoOtherBufferSkip ? 0 : 1); }
+                    catch (EntryPointNotFoundException) { _v308Missing = true; Log.Write("DirectX", "PdRender.dll senza PdSetOtherBufferSkip: ricompilare la libreria nativa (voce 308)"); }
                 SendCamera(cam);
                 DrawMarker();
                 _frames++;

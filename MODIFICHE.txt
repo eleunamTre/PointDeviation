@@ -2004,3 +2004,15 @@ Ottava tornata (28/10/2026): octree
      2023+), lasciando selezionati gli altri elementi; se non si puo' subito, al primo Idling. L'evidenziazione al
      passaggio del mouse resta: e' di Revit. Alternativa senza plugin: l'interruttore «Seleziona collegamenti» di Revit
      in basso a destra (vale anche per i modelli collegati). Nuovo file CloudSelection.cs. Non tocca la DLL nativa.
+
+308) Vista 3D: la nuvola spariva per secondi (registro, diario e video del 27/11 15:28:13). Dalle 15:26 il segnale del
+     plugin arriva 2-3 volte per fotogramma: la prima con il buffer delle costanti di 224 byte (un altro passaggio di
+     Revit), poi con quello di 368 byte in cui c'e' la matrice della camera. A ogni cambio di larghezza la matrice si
+     scartava e si cercava di nuovo (173 volte nel diario, «buffer_cambiato=368->224»): «matrice non pronta» 50-67
+     volte ogni 5 s e nuvola sparita. Ora, se nella vista e' gia' arrivato un segnale con la larghezza giusta, un segnale
+     con un'altra larghezza si salta (niente disegno, matrice tenuta); solo dopo 20 segnali di fila con l'altra
+     larghezza la matrice si cerca di nuovo (cambio vero). Rapporto DirectX: «segnali con un altro buffer saltati N»;
+     diario «M;salto=altro_buffer». Opzione in Avanzate «Ignora i segnali di un altro passaggio di Revit» (accesa).
+     Perche' Revit abbia iniziato a disegnare il segnale piu' volte non si vede dai dati (forse un'impostazione della
+     vista o della grafica cambiata in quel momento). Dallo stesso registro: tempo dentro i nostri agganci 65-370 ms
+     ogni 5 s (1-7%). Va ricompilata PdRender.dll.

@@ -47,6 +47,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _flatHoverFix = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatHoverRestore = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _fastMatrix = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _otherBuf = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -244,6 +245,9 @@ namespace PointDeviation
             _fastMatrix.Text = L.T("Ricerca rapida della matrice dopo il cambio di vista");
             p.Controls.Add(_fastMatrix);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): aprendo una vista, se la camera di Revit non si trova subito, la si cerca di nuovo a ogni immagine invece che una ogni 30, così la nuvola compare prima (in sezione ci metteva più di 5 secondi). Spento: come prima.")));
+            _otherBuf.Text = L.T("Ignora i segnali di un altro passaggio di Revit");
+            p.Controls.Add(_otherBuf);
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): se Revit disegna il segnale del plugin più volte per immagine con buffer diversi (succede in 3D), si usa solo quello con la camera già trovata, invece di cercarla di nuovo ogni volta (la nuvola spariva per secondi). Spento: come prima.")));
             _flatPost.Text = L.T("In pianta e sezione: nuvola sotto i riempimenti del modello");
             p.Controls.Add(_flatPost);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): in piante, sezioni e prospetti Revit decide cosa sta sopra con l'ordine dei disegni, non con la profondità. Nelle immagini che Revit mostra mentre sposti, zoomi o passi col mouse la nuvola si disegna nello stesso punto dei fotogrammi completi (prima dei riempimenti del modello), invece che sopra tutto. Spento: in quelle immagini la nuvola può coprire il modello.")));
@@ -320,6 +324,7 @@ namespace PointDeviation
             _flatHoverFix.Checked = !a.NoFlatHoverFix;
             _flatHoverRestore.Checked = a.FlatHoverRestore;
             _fastMatrix.Checked = !a.NoFastMatrixRetry;
+            _otherBuf.Checked = !a.NoOtherBufferSkip;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -356,6 +361,7 @@ namespace PointDeviation
             a.NoFlatHoverFix = !_flatHoverFix.Checked;
             a.FlatHoverRestore = _flatHoverRestore.Checked;
             a.NoFastMatrixRetry = !_fastMatrix.Checked;
+            a.NoOtherBufferSkip = !_otherBuf.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();

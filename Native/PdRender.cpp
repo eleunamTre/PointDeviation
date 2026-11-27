@@ -250,6 +250,14 @@ extern "C" __declspec(dllexport) void PdSetFlatHoverSkip(int on) { g_hoverSkipMo
 // Ora, dopo un cambio di vista, si riprova a ogni segnale per i primi 20 tentativi, poi uno ogni 5.
 static bool g_noFastRetry = false; static long long g_mMissView = -2; static int g_mMiss = 0; static long g_fastRetries = 0;
 extern "C" __declspec(dllexport) void PdSetFastMatrixRetry(int on) { g_noFastRetry = on == 0; }
+// voce 308 (registro, diario e video del 27/11 15:28:13, vista 3D): dalle 15:26 il segnale arriva 2-3 volte per
+// fotogramma, la prima con il buffer delle costanti di 224 byte (un altro passaggio di Revit), poi con quello di 368 in
+// cui c'e' la matrice. A ogni cambio di larghezza la matrice si scartava e si ricercava (173 volte): «matrice non
+// pronta» 50-67 volte ogni 5 s e nuvola sparita per secondi. Ora, se nella vista un segnale con la larghezza giusta e'
+// gia' arrivato, un segnale con un'altra larghezza si salta (niente disegno, matrice tenuta); solo dopo 20 segnali di
+// fila con l'altra larghezza la matrice si cerca di nuovo (cambio vero).
+static bool g_noOtherBufSkip = false; static long long g_wMatchView = -2; static int g_wMiss = 0; static long g_wSkipped = 0; static bool g_wSkipNow = false;
+extern "C" __declspec(dllexport) void PdSetOtherBufferSkip(int on) { g_noOtherBufSkip = on == 0; }
 extern "C" __declspec(dllexport) void PdSetFlatFaroKeep(int on) { g_noFaroKeep = on == 0; }
 static void GoodSwap(bool flat);
 extern "C" __declspec(dllexport) void PdSetFlatFaroDraw(int on) { g_noFaroDraw = on == 0; }
@@ -474,8 +482,10 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
         UINT w = 0; if (b) { D3D11_BUFFER_DESC d; b->GetDesc(&d); w = d.ByteWidth; b->Release(); }
-        if (w != g_mWidth) { FT("X;buffer_cambiato=%u->%u", g_mWidth, w); g_mSlot = -1; g_mForce = 1; g_viewGen++; }
-        else if ((g_markers.load() % 30) == 0 && !CheckMatrix(c))
+        if (w != g_mWidth && !g_noOtherBufSkip && g_wMatchView == g_mView && g_wMiss < 20) { g_wMiss++; g_wSkipped++; g_wSkipNow = true; return false; }   // voce 308
+        if (w != g_mWidth) { FT("X;buffer_cambiato=%u->%u", g_mWidth, w); g_mSlot = -1; g_mForce = 1; g_viewGen++; g_wMiss = 0; }
+        else { g_wMiss = 0; g_wMatchView = g_mView; }   // voce 308: segnale con la larghezza giusta
+        if (g_mSlot >= 0 && (g_markers.load() % 30) == 0 && !CheckMatrix(c))
         {
             // voce 233 (registro 20/11 14:58): un controllo fallito toglieva la matrice e, se la ricerca non trovava
             // nulla, la nuvola spariva per 15 s (matrice non pronta in 150 segnali); poi la ricerca ritrovava la stessa
@@ -1396,7 +1406,11 @@ static int BestValidCand()
 static void ShaderDraw(ID3D11DeviceContext* c)
 {
     // la matrice si cerca anche prima che il plugin passi i blocchi (il plugin aspetta che sia trovata)
-    if (!EnsureMatrix(c)) { g_skipMatrix++; FT("M;salto=matrice_non_pronta"); return; }
+    if (!EnsureMatrix(c))
+    {
+        if (g_wSkipNow) { g_wSkipNow = false; FT("M;salto=altro_buffer"); return; }   // voce 308: altro passaggio di Revit
+        g_skipMatrix++; FT("M;salto=matrice_non_pronta"); return;
+    }
     // voce 209: buffer della matrice, destinazione e profondita' di questo fotogramma normale, per i fotogrammi interrotti
     {
         ID3D11Buffer* b = nullptr; c->VSGetConstantBuffers(g_mSlot, 1, &b);
@@ -2858,9 +2872,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     {
         size_t L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; immagini con la scena tenuta da Revit, nuvola gia' dentro %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s; scena ridisegnata senza faro: con le forbici %ld, intera %ld; trasparenti non ridisegnati al Present perche' gia' al faro %ld; camera al faro: di questa immagine %ld, dell'immagine prima %ld; passaggio del mouse: ripiego evitato %ld, scena rimessa dopo la nuvola %ld, poi altri disegni nella scena %ld, copia non creata %ld, nuvola non disegnata al faro %ld; ricerche della matrice in piu' dopo il cambio di vista %ld)",
-            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroKept, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo, g_scenePartNoFaro, g_sceneFullNoFaro, g_faroAlphaSkip, g_faroCamOwn, g_faroCamPrev, g_hoverSkip, g_bakRestores, g_bakLate, g_bakFail, g_hoverFaroSkip, g_fastRetries);
-        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0; g_faroKept = 0; g_scenePartNoFaro = g_sceneFullNoFaro = 0; g_faroAlphaSkip = 0; g_faroCamOwn = g_faroCamPrev = 0; g_hoverSkip = g_bakRestores = g_bakLate = g_bakFail = 0; g_hoverFaroSkip = 0; g_fastRetries = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; immagini con la scena tenuta da Revit, nuvola gia' dentro %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s; scena ridisegnata senza faro: con le forbici %ld, intera %ld; trasparenti non ridisegnati al Present perche' gia' al faro %ld; camera al faro: di questa immagine %ld, dell'immagine prima %ld; passaggio del mouse: ripiego evitato %ld, scena rimessa dopo la nuvola %ld, poi altri disegni nella scena %ld, copia non creata %ld, nuvola non disegnata al faro %ld; ricerche della matrice in piu' dopo il cambio di vista %ld; segnali con un altro buffer saltati %ld)",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroKept, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo, g_scenePartNoFaro, g_sceneFullNoFaro, g_faroAlphaSkip, g_faroCamOwn, g_faroCamPrev, g_hoverSkip, g_bakRestores, g_bakLate, g_bakFail, g_hoverFaroSkip, g_fastRetries, g_wSkipped);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0; g_faroKept = 0; g_scenePartNoFaro = g_sceneFullNoFaro = 0; g_faroAlphaSkip = 0; g_faroCamOwn = g_faroCamPrev = 0; g_hoverSkip = g_bakRestores = g_bakLate = g_bakFail = 0; g_hoverFaroSkip = 0; g_fastRetries = 0; g_wSkipped = 0;
         {   // voce 306
             double tot = 0; for (int k = 0; k < 6; k++) tot += HkMs(g_hkT[k]);
             size_t L2 = strlen(msg);
