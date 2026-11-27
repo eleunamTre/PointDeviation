@@ -2073,3 +2073,25 @@ Ottava tornata (28/10/2026): octree
      video), scheda video per i punti 3-10 ms: il peso viene dai passi della mesh. Molte «pause» del diario erano Revit
      fermo senza ridisegni (righe S dell'Idling con CPU 0%), non blocchi; i blocchi veri si vedranno con [Blocco] (312).
      Niente cambia nelle posizioni di nuvola o modello. Solo C#: va ricompilato il plugin e riavviato Revit.
+
+314) In movimento: profondita' dall'ultima immagine completa, e mesh molto piu' leggera (richiesta del 27/11: la mesh e'
+     nata perche' in movimento non si trovava la profondita' di Revit; per la sola profondita' non serve il dettaglio
+     fine). (1) Nei fotogrammi completi Revit scrive tutta la profondita' del modello e la copiamo gia' (KeepDepthFrom):
+     ora se ne tiene anche una versione leggibile dagli shader, con la sua camera e la sua finestra. Nelle immagini col
+     faro (dove si disegna la mesh) quella profondita' si ridisegna con la camera nuova: una griglia con un vertice ogni
+     2 pixel, ogni vertice torna un punto nello spazio con l'inversa della camera vecchia (in doppia precisione, rispetto
+     a un'origine vicina) e si proietta con quella nuova; vince il piu' vicino, come per la mesh. Si scartano i triangoli
+     su pixel vuoti e quelli a cavallo di un salto di profondita' (piu' di 9 cm piu' il 10% della distanza), cosi' non si
+     stendono teli tra un oggetto vicino e uno lontano. Stessa tolleranza della mesh (1 cm piu' lontano, con «stessa
+     tolleranza di Revit» accesa). Costo: un disegno nella scheda video, nessuna lettura di geometria. Dove nell'ultima
+     immagine completa non si vedeva niente (bordi che entrano, zone scoperte) resta la mesh, se accesa. Rapporto
+     DirectX: «profondita' dall'ultima immagine completa: copie N, disegnata in M immagini col faro»; diario
+     «E;riproiezione_shader» se lo shader non si compila. Opzione «In movimento: profondita' dall'ultima immagine
+     completa» (accesa; PdSetDepthReproject). (2) Mesh: lettura veloce a dettaglio grossolano (Options Coarse),
+     superfici curve con la triangolazione meno fitta (Triangulate(0)), senza il calcolo delle normali (per ogni
+     triangolo di una superficie curva si proiettava il baricentro sulla faccia: per la profondita' non serve ed era
+     probabilmente il motivo dei passi da 300 ms), anche le mesh importate; elementi con tutte le misure sotto 30 cm
+     saltati. Opzioni «Mesh: dettaglio fine» (spenta; accesa = lettura di prima) e «Mesh: anche gli elementi piccoli»
+     (spenta). La qualita' entra nelle chiavi delle parti in memoria e dei file su disco (cambiarla rifa' la mesh).
+     Registro [Mesh]: dettaglio ed elementi piccoli saltati. Nessuna modifica sposta nuvola o modello: decidono solo chi
+     copre chi. Vanno ricompilati il plugin (C#) e PdRender.dll, poi riavvio di Revit.

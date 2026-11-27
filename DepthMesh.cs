@@ -63,7 +63,7 @@ namespace PointDeviation
             public readonly List<double> Scratch = new List<double>(1 << 12);
             public double Ox, Oy, Oz; public bool HasOrigin;
             public int PartTris, PartElements;
-            public int Triangles, Steps, Reused, Built, FromDisk, Paused;
+            public int Triangles, Steps, Reused, Built, FromDisk, Paused, Small;
             public readonly Stopwatch Work = new Stopwatch();
             public readonly Stopwatch Wall = Stopwatch.StartNew();
             public bool Capped;
@@ -89,6 +89,12 @@ namespace PointDeviation
         private static int _lastStep;
         private static readonly Dictionary<string, Part> _parts = new Dictionary<string, Part>();
         private static readonly Options Opt = new Options { DetailLevel = ViewDetailLevel.Fine, ComputeReferences = false, IncludeNonVisibleObjects = false };
+        // voce 314: per la sola profondita' basta il dettaglio grossolano (geometria piu' semplice e meno triangoli)
+        private static readonly Options OptCoarse = new Options { DetailLevel = ViewDetailLevel.Coarse, ComputeReferences = false, IncludeNonVisibleObjects = false };
+        private const double SmallFt = 1.0;   // voce 314: elementi con tutte le misure sotto 30 cm saltati
+        private static string _lastQ;
+        /// <summary>Voce 314: qualita' della mesh (entra nelle chiavi delle parti e dei file su disco).</summary>
+        private static string Quality { get { var a = AdvancedSettings.Current; return (a.MeshFineDetail ? "F" : "C") + (a.MeshSmallElements ? "s" : ""); } }
 
         [StructLayout(LayoutKind.Sequential)] private struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
         [DllImport("user32.dll")] private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
@@ -134,6 +140,9 @@ namespace PointDeviation
                 string docKey = DeviationController.KeyOf(doc);
                 bool dirty = _dirtyKey == docKey;
                 if (dirty && Environment.TickCount - _dirtyAt < QuietMs) return true;   // si aspetta la fine delle modifiche
+                string q = Quality;
+                if (_lastQ != null && q != _lastQ) { _job = null; _ready = null; }   // voce 314: qualita' cambiata in Avanzate
+                _lastQ = q;
                 if (_job != null && _job.Key != key) _job = null;   // vista cambiata: si ricomincia (le parti finite restano)
                 if (_job == null)
                 {
@@ -234,7 +243,7 @@ namespace PointDeviation
                 string p = ld.PathName;
                 if (string.IsNullOrEmpty(p) || !File.Exists(p)) return null;
                 var fi = new FileInfo(p);
-                string id = DiskTag + "|" + p.ToLowerInvariant() + "|" + fi.LastWriteTimeUtc.Ticks + "|" + fi.Length;
+                string id = DiskTag + "|" + Quality + "|" + p.ToLowerInvariant() + "|" + fi.LastWriteTimeUtc.Ticks + "|" + fi.Length;
                 using (var sha = System.Security.Cryptography.SHA1.Create())
                 {
                     byte[] h = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(id));
@@ -302,7 +311,7 @@ namespace PointDeviation
             var j = new Job { Key = key, ViewName = view.Name };
             j.Work.Start();
             // modello in uso: elementi della vista (quelli nascosti nella vista restano fuori)
-            string hk = "H|" + key;
+            string hk = "H|" + key + "|" + Quality;
             j.PartKeys.Add(hk); j.PartXf.Add(null);
             if (!_parts.ContainsKey(hk))
                 j.Todos.Add(new Todo { Key = hk, Host = true, DocKey = docKey, Doc = doc, Ids = new List<ElementId>(new FilteredElementCollector(doc, view.Id).WhereElementIsNotElementType().ToElementIds()) });
@@ -317,7 +326,7 @@ namespace PointDeviation
                     Document ld = li != null ? li.GetLinkDocument() : null;
                     if (ld == null) continue;
                     Transform xf = li.GetTotalTransform();
-                    string lk = "L|" + ld.PathName + "|" + ld.Title;
+                    string lk = "L|" + ld.PathName + "|" + ld.Title + "|" + Quality;
                     string ck = lk + "|" + XfKey(xf);
                     if (comp.Contains(ck)) continue;
                     comp.Add(ck);
@@ -350,7 +359,11 @@ namespace PointDeviation
                 if (e == null) continue;
                 j.Scratch.Clear();
                 // voce 313: i collegamenti si leggono nelle loro coordinate (la posizione si applica alla fine)
-                int n = ModelMeshExtractor.AddElementPublic(e, Opt, null, j.Scratch);
+                // voce 314: di serie lettura veloce (dettaglio grossolano, senza normali, elementi piccoli saltati);
+                // con «dettaglio fine» la lettura di prima
+                int n = AdvancedSettings.Current.MeshFineDetail ? ModelMeshExtractor.AddElementPublic(e, Opt, null, j.Scratch)
+                    : AddFast(e, j.Scratch, AdvancedSettings.Current.MeshSmallElements ? 0 : SmallFt);
+                if (n < 0) { j.Small++; continue; }
                 double ms = el.Elapsed.TotalMilliseconds;
                 if (ms > j.MaxElemMs) { j.MaxElemMs = ms; j.MaxElem = (e.Category != null ? e.Category.Name : "?") + " " + e.Id.Value + (t.Host ? "" : " (collegamento)"); }
                 if (n <= 0) continue;
@@ -423,9 +436,74 @@ namespace PointDeviation
                 if (at >= v.Length) break;
             }
             _ready = new Mesh { Key = j.Key, Comp = j.Comp, Verts = v, Origin = new[] { o[0], o[1], o[2] }, Triangles = at / 9, Elements = elems, Links = links };
-            Log.Write("Mesh", string.Format("«{0}»: mesh per la profondità pronta, {1:N0} elementi ({2} collegamenti), {3:N0} triangoli{4}; parti riusate {5}, lette da disco {6}, rifatte {7}; lavoro {8:F1} s in {9} passi (passo più lungo {10:F0} ms, elemento più lento {11:F0} ms: {12}; attese per mouse e tastiera {13}), tempo totale {14:F1} s (voci 278, 312, 313)",
-                j.ViewName, elems, links, at / 9, j.Capped ? " (limite raggiunto)" : "", j.Reused, j.FromDisk, j.Built, j.Work.Elapsed.TotalSeconds, j.Steps, j.MaxStepMs, j.MaxElemMs, j.MaxElem, j.Paused, j.Wall.Elapsed.TotalSeconds));
+            Log.Write("Mesh", string.Format("«{0}»: mesh per la profondità pronta, {1:N0} elementi ({2} collegamenti), {3:N0} triangoli{4}; parti riusate {5}, lette da disco {6}, rifatte {7}; lavoro {8:F1} s in {9} passi (passo più lungo {10:F0} ms, elemento più lento {11:F0} ms: {12}; attese per mouse e tastiera {13}), dettaglio {15}, elementi piccoli saltati {16}, tempo totale {14:F1} s (voci 278, 312-314)",
+                j.ViewName, elems, links, at / 9, j.Capped ? " (limite raggiunto)" : "", j.Reused, j.FromDisk, j.Built, j.Work.Elapsed.TotalSeconds, j.Steps, j.MaxStepMs, j.MaxElemMs, j.MaxElem, j.Paused, j.Wall.Elapsed.TotalSeconds,
+                AdvancedSettings.Current.MeshFineDetail ? "fine" : "grossolano", j.Small));
             Redraw.Request();
+        }
+
+        /// <summary>
+        /// Voce 314: triangoli di un elemento per la sola profondita': dettaglio grossolano, triangolazione meno fitta
+        /// delle superfici curve, nessun calcolo delle normali (non servono per la profondita'; prima per ogni triangolo
+        /// di una superficie curva si proiettava il baricentro sulla faccia, il passo piu' lento). -1 = elemento piccolo saltato.
+        /// </summary>
+        private static int AddFast(Element e, List<double> v, double minSize)
+        {
+            if (e.Category == null || e.Category.CategoryType != CategoryType.Model) return 0;
+            if (e is RevitLinkInstance || e is PointCloudInstance) return 0;
+            if (minSize > 0)
+            {
+                BoundingBoxXYZ bb = null;
+                try { bb = e.get_BoundingBox(null); } catch { }
+                if (bb != null && bb.Max.X - bb.Min.X < minSize && bb.Max.Y - bb.Min.Y < minSize && bb.Max.Z - bb.Min.Z < minSize) return -1;
+            }
+            GeometryElement ge = null;
+            try { ge = e.get_Geometry(OptCoarse); } catch { }
+            return ge == null ? 0 : CollectFast(ge, v);
+        }
+
+        private static int CollectFast(GeometryElement ge, List<double> v)
+        {
+            int n = 0;
+            foreach (GeometryObject go in ge)
+            {
+                var solid = go as Solid;
+                if (solid != null)
+                {
+                    if (solid.Faces.Size == 0) continue;
+                    foreach (Face face in solid.Faces)
+                    {
+                        Autodesk.Revit.DB.Mesh m = null;
+                        try { m = face.Triangulate(0.0); } catch { }
+                        if (m != null) n += AddMesh(m, v);
+                    }
+                    continue;
+                }
+                var mesh = go as Autodesk.Revit.DB.Mesh;
+                if (mesh != null) { n += AddMesh(mesh, v); continue; }
+                var inst = go as GeometryInstance;
+                if (inst != null)
+                {
+                    GeometryElement sub = null;
+                    try { sub = inst.GetInstanceGeometry(); } catch { }
+                    if (sub != null) n += CollectFast(sub, v);
+                    continue;
+                }
+                var nested = go as GeometryElement;
+                if (nested != null) n += CollectFast(nested, v);
+            }
+            return n;
+        }
+
+        private static int AddMesh(Autodesk.Revit.DB.Mesh m, List<double> v)
+        {
+            int n = m.NumTriangles;
+            for (int i = 0; i < n; i++)
+            {
+                MeshTriangle t = m.get_Triangle(i);
+                for (int k = 0; k < 3; k++) { XYZ p = t.get_Vertex(k); v.Add(p.X); v.Add(p.Y); v.Add(p.Z); }
+            }
+            return n;
         }
 
         private static double[] Place(Transform xf, double[] p)

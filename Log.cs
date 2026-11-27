@@ -296,6 +296,9 @@ namespace PointDeviation
         [DataMember] public bool NoHangWatch;       // voce 312: spento = blocchi di Revit scritti nel registro
         [DataMember] public bool NoMeshDisk;        // voce 313: spento = parti dei collegamenti salvate su disco
         [DataMember] public bool MeshWhileActive;   // voce 313: spento = la mesh si legge quando mouse e tastiera sono fermi
+        [DataMember] public bool MeshFineDetail;    // voce 314: spento = mesh a dettaglio grossolano, lettura veloce
+        [DataMember] public bool MeshSmallElements; // voce 314: spento = elementi sotto 30 cm fuori dalla mesh
+        [DataMember] public bool NoDepthReproject;  // voce 314: spento = in movimento anche la profondita' dell'ultima immagine completa
         [DataMember] public bool FlatSimple;        // voce 290, 293: spento di serie (riserva se le viste 2D non vanno)
         [DataMember] public bool FlatBeacon;        // voce 286: faro anche in pianta e sezione (spento: come prima del faro)
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
@@ -365,7 +368,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 313;
+        public const int Change = 314;
 
         public static string Describe()
         {

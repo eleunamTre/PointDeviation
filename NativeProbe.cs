@@ -76,6 +76,9 @@ namespace PointDeviation
         [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetOtherBufferSkip(int on);
         private static void PdSetOtherBufferSkip(int on) { PdLib.Get<D_PdSetOtherBufferSkip>("PdSetOtherBufferSkip")(on); }
         private static bool _v308Missing;
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetDepthReproject(int on);
+        private static void PdSetDepthReproject(int on) { PdLib.Get<D_PdSetDepthReproject>("PdSetDepthReproject")(on); }
+        private static bool _v314Missing;
         private static bool _v304Missing;
         private static bool _flatFaroMissing;
         private static bool _flatPostMissing;
@@ -334,7 +337,7 @@ namespace PointDeviation
                 }
                 _state = 0;
                 _ptAlphaMissing = _meshMissing = _meshTolMissing = _flatFixMissing = _flatFaroDepthMissing = _flatFaroKeepMissing = false;
-                _flatFaroAlphaMissing = _flatFaroCameraMissing = _flatHoverFixMissing = _v304Missing = _v308Missing = false;
+                _flatFaroAlphaMissing = _flatFaroCameraMissing = _flatHoverFixMissing = _v304Missing = _v308Missing = _v314Missing = false;
                 _flatFaroMissing = _flatPostMissing = _flatSimpleMissing = _flatMissing = false;
                 _meshSent = null; _meshAny = false; _shaderWasOn = false;
                 HybridServer.ResetNativeKeys();
@@ -428,6 +431,9 @@ namespace PointDeviation
                 if (!_v308Missing)
                     try { PdSetOtherBufferSkip(AdvancedSettings.Current.NoOtherBufferSkip ? 0 : 1); }
                     catch (EntryPointNotFoundException) { _v308Missing = true; Log.Write("DirectX", "PdRender.dll senza PdSetOtherBufferSkip: ricompilare la libreria nativa (voce 308)"); }
+                if (!_v314Missing)
+                    try { PdSetDepthReproject(AdvancedSettings.Current.NoDepthReproject ? 0 : 1); }
+                    catch (EntryPointNotFoundException) { _v314Missing = true; Log.Write("DirectX", "PdRender.dll senza PdSetDepthReproject: ricompilare la libreria nativa (voce 314)"); }
                 SendCamera(cam);
                 DrawMarker();
                 _frames++;

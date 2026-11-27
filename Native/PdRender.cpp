@@ -1555,6 +1555,44 @@ static long g_fbAlpha = 0;   // voce 217: fotogrammi completi disegnati al Prese
 // selezionato: quello della scena diventa quello della finestra), quindi nei fotogrammi in cui ricompone l'immagine
 // (passaggio del mouse, selezione) il buffer tenuto dal segnale poteva contenere altro e la nuvola finiva davanti al
 // modello. Al Present il fotogramma completo e' finito: la copia contiene tutto il modello visto da quella camera.
+// =====================================================================================================================
+// Voce 314: profondita' dall'ultima immagine completa, spostata con la camera nuova. La mesh (272/278) e' nata perche'
+// in movimento la profondita' del modello non si trovava; ma nei fotogrammi completi Revit la scrive tutta e la copiamo
+// gia' (KeepDepthFrom). Qui di quella copia si tiene una versione leggibile dagli shader, con la sua camera; nelle immagini
+// col faro ogni pixel (uno ogni 2) torna un punto nello spazio con la camera vecchia e si ridisegna con quella nuova,
+// a triangoli, nella profondita' (vince il piu' vicino, come per la mesh). I triangoli a cavallo di un salto di
+// profondita' (bordo di un oggetto davanti a uno lontano) e quelli su pixel vuoti si scartano, cosi' non si stendono
+// teli tra oggetti distanti. Non tocca ne' la nuvola ne' il modello: decide solo chi copre chi. Opzione: PdSetDepthReproject.
+// =====================================================================================================================
+static bool g_rpOn = true;
+static ID3D11Texture2D* g_rpTex = nullptr; static ID3D11ShaderResourceView* g_rpSrv = nullptr;
+static float g_rpCam[32]; static D3D11_VIEWPORT g_rpVp = {}; static long g_rpGen = -1; static bool g_rpOk = false;
+static UINT g_rpW = 0, g_rpH = 0;
+static long g_rpCopies = 0, g_rpDraws = 0, g_rpFail = 0;
+extern "C" __declspec(dllexport) void PdSetDepthReproject(int on) { g_rpOn = on != 0; if (!g_rpOn) g_rpOk = false; }
+static void ReprojKeep(ID3D11DeviceContext* ctx, ID3D11Resource* r, const D3D11_TEXTURE2D_DESC& d)
+{
+    if (!g_rpOn || !g_hasRef || !g_realDev || !ctx || !r || d.SampleDesc.Count != 1 || d.MipLevels != 1 || d.ArraySize != 1) return;
+    DXGI_FORMAT tf, sf;
+    if (d.Format == DXGI_FORMAT_D24_UNORM_S8_UINT || d.Format == DXGI_FORMAT_R24G8_TYPELESS) { tf = DXGI_FORMAT_R24G8_TYPELESS; sf = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; }
+    else if (d.Format == DXGI_FORMAT_D32_FLOAT || d.Format == DXGI_FORMAT_R32_TYPELESS) { tf = DXGI_FORMAT_R32_TYPELESS; sf = DXGI_FORMAT_R32_FLOAT; }
+    else return;
+    D3D11_TEXTURE2D_DESC k = {}; if (g_rpTex) g_rpTex->GetDesc(&k);
+    if (!g_rpTex || k.Width != d.Width || k.Height != d.Height || k.Format != tf)
+    {
+        if (g_rpSrv) { g_rpSrv->Release(); g_rpSrv = nullptr; }
+        if (g_rpTex) { g_rpTex->Release(); g_rpTex = nullptr; }
+        D3D11_TEXTURE2D_DESC nd = d; nd.Format = tf; nd.Usage = D3D11_USAGE_DEFAULT; nd.BindFlags = D3D11_BIND_SHADER_RESOURCE; nd.CPUAccessFlags = 0; nd.MiscFlags = 0;
+        if (SUCCEEDED(g_realDev->CreateTexture2D(&nd, nullptr, &g_rpTex)) && g_rpTex)
+        {
+            D3D11_SHADER_RESOURCE_VIEW_DESC vd = {}; vd.Format = sf; vd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; vd.Texture2D.MostDetailedMip = 0; vd.Texture2D.MipLevels = 1;
+            if (FAILED(g_realDev->CreateShaderResourceView(g_rpTex, &vd, &g_rpSrv)) || !g_rpSrv) { g_rpTex->Release(); g_rpTex = nullptr; g_rpSrv = nullptr; }
+        }
+        if (!g_rpTex) { g_rpFail++; g_rpOk = false; return; }
+    }
+    ctx->CopyResource(g_rpTex, r);
+    memcpy(g_rpCam, g_refRaw, sizeof(g_rpCam)); g_rpVp = g_fbVp; g_rpGen = g_viewGen; g_rpW = d.Width; g_rpH = d.Height; g_rpOk = true; g_rpCopies++;
+}
 static ID3D11Texture2D* g_keepTex = nullptr;
 static ID3D11DepthStencilView* g_keepDsv = nullptr;
 static bool g_keepOk = false;
@@ -1592,6 +1630,7 @@ static void KeepDepthFrom(ID3D11DeviceContext* ctx)
             if (FAILED(g_realDev->CreateDepthStencilView(g_keepTex, &vd, &g_keepDsv))) { g_keepTex->Release(); g_keepTex = nullptr; g_keepDsv = nullptr; }
     }
     if (g_keepTex && g_keepDsv && d.MipLevels == 1 && d.ArraySize == 1) { ctx->CopyResource(g_keepTex, r); g_keepOk = true; g_keepCopies++; memcpy(g_keepCam, g_refRaw, sizeof(g_keepCam)); g_keepCamOk = g_hasRef; }
+    if (!g_partial) ReprojKeep(ctx, r, d);   // voce 314: solo dai fotogrammi completi (nei parziali manca il resto)
     r->Release();
 }
 // voce 246: «faro». Il motore delle nuvole del plugin (quello che Revit disegna da se', come un RCP) consegna a Revit
@@ -1810,6 +1849,119 @@ static bool g_meshRevUsed = false;
 static double g_revOff = 0; static long g_revOffGen = -1; static double g_revOffAt = -1e9, g_revOffA = 0;
 static long g_revOffN = 0; static double g_revOffCm = 0;
 extern "C" __declspec(dllexport) void PdSetMeshTolerance(int on) { g_meshTol = on != 0; }
+// voce 314: shader della profondita' spostata. Ogni triangolo della griglia (2 per cella di G.z pixel) legge le
+// profondita' dei suoi tre angoli; se uno e' vuoto o c'e' un salto, il triangolo si scarta con la distanza di ritaglio.
+static const char* g_rpHlsl =
+"cbuffer C : register(b0) { float4 M0; float4 M1; float4 M2; float4 M3; float4 I0; float4 I1; float4 I2; float4 I3; float4 Vp; float4 Pr; int4 G; };\n"
+"Texture2D<float> D : register(t0);\n"
+"struct VO { float4 pos : SV_Position; float cd : SV_ClipDistance0; };\n"
+"float3 Wp(float4 n) { float4 p = float4(dot(I0, n), dot(I1, n), dot(I2, n), dot(I3, n)); return p.xyz / p.w; }\n"
+"VO VS(uint vid : SV_VertexID) {\n"
+"  uint tri = vid / 3; uint k = vid % 3; uint cell = tri / 2; uint hf = tri % 2;\n"
+"  uint cx = cell % (uint)G.x; uint cy = cell / (uint)G.x;\n"
+"  uint2 o0 = hf == 0 ? uint2(0, 0) : uint2(1, 0);\n"
+"  uint2 o1 = hf == 0 ? uint2(1, 0) : uint2(1, 1);\n"
+"  uint2 o2 = uint2(0, 1);\n"
+"  uint2 base = uint2(cx, cy) * (uint)G.z;\n"
+"  uint2 px[3] = { base + o0 * (uint)G.z, base + o1 * (uint)G.z, base + o2 * (uint)G.z };\n"
+"  float4 nd[3]; float ds[3]; bool bad = false;\n"
+"  [unroll] for (int i = 0; i < 3; i++) {\n"
+"    float d = D.Load(int3(px[i], 0));\n"
+"    bad = bad || d >= 0.99999 || d <= 0.00001;\n"
+"    float2 s = (float2(px[i]) + 0.5 - Vp.xy) / Vp.zw;\n"
+"    nd[i] = float4(s.x * 2 - 1, 1 - s.y * 2, (d - Pr.x) / Pr.y, 1);\n"
+"    ds[i] = length(Wp(nd[i]) - Wp(float4(nd[i].xy, 0, 1)));\n"
+"  }\n"
+"  float mn = min(ds[0], min(ds[1], ds[2])); float mx = max(ds[0], max(ds[1], ds[2]));\n"
+"  bad = bad || (mx - mn) > Pr.w + Pr.z * mn;\n"
+"  float4 n = k == 0 ? nd[0] : (k == 1 ? nd[1] : nd[2]);\n"
+"  VO r; r.pos = float4(dot(M0, n), dot(M1, n), dot(M2, n), dot(M3, n));\n"
+"  r.pos.z += asfloat(G.w) * r.pos.w;\n"
+"  r.cd = bad ? -1.0 : 1.0;\n"
+"  return r; }\n";
+static ID3D11VertexShader* g_rpVs = nullptr; static ID3D11Buffer* g_rpCb = nullptr; static bool g_rpShFailed = false;
+static const int RpStep = 2;                       // un vertice ogni 2 pixel
+static const float RpJumpFt = 0.3f, RpJumpRel = 0.1f;   // salto: piu' di 9 cm piu' il 10% della distanza
+static bool Inv4(const double* m, double* inv)
+{
+    double a[16]; memcpy(a, m, sizeof(a));
+    double b[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+    for (int c = 0; c < 4; c++)
+    {
+        int p = c; for (int r = c + 1; r < 4; r++) if (fabs(a[r * 4 + c]) > fabs(a[p * 4 + c])) p = r;
+        if (fabs(a[p * 4 + c]) < 1e-300) return false;
+        if (p != c) for (int k = 0; k < 4; k++) { double t = a[c * 4 + k]; a[c * 4 + k] = a[p * 4 + k]; a[p * 4 + k] = t; t = b[c * 4 + k]; b[c * 4 + k] = b[p * 4 + k]; b[p * 4 + k] = t; }
+        double v = a[c * 4 + c];
+        for (int k = 0; k < 4; k++) { a[c * 4 + k] /= v; b[c * 4 + k] /= v; }
+        for (int r = 0; r < 4; r++) if (r != c) { double f = a[r * 4 + c]; if (f != 0) for (int k = 0; k < 4; k++) { a[r * 4 + k] -= f * a[c * 4 + k]; b[r * 4 + k] -= f * b[c * 4 + k]; } }
+    }
+    memcpy(inv, b, sizeof(b));
+    return true;
+}
+static void ColFormD(const float* raw, double* C);
+// disegna la profondita' dell'ultima immagine completa, vista con la camera cam, nel buffer dsv; true se disegnata
+static bool ReprojDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, const float* cam)
+{
+    if (!g_rpOn || !g_rpOk || g_rpGen != g_viewGen || !g_rpSrv || !dsv || !cam || !c || !g_realDev || !ShaderInit(g_realDev)) return false;
+    if (!g_rpVs && !g_rpShFailed)
+    {
+        ID3DBlob *vb = nullptr, *err = nullptr;
+        if (FAILED(D3DCompile(g_rpHlsl, strlen(g_rpHlsl), "pdreproj", nullptr, nullptr, "VS", "vs_4_0", 0, 0, &vb, &err)) || !vb)
+        { FT("E;riproiezione_shader;%s", err ? (char*)err->GetBufferPointer() : "?"); if (err) err->Release(); g_rpShFailed = true; return false; }
+        g_realDev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), nullptr, &g_rpVs); vb->Release();
+        D3D11_BUFFER_DESC bd = {}; bd.ByteWidth = 176; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        g_realDev->CreateBuffer(&bd, nullptr, &g_rpCb);
+        if (!g_rpVs || !g_rpCb) { g_rpShFailed = true; FT("E;riproiezione_shader;creazione_non_riuscita"); return false; }
+    }
+    if (g_rpShFailed) return false;
+    int nx = ((int)g_rpW - 1) / RpStep, ny = ((int)g_rpH - 1) / RpStep;
+    if (nx <= 0 || ny <= 0 || g_rpVp.Width <= 0 || g_rpVp.Height <= 0) return false;
+    double Co[16], Cn[16], I[16];
+    ColFormD(g_rpCam, Co); ColFormD(cam, Cn);
+    if (!Inv4(Co, I)) { g_rpFail++; return false; }
+    // M = camera nuova x inversa della vecchia (dalle coordinate dello schermo vecchio a quelle del nuovo), in doppia
+    double M[16];
+    for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { double v = 0; for (int j = 0; j < 4; j++) v += Cn[r * 4 + j] * I[j * 4 + k]; M[r * 4 + k] = v; }
+    // inversa relativa a un'origine vicina (punto al centro dello schermo vecchio sul piano vicino): niente numeri grandi in float
+    double w0 = I[15]; if (fabs(w0) < 1e-300) { g_rpFail++; return false; }
+    double O[3] = { I[3] / w0, I[7] / w0, I[11] / w0 };
+    double Ir[16]; memcpy(Ir, I, sizeof(Ir));
+    for (int r = 0; r < 3; r++) for (int k = 0; k < 4; k++) Ir[r * 4 + k] = I[r * 4 + k] - O[r] * I[12 + k];
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (FAILED(c->Map(g_rpCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) { g_rpFail++; return false; }
+    float* f = (float*)m.pData; int* in = (int*)m.pData;
+    for (int i = 0; i < 16; i++) { f[i] = (float)M[i]; f[16 + i] = (float)Ir[i]; }
+    f[32] = g_rpVp.TopLeftX; f[33] = g_rpVp.TopLeftY; f[34] = g_rpVp.Width; f[35] = g_rpVp.Height;
+    float zr = g_rpVp.MaxDepth - g_rpVp.MinDepth; if (zr <= 0) zr = 1;
+    f[36] = g_rpVp.MinDepth; f[37] = zr; f[38] = RpJumpRel; f[39] = RpJumpFt;
+    in[40] = nx; in[41] = ny; in[42] = RpStep;
+    {   // come la mesh (274): 1 cm piu' lontano con la tolleranza sulle superfici accesa
+        double a = sqrt(Cn[8] * Cn[8] + Cn[9] * Cn[9] + Cn[10] * Cn[10]);
+        f[43] = g_meshTol ? (float)(0.0328 * a) : 0.0f;
+    }
+    c->Unmap(g_rpCb, 0);
+    struct In { In() { g_inOurDraw++; } ~In() { g_inOurDraw--; } } inOur;
+    SavedState st; st.Save(c, true);
+    c->OMSetRenderTargets(0, nullptr, dsv);
+    c->RSSetViewports(1, &g_fbVp);
+    c->IASetInputLayout(nullptr);
+    c->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
+    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    c->VSSetShader(g_rpVs, nullptr, 0);
+    c->PSSetShader(nullptr, nullptr, 0);
+    c->GSSetShader(nullptr, nullptr, 0);
+    c->VSSetConstantBuffers(0, 1, &g_rpCb);
+    c->VSSetShaderResources(0, 1, &g_rpSrv);
+    c->OMSetDepthStencilState(g_sdss, 0);
+    c->RSSetState(g_srs);
+    FLOAT zero[4] = { 0, 0, 0, 0 };
+    c->OMSetBlendState(g_bs, zero, 0xffffffff);
+    c->Draw((UINT)nx * (UINT)ny * 6u, 0);
+    ID3D11ShaderResourceView* nul = nullptr; c->VSSetShaderResources(0, 1, &nul);
+    st.Restore(c);
+    g_rpDraws++;
+    return true;
+}
 extern "C" __declspec(dllexport) void PdSetModelMesh(const float* xyz, int tris, const double* origin)
 {
     std::lock_guard<std::mutex> l(g_meshMx);
@@ -2633,7 +2785,8 @@ static void FallbackAtPresent(IDXGISwapChain* s, const DXGI_PRESENT_PARAMETERS* 
                     double c0 = -1, c1 = -1, mn, mx, me;
                     if (g_seqOn) DepthRead(cx, g_bcnDsv, c0, mn, mx, me);
                     bool md = MeshDepth(cx, g_bcnDsv, camNow ? camNow : g_chainRaw);
-                    if (md) g_meshOnSerial = g_bcnCopySerial;
+                    bool rp = ReprojDepth(cx, g_bcnDsv, camNow ? camNow : g_chainRaw);   // voce 314
+                    if (md || rp) g_meshOnSerial = g_bcnCopySerial;
                     if (g_seqOn && md) { DepthRead(cx, g_bcnDsv, c1, mn, mx, me); FT("X;mesh_profondita;prima=%.0f;dopo=%.0f;triangoli=%d", c0, c1, g_meshTris); }
                     cx->Release();
                 }
@@ -2900,6 +3053,10 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
             g_meshTris, g_meshDraws, g_meshFail, g_meshTol ? "accesa" : "spenta", g_meshShFailed ? ", shader della mesh non compilato" : "",
             g_revOffN, g_revOff, g_revOffCm, g_revOffGen == g_viewGen ? "" : " (di un'altra vista: si usa 1 cm)");
         g_meshDraws = g_meshFail = 0; g_revOffN = 0;
+        L = strlen(msg);
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; profondita' dall'ultima immagine completa (voce 314): %s, copie %ld, disegnata in %ld immagini col faro, non riuscita %ld%s",
+            g_rpOn ? "accesa" : "spenta", g_rpCopies, g_rpDraws, g_rpFail, g_rpShFailed ? ", shader non compilato" : "");
+        g_rpCopies = g_rpDraws = g_rpFail = 0;
         g_bcnFull = g_bcnInt = 0; g_bcnHidden = 0; g_bcnAgree = g_bcnCompared = g_bcnUsed = 0; g_bcnDepthCopies = g_bcnDepthMissing = g_bcnStill = 0; g_bcnZFound = g_bcnZEst = g_bcnZNone = g_bcnZRej = 0; g_bcnZFlat = 0;
     }
     if (g_trDone && g_trBuf[0])
@@ -2984,6 +3141,9 @@ extern "C" __declspec(dllexport) int PdShutdown()
     g_ready.clear(); g_build.clear();
     for (auto& kv : g_nodes) { if (kv.second.srv) kv.second.srv->Release(); if (kv.second.vb) kv.second.vb->Release(); }
     g_nodes.clear(); g_shBytes = 0;
+    if (g_rpSrv) { g_rpSrv->Release(); g_rpSrv = nullptr; }   // voce 314
+    if (g_rpTex) { g_rpTex->Release(); g_rpTex = nullptr; }
+    g_rpOk = false;
     g_hooked = false;
     return n;
 }

@@ -44,6 +44,9 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _hangWatch = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _meshDisk = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };   // voce 313
         private readonly System.Windows.Forms.CheckBox _meshIdle = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _meshFine = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };   // voce 314
+        private readonly System.Windows.Forms.CheckBox _meshSmall = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _reproj = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaro = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroDepth = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroKeep = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
@@ -225,6 +228,15 @@ namespace PointDeviation
             _meshDepth.Text = L.T("In movimento: profondità del modello dalla mesh");
             p.Controls.Add(_meshDepth);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini che Revit mostra in movimento, la parte del modello che Revit non ha ancora ridisegnato copre la nuvola grazie a una mesh del modello e dei collegamenti visibili, preparata da sola in background per la vista 3D attiva (qualche secondo, Revit resta usabile) e rifatta dopo le modifiche; finché non è pronta si usa quella dell'ultima analisi, se c'è.")));
+            _reproj.Text = L.T("In movimento: profondità dall'ultima immagine completa");
+            p.Controls.Add(_reproj);
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader e la camera dal faro. Acceso (consigliato): nelle immagini in movimento la profondità che Revit ha scritto nell'ultima immagine completa si sposta con la camera nuova (lo fa la scheda video, circa 1 ms) e copre la nuvola dove Revit non ha ancora ridisegnato il modello. Non serve leggere la geometria. Dove nell'ultima immagine completa non si vedeva niente (bordi che entrano nell'inquadratura, zone scoperte) decide la mesh, se accesa. Non sposta né la nuvola né il modello: decide solo quale dei due si vede.")));
+            _meshFine.Text = L.T("Mesh: dettaglio fine");
+            p.Controls.Add(_meshFine);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Spento (consigliato): la mesh si legge a dettaglio grossolano, con le superfici curve divise in meno triangoli e senza il calcolo delle normali (per la profondità non servono): molto più veloce e leggera. Acceso: dettaglio fine e lettura completa come prima.")));
+            _meshSmall.Text = L.T("Mesh: anche gli elementi piccoli");
+            p.Controls.Add(_meshSmall);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh e dettaglio grossolano. Spento (consigliato): gli elementi con tutte le misure sotto 30 cm (accessori, piccoli arredi) restano fuori dalla mesh; in movimento la nuvola può vedersi davanti a loro per un attimo, finché Revit non ridisegna. Acceso: tutti gli elementi.")));
             _meshNoLinks.Text = L.T("Mesh anche senza collegamenti");
             p.Controls.Add(_meshNoLinks);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Spento (consigliato): la mesh del modello si prepara solo nelle viste 3D con collegamenti visibili, dove serve (senza collegamenti la profondità di Revit basta) e Revit resta più leggero. Acceso: la mesh si prepara in tutte le viste 3D.")));
@@ -346,6 +358,9 @@ namespace PointDeviation
             _hangWatch.Checked = !a.NoHangWatch;
             _meshDisk.Checked = !a.NoMeshDisk;
             _meshIdle.Checked = !a.MeshWhileActive;
+            _meshFine.Checked = a.MeshFineDetail;
+            _meshSmall.Checked = a.MeshSmallElements;
+            _reproj.Checked = !a.NoDepthReproject;
             _flatFaro.Checked = !a.NoFlatFaroDraw;
             _flatFaroDepth.Checked = !a.NoFlatFaroDepth;
             _flatFaroKeep.Checked = !a.NoFlatFaroKeep;
@@ -388,6 +403,9 @@ namespace PointDeviation
             a.NoHangWatch = !_hangWatch.Checked;
             a.NoMeshDisk = !_meshDisk.Checked;
             a.MeshWhileActive = !_meshIdle.Checked;
+            a.MeshFineDetail = _meshFine.Checked;
+            a.MeshSmallElements = _meshSmall.Checked;
+            a.NoDepthReproject = !_reproj.Checked;
             a.NoFlatFaroDraw = !_flatFaro.Checked;
             a.NoFlatFaroDepth = !_flatFaroDepth.Checked;
             a.NoFlatFaroKeep = !_flatFaroKeep.Checked;
