@@ -1882,7 +1882,7 @@ static const char* g_rpHlsl =
 static ID3D11VertexShader* g_rpVs = nullptr; static ID3D11Buffer* g_rpCb = nullptr; static bool g_rpShFailed = false;
 static const int RpStep = 2;                       // un vertice ogni 2 pixel
 static const float RpJumpFt = 0.3f, RpJumpRel = 0.1f;   // salto: piu' di 9 cm piu' il 10% della distanza
-static bool Inv4(const double* m, double* inv)
+static bool RpInv4(const double* m, double* inv)   // voce 314 (Inv4 e' definita piu' avanti)
 {
     double a[16]; memcpy(a, m, sizeof(a));
     double b[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
@@ -1918,7 +1918,7 @@ static bool ReprojDepth(ID3D11DeviceContext* c, ID3D11DepthStencilView* dsv, con
     if (nx <= 0 || ny <= 0 || g_rpVp.Width <= 0 || g_rpVp.Height <= 0) return false;
     double Co[16], Cn[16], I[16];
     ColFormD(g_rpCam, Co); ColFormD(cam, Cn);
-    if (!Inv4(Co, I)) { g_rpFail++; return false; }
+    if (!RpInv4(Co, I)) { g_rpFail++; return false; }
     // M = camera nuova x inversa della vecchia (dalle coordinate dello schermo vecchio a quelle del nuovo), in doppia
     double M[16];
     for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) { double v = 0; for (int j = 0; j < 4; j++) v += Cn[r * 4 + j] * I[j * 4 + k]; M[r * 4 + k] = v; }
