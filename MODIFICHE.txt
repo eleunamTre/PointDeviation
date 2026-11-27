@@ -2036,3 +2036,23 @@ Ottava tornata (28/10/2026): octree
      provare una modifica alla sola libreria nativa: doppio clic su Native\build.bat (oppure Esplora soluzioni ›
      PointDeviation › Native › build.bat › Apri con), poi in Revit Avanzate › Diagnostica › «Ricarica PdRender.dll»
      (voce 309). Nessun cambio nel plugin.
+
+312) Mesh per la profondita' piu' leggera e registro dei blocchi (registro e diario del 27/11, 15:44-16:05: la mesh si
+     rifaceva da zero, 560.000-1.270.000 triangoli e 17-37 s di lavoro, a ogni modifica del riquadro di sezione e a ogni
+     cambio di vista). Ora la mesh e' fatta di parti tenute in memoria: il modello in uso per ogni vista e ogni
+     collegamento nella sua posizione (chiave: file del collegamento e trasformazione). Dopo una modifica a elementi
+     del modello si rifa' solo la parte del modello in uso; un collegamento spostato ha una chiave nuova e si rifa' solo
+     quello; un collegamento ricaricato (tipo modificato) rifa' le parti dei collegamenti; tornando a una vista gia'
+     preparata, o passando a un'altra vista con gli stessi collegamenti, si rilegge al massimo il modello in uso. Se le
+     parti sono le stesse di prima non si rifa' nulla. Il riquadro di sezione non rifa' piu' la mesh: la libreria la
+     taglia gia' con i piani del riquadro e i collegamenti entrano comunque per intero. In memoria al massimo 4 milioni
+     di triangoli di parti (circa 150 MB), si tolgono le meno usate. Il registro [Mesh] dice ora parti riusate e
+     rifatte, passo piu' lungo ed elemento piu' lento (categoria e id): i passi erano di 235 ms invece di 40 e cosi' si
+     vede quale elemento li allunga. Opzioni in Avanzate: «Mesh: rifai solo le parti cambiate» (accesa), «Mesh: rifalla
+     anche quando cambia il riquadro di sezione» (spenta). Nuovo registro dei blocchi: un thread a parte guarda ogni
+     mezzo secondo se Windows segna Revit come «Non risponde» e scrive in [Blocco] ora, CPU di Revit durante il blocco
+     e se in quel momento il thread di Revit era dentro il plugin (Idling, mesh, modifiche al documento) o fuori.
+     Opzione «Registra i blocchi di Revit» (accesa). Dal diario: nelle pause lunghe (46 s alle 16:01:29, 39 s alle
+     16:03:45) la CPU di Revit era allo 0%, quindi non erano calcoli in corso (ne' del plugin ne' di Revit). Niente
+     cambia nelle posizioni di nuvola o modello. Solo C#: va ricompilato il plugin e riavviato Revit (PdRender.dll
+     invariata).

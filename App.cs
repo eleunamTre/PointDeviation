@@ -43,6 +43,7 @@ namespace PointDeviation
             application.Idling += HybridServer.OnIdling;
             application.SelectionChanged += CloudSelection.OnSelectionChanged;   // voce 307
             application.Idling += CloudSelection.OnIdling;
+            try { HangWatch.Start(application.MainWindowHandle); } catch { }   // voce 312
 
             return Result.Succeeded;
         }
@@ -62,6 +63,7 @@ namespace PointDeviation
             application.Idling -= HybridServer.OnIdling;
             application.SelectionChanged -= CloudSelection.OnSelectionChanged;   // voce 307
             application.Idling -= CloudSelection.OnIdling;
+            HangWatch.Stop();
 
             DeviationController.Shutdown(); // salva le impostazioni, libera i buffer e svuota il dizionario
             return Result.Succeeded;
@@ -101,9 +103,11 @@ namespace PointDeviation
 
         private void OnDocumentChanged(object sender, DocumentChangedEventArgs e)
         {
+            Busy.Enter("modifiche al documento");   // voce 312
             try { DeviationController.OnDocumentChanged(e.GetDocument(), e.GetAddedElementIds(), e.GetDeletedElementIds(), e.GetModifiedElementIds()); } catch { }
             DepthMesh.OnChanged(e.GetDocument(), e.GetAddedElementIds(), e.GetDeletedElementIds(), e.GetModifiedElementIds());   // voce 278
             UpdateCloudToggle(e.GetDocument());
+            Busy.Leave();
         }
 
         private void OnViewActivated(object sender, ViewActivatedEventArgs e)

@@ -76,6 +76,7 @@ namespace PointDeviation
 
         public static void OnIdling(object sender, IdlingEventArgs e)
         {
+            Busy.Enter("Idling");   // voce 312
             try
             {
                 if (NativeProbe.ReloadPending) NativeProbe.DoReload();   // voce 309
@@ -121,6 +122,7 @@ namespace PointDeviation
                 if (meshBusy || _zoomDirty || Redraw.Pending || Interlocked.Read(ref _settleAt) > 0 || CloudLoader.Busy || CloudBaker.Busy || Redraw.SinceLastMs < 3000) e.SetRaiseWithoutDelay();
             }
             catch { }
+            finally { Busy.Leave(); }
         }
 
         private static readonly Dictionary<long, double[]> _lastCam = new Dictionary<long, double[]>();

@@ -39,6 +39,9 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _flatSimple = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatPost = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _meshNoLinks = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _meshCache = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };   // voce 312
+        private readonly System.Windows.Forms.CheckBox _meshBox = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _hangWatch = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaro = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroDepth = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroKeep = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
@@ -223,6 +226,15 @@ namespace PointDeviation
             _meshNoLinks.Text = L.T("Mesh anche senza collegamenti");
             p.Controls.Add(_meshNoLinks);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Spento (consigliato): la mesh del modello si prepara solo nelle viste 3D con collegamenti visibili, dove serve (senza collegamenti la profondità di Revit basta) e Revit resta più leggero. Acceso: la mesh si prepara in tutte le viste 3D.")));
+            _meshCache.Text = L.T("Mesh: rifai solo le parti cambiate");
+            p.Controls.Add(_meshCache);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): la mesh è divisa in parti (il modello in uso per ogni vista, ogni collegamento nella sua posizione) tenute in memoria; dopo una modifica o un cambio di vista si rifà solo la parte cambiata. Spento: ogni volta si rilegge tutto (decine di secondi con collegamenti grandi).")));
+            _meshBox.Text = L.T("Mesh: rifalla anche quando cambia il riquadro di sezione");
+            p.Controls.Add(_meshBox);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Spento (consigliato): spostare il riquadro di sezione non rifà la mesh (i collegamenti la usano comunque per intero e il riquadro taglia anche la nuvola). Acceso: come prima, mesh rifatta a ogni modifica del riquadro.")));
+            _hangWatch.Text = L.T("Registra i blocchi di Revit");
+            p.Controls.Add(_hangWatch);
+            p.Controls.Add(Note(L.T("Acceso (consigliato): quando Windows segna Revit come «Non risponde», nel registro (sezione [Blocco]) si scrivono l'ora, quanta CPU usa Revit e se in quel momento stava lavorando il plugin. Non cambia il disegno.")));
             _meshTol.Text = L.T("In movimento: stessa tolleranza di Revit sulle superfici del modello");
             p.Controls.Add(_meshTol);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): in movimento la mesh usa lo stesso scarto di profondità che Revit usa da fermo per il suo modello (misurato nei fotogrammi completi; finché non c'è, 1 cm), così i punti sulle superfici modellate si vedono come da fermo. Non sposta né la nuvola né il modello: decide solo quale dei due si vede. Spento: in movimento le facciate possono comparire a chiazze.")));
@@ -321,6 +333,9 @@ namespace PointDeviation
             _flatSimple.Checked = a.FlatSimple;
             _flatPost.Checked = !a.NoFlatPostDraw;
             _meshNoLinks.Checked = a.MeshWithoutLinks;
+            _meshCache.Checked = !a.NoMeshCache;
+            _meshBox.Checked = a.MeshOnSectionBox;
+            _hangWatch.Checked = !a.NoHangWatch;
             _flatFaro.Checked = !a.NoFlatFaroDraw;
             _flatFaroDepth.Checked = !a.NoFlatFaroDepth;
             _flatFaroKeep.Checked = !a.NoFlatFaroKeep;
@@ -358,6 +373,9 @@ namespace PointDeviation
             a.FlatSimple = _flatSimple.Checked;
             a.NoFlatPostDraw = !_flatPost.Checked;
             a.MeshWithoutLinks = _meshNoLinks.Checked;
+            a.NoMeshCache = !_meshCache.Checked;
+            a.MeshOnSectionBox = _meshBox.Checked;
+            a.NoHangWatch = !_hangWatch.Checked;
             a.NoFlatFaroDraw = !_flatFaro.Checked;
             a.NoFlatFaroDepth = !_flatFaroDepth.Checked;
             a.NoFlatFaroKeep = !_flatFaroKeep.Checked;

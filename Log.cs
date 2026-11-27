@@ -291,6 +291,9 @@ namespace PointDeviation
         [DataMember] public bool NoOtherBufferSkip; // voce 308
         [DataMember] public bool CloudNotSelectable; // voce 307: nuvole del plugin tolte dalla selezione
         [DataMember] public bool MeshWithoutLinks;  // voce 296: mesh anche nelle viste senza collegamenti (spento)
+        [DataMember] public bool NoMeshCache;       // voce 312: spento = parti della mesh tenute in memoria e rifatte solo se cambiate
+        [DataMember] public bool MeshOnSectionBox;  // voce 312: spento = il riquadro di sezione non rifà la mesh
+        [DataMember] public bool NoHangWatch;       // voce 312: spento = blocchi di Revit scritti nel registro
         [DataMember] public bool FlatSimple;        // voce 290, 293: spento di serie (riserva se le viste 2D non vanno)
         [DataMember] public bool FlatBeacon;        // voce 286: faro anche in pianta e sezione (spento: come prima del faro)
         /// <summary>Profilo delle prestazioni; con «Personalizzato» valgono i valori sopra.</summary>
@@ -360,7 +363,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 309;
+        public const int Change = 312;
 
         public static string Describe()
         {
