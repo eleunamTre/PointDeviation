@@ -1985,4 +1985,5 @@ Ottava tornata (28/10/2026): octree
      (ModelMeshExtractor.LastLinkIds -> AnalysisSnapshot.LinkIds); il controllo si rifa' cambiando vista, alla fine
      dell'analisi e a ogni modifica di una vista o di un collegamento. Con piu' link nell'analisi il segno dice solo
      «link», non quale: basta che ne sia spento uno (separarli richiede un dato per punto in piu'). Registro:
-     «[Visibilita'] collegamenti dell'analisi spenti nella vista: N su M». Non tocca la DLL nativa.
+     «[Visibilita'] collegamenti dell'analisi spenti nella vista: N su M». Non tocca la DLL nativa. Correzione di compilazione: chiamata da
+     DeviationHandler qualificata con DeviationController.

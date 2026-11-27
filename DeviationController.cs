@@ -829,7 +829,7 @@ namespace PointDeviation
             AnalysisRegion region = RegionOf(doc, view, sel, searchFt);
             Log.Write("Analisi", region == null ? "zona analizzata: tutta la nuvola" : "zona analizzata (fuori i punti senza modello non si evidenziano): " + region.Describe());
             AnalysisRegistry.Set(data.Key, new AnalysisSnapshot { Bvh = bvh, SearchFt = searchFt, Version = data.AnalysisVersion, Signature = bvh.Signature(), Region = region, LinkIds = ModelMeshExtractor.LastLinkIds.ToArray() });
-            UpdateLinkVisibility(doc);   // voce 305
+            DeviationController.UpdateLinkVisibility(doc);   // voce 305 (siamo in DeviationHandler)
 
             // statistiche su un campione uniforme di tutte le nuvole; i punti disegnati calcolano le distanze da soli
             data.Cloud = data.BuildSample(Math.Max(100000, Math.Min(s.MaxPoints, 800000)));
