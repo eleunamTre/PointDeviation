@@ -95,6 +95,23 @@ modellato» quello che non va modellato:
   un classificatore addestrato solo se le regole non bastano;
 - zone escluse disegnate dall'utente.
 
+## 2f. Nuvola del collegamento spenta insieme al collegamento (opzione)
+Richiesta del 27/11/2026. Con l'analisi estesa ai modelli collegati, se nella vista si spegne un collegamento
+(V/G › Revit Links, Nascondi elemento, Nascondi categoria) si spengono in automatico anche i punti della nuvola la cui
+superficie più vicina è di quel collegamento. Opzione nella finestra dell'analisi, accanto a «sbiaditi / trasparenti»
+(voce 259), spenta di serie.
+Cosa c'è già: il bit `LinkBit` nella distanza salvata (2 byte/punto, DistCache) e l'opacità per punto nello shader
+(`PdSetPointAlpha`): nascondere i punti è un caso dell'opacità a 0, nessun dato nuovo da salvare.
+Da fare:
+- visibilità dei collegamenti nella vista attiva (`RevitLinkInstance` nascosta, categoria, V/G), letta all'attivazione
+  della vista e a DocumentChanged come per la nuvola (`CloudShownIn`); cambiando visibilità: nuovo stile (`LookKey`) e
+  ridisegno, senza rifare l'analisi;
+- un solo collegamento: basta il bit attuale. Più collegamenti: il bit dice solo «collegamento», non quale. Serve
+  l'indice del collegamento per punto (almeno 3-4 bit, quindi meno precisione della distanza o un file a parte), oppure
+  in prima versione si spengono i punti di tutti i collegamenti quando almeno uno è spento (da scegliere);
+- nel disegno di sempre (senza shader) scartare i punti nella preparazione dei blocchi (`CloudBaker`), come i colori;
+- riga nel registro: collegamenti spenti nella vista e punti nascosti per questo.
+
 ## 2c. Analisi con i modelli collegati: lentezza
 Con l'analisi estesa ai modelli collegati sia l'analisi sia la navigazione diventano molto lente (log del
 19/11/2026, stesso rilievo da 42,5 M punti):
