@@ -68,6 +68,9 @@ namespace PointDeviation
         [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern void PdSetFlatFaroCamera(int on);
         private static bool _flatFaroCameraMissing;
+        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void PdSetFlatHoverFix(int on);
+        private static bool _flatHoverFixMissing;
         private static bool _flatFaroMissing;
         private static bool _flatPostMissing;
         private static bool _flatSimpleMissing;
@@ -359,6 +362,9 @@ namespace PointDeviation
                 if (!_flatFaroCameraMissing)
                     try { PdSetFlatFaroCamera(AdvancedSettings.Current.NoFlatFaroCamera ? 0 : 1); }
                     catch (EntryPointNotFoundException) { _flatFaroCameraMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatFaroCamera: ricompilare la libreria nativa (voce 302)"); }
+                if (!_flatHoverFixMissing)
+                    try { PdSetFlatHoverFix(AdvancedSettings.Current.NoFlatHoverFix ? 0 : 1); }
+                    catch (EntryPointNotFoundException) { _flatHoverFixMissing = true; Log.Write("DirectX", "PdRender.dll senza PdSetFlatHoverFix: ricompilare la libreria nativa (voce 303)"); }
                 SendCamera(cam);
                 DrawMarker();
                 _frames++;

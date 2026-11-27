@@ -1939,3 +1939,19 @@ Ottava tornata (28/10/2026): octree
      immagine N, dell'immagine prima M»; nel diario X;scena_immagine con camera_al_faro. Opzione in Avanzate «In pianta e
      sezione: camera dell'immagine attuale al posto dell'RCP» (accesa). Le coordinate dei punti non cambiano. Va
      ricompilata PdRender.dll.
+
+303) Pianta e sezione, passaggio del mouse: la nuvola non va piu' sopra i riempimenti (da provare insieme alla 302,
+     su richiesta dell'utente: una sola compilazione). Dal diario della 300 (767 immagini): i fotogrammi completi hanno
+     149-1100 disegni di Revit nella scena; al passaggio del mouse Revit fa immagini con 1-33 disegni sopra la scena
+     tenuta, che contiene gia' la nuvola sotto i riempimenti. In 180 di queste immagini senza faro il plugin ridisegnava
+     la nuvola sopra tutto (ripiego, 209/270); in 70 con il faro la ridisegnava al faro sopra la scena tenuta, quindi
+     sopra i riempimenti, e cosi' restava anche nelle immagini dopo. Ora, con meno di 60 disegni nella scena: (a) niente
+     ripiego; (b) al faro, prima di disegnare la nuvola, si copia la scena; al primo disegno di Revit nella finestra (prima che vi
+     porti la scena), se i suoi disegni nella scena sono stati pochi la copia si rimette al suo posto. Rapporto DirectX: «passaggio del mouse: ripiego evitato
+     N, scena rimessa dopo la nuvola M, poi altri disegni nella scena K, copia non creata F» (K e F dovrebbero restare a
+     0); nel diario X;scena_immagine con nuvola=passaggio_mouse_niente_ripiego / al_faro_scena_rimessa. Opzione in
+     Avanzate «In pianta e sezione: passaggio del mouse senza nuvola sopra i riempimenti» (accesa). Vale solo nelle viste che hanno gia'
+     avuto una scena intera (una vista quasi vuota non si scambia per passaggio del mouse) e la copia si rimette solo se
+     la camera e' rimasta uguale. Nessuna posizione cambia: decide solo chi copre chi. Rischio da guardare nel video: se quei ~30 disegni di Revit rimettono una scena
+     senza la nuvola, al passaggio del mouse la nuvola sparirebbe a tratti invece di andare sopra. Va ricompilata
+     PdRender.dll.

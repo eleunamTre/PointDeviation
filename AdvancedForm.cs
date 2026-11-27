@@ -44,6 +44,7 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _flatFaroKeep = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroAlpha = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroCamera = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _flatHoverFix = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -232,6 +233,9 @@ namespace PointDeviation
             _flatFaroCamera.Text = L.T("In pianta e sezione: camera dell'immagine attuale al posto dell'RCP");
             p.Controls.Add(_flatFaroCamera);
             p.Controls.Add(Note(L.T("Solo con «nuvola nello stesso punto dell'RCP». Acceso (consigliato): la nuvola usa la camera che Revit sta usando in quella immagine, letta dal faro, così segue il modello mentre sposti o zoomi. Spento: camera dell'ultimo fotogramma completo, che arriva dopo il faro, quindi la nuvola resta indietro di un'immagine (come la 301). Non sposta i punti: cambia solo il momento da cui si prende la camera.")));
+            _flatHoverFix.Text = L.T("In pianta e sezione: passaggio del mouse senza nuvola sopra i riempimenti");
+            p.Controls.Add(_flatHoverFix);
+            p.Controls.Add(Note(L.T("Solo con «nuvola nello stesso punto dell'RCP». Acceso (consigliato): quando passi col mouse Revit aggiorna solo pochi elementi sopra l'immagine di prima, che contiene già la nuvola sotto i riempimenti; il plugin non la ridisegna sopra e, se l'ha appena disegnata al posto del faro, rimette l'immagine com'era. Non sposta né la nuvola né il modello: decide solo chi copre chi. Spento: come la 302.")));
             _flatPost.Text = L.T("In pianta e sezione: nuvola sotto i riempimenti del modello");
             p.Controls.Add(_flatPost);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): in piante, sezioni e prospetti Revit decide cosa sta sopra con l'ordine dei disegni, non con la profondità. Nelle immagini che Revit mostra mentre sposti, zoomi o passi col mouse la nuvola si disegna nello stesso punto dei fotogrammi completi (prima dei riempimenti del modello), invece che sopra tutto. Spento: in quelle immagini la nuvola può coprire il modello.")));
@@ -305,6 +309,7 @@ namespace PointDeviation
             _flatFaroKeep.Checked = !a.NoFlatFaroKeep;
             _flatFaroAlpha.Checked = !a.NoFlatFaroAlpha;
             _flatFaroCamera.Checked = !a.NoFlatFaroCamera;
+            _flatHoverFix.Checked = !a.NoFlatHoverFix;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -338,6 +343,7 @@ namespace PointDeviation
             a.NoFlatFaroKeep = !_flatFaroKeep.Checked;
             a.NoFlatFaroAlpha = !_flatFaroAlpha.Checked;
             a.NoFlatFaroCamera = !_flatFaroCamera.Checked;
+            a.NoFlatHoverFix = !_flatHoverFix.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();
