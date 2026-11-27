@@ -231,6 +231,19 @@ static ID3D11Texture2D* g_sceneBak = nullptr; static bool g_bakArm = false, g_ba
 // per passaggio del mouse) e, per rimettere la copia, con la camera uguale a quella del faro precedente
 static long g_bigSceneGen = -1; static float g_prevFaroCam[32]; static bool g_hasPrevFaroCam = false, g_faroSameCam = false;
 extern "C" __declspec(dllexport) void PdSetFlatHoverFix(int on) { g_noHoverFix = on == 0; }
+// voce 304 (registro, diario e video della 303, 27/11 14:43:12). (a) Passaggio del mouse: le immagini col faro hanno
+// sempre 30 disegni di Revit nella scena e poi il faro (dall'inizio dell'immagine); con la 303 la nuvola si disegnava e
+// la copia si rimetteva, e nel video la pianta alterna due aspetti della nuvola (sfarfallio). Seconda strada, scelta
+// in Avanzate: in quelle immagini (faro dopo pochi disegni di Revit, stessa camera del faro prima) al faro la nuvola
+// non si disegna affatto e non serve nessuna copia. (b) Diagnostica: colore medio di un riquadro al centro della scena
+// a ogni immagine (letto un'immagine dopo, senza fermare la scheda video), per vedere quali immagini cambiano aspetto.
+static bool g_hoverSkipMode = true; static long g_hoverFaroSkip = 0;
+extern "C" __declspec(dllexport) void PdSetFlatHoverSkip(int on) { g_hoverSkipMode = on != 0; }
+// voce 304 (c): sezione lenta a comparire (5,7 s con «matrice non pronta» dopo il cambio di vista): se la prima ricerca
+// non trovava la matrice, la si ripeteva solo un segnale ogni 30, e in una vista ferma il segnale arriva ogni 0,7 s.
+// Ora, dopo un cambio di vista, si riprova a ogni segnale per i primi 20 tentativi, poi uno ogni 5.
+static bool g_noFastRetry = false; static long long g_mMissView = -2; static int g_mMiss = 0; static long g_fastRetries = 0;
+extern "C" __declspec(dllexport) void PdSetFastMatrixRetry(int on) { g_noFastRetry = on == 0; }
 extern "C" __declspec(dllexport) void PdSetFlatFaroKeep(int on) { g_noFaroKeep = on == 0; }
 static void GoodSwap(bool flat);
 extern "C" __declspec(dllexport) void PdSetFlatFaroDraw(int on) { g_noFaroDraw = on == 0; }
@@ -468,7 +481,14 @@ static bool EnsureMatrix(ID3D11DeviceContext* c)
             FT("X;controllo_matrice=fallito;ricerca=%s;b%d_riga=%d", found ? "trovata" : "niente_tenuta_precedente", g_mSlot, g_mOff);
         }
     }
-    if (g_mSlot < 0 && (g_mForce || (g_markers.load() % 30) == 1)) { g_mForce = 0; FindRevitMatrix(c); FT("X;ricerca_matrice=%s;b%d_riga=%d", g_mSlot >= 0 ? "trovata" : "NON_trovata", g_mSlot, g_mOff); }
+    bool retry = (g_markers.load() % 30) == 1;
+    if (g_mSlot < 0 && !g_noFastRetry)
+    {   // voce 304: dopo un cambio di vista si riprova spesso
+        if (g_mMissView != g_mView) { g_mMissView = g_mView; g_mMiss = 0; }
+        g_mMiss++;
+        if (!retry && (g_mMiss <= 20 || g_mMiss % 5 == 0)) { retry = true; g_fastRetries++; }
+    }
+    if (g_mSlot < 0 && (g_mForce || retry)) { g_mForce = 0; FindRevitMatrix(c); FT("X;ricerca_matrice=%s;b%d_riga=%d", g_mSlot >= 0 ? "trovata" : "NON_trovata", g_mSlot, g_mOff); }
     return g_mSlot >= 0;
 }
 
@@ -1969,7 +1989,7 @@ static void DrawFaro(ID3D11DeviceContext* c)
         g_uiRtv = rt; g_drawSrc = 4; g_noDepth = false;   // voce 298: fonte "faro" (misure come al segnale)
         if (!g_noFaroDss && rd) { g_faroDss = rd; g_faroDssRef = rref; }
         { ID3D11Resource* sr = nullptr; rt->GetResource(&sr); g_sceneRes = sr; g_sceneBound = true; g_sceneDrawn = true;   // voce 299
-          if (sr && !g_noHoverFix)
+          if (sr && !g_noHoverFix && !g_hoverSkipMode)
           {   // voce 303: copia della scena prima della nuvola, da rimettere se l'immagine risulta di passaggio del mouse
               D3D11_RESOURCE_DIMENSION dim; sr->GetType(&dim);
               if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D)
@@ -1991,13 +2011,17 @@ static void DrawFaro(ID3D11DeviceContext* c)
         g_faroAfterSig = g_drawnThisFrame ? 1 : 0;   // voce 301: segnale (camera di questa immagine) gia' arrivato?
         g_faroSameCam = g_hasPrevFaroCam && memcmp(cam, g_prevFaroCam, sizeof(cam)) == 0;   // voce 303
         memcpy(g_prevFaroCam, cam, sizeof(cam)); g_hasPrevFaroCam = true;
-        bool ok = DrawAtPresent(g_fbSwap, cam, ds, nullptr);
+        // voce 304: passaggio del mouse (faro dopo pochi disegni di Revit dall'inizio dell'immagine, camera uguale): la
+        // scena tenuta contiene gia' la nuvola sotto i riempimenti, non si ridisegna
+        bool hoverSkip = g_hoverSkipMode && !g_noHoverFix && g_faroSameCam && g_bigSceneGen == g_viewGen && g_sceneFirst == 0 && g_sceneDraws > 1 && g_sceneDraws < HoverSceneMax;
+        if (hoverSkip) g_hoverFaroSkip++;
+        bool ok = hoverSkip ? false : DrawAtPresent(g_fbSwap, cam, ds, nullptr);
         g_faroDss = nullptr;
         if (rd) rd->Release();
         g_uiRtv = nullptr;
         st.Restore(c);
-        if (ok) { g_faroDrawn = true; g_faroDraws++; } else g_faroFail++;
-        if (g_trRec) TrPut(ok ? " NUVOLA-AL-FARO" : " NUVOLA-AL-FARO-NON-RIUSCITA");
+        if (ok) { g_faroDrawn = true; g_faroDraws++; } else if (!hoverSkip) g_faroFail++;
+        if (g_trRec) TrPut(ok ? " NUVOLA-AL-FARO" : hoverSkip ? " NUVOLA-AL-FARO-SALTATA" : " NUVOLA-AL-FARO-NON-RIUSCITA");
     }
     if (rt) rt->Release(); if (ds) ds->Release();
 }
@@ -2828,9 +2852,9 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         g_fbNormal, g_fbAlpha, g_alpha, g_keepCopies, g_fbDrawn, g_camUsed, g_camStale, g_fbAgree, g_fbCompared, g_camRejected, g_fbNoMat, g_fbRejected, g_fbOther, g_capWrites, g_learnInfo[0] ? g_learnInfo : "camera del modello: ricerca non ancora fatta", g_shErr[0] ? "; errore: " : "", g_shErr);
     {
         size_t L = strlen(msg);
-        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; immagini con la scena tenuta da Revit, nuvola gia' dentro %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s; scena ridisegnata senza faro: con le forbici %ld, intera %ld; trasparenti non ridisegnati al Present perche' gia' al faro %ld; camera al faro: di questa immagine %ld, dell'immagine prima %ld; passaggio del mouse: ripiego evitato %ld, scena rimessa dopo la nuvola %ld, poi altri disegni nella scena %ld, copia non creata %ld)",
-            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroKept, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo, g_scenePartNoFaro, g_sceneFullNoFaro, g_faroAlphaSkip, g_faroCamOwn, g_faroCamPrev, g_hoverSkip, g_bakRestores, g_bakLate, g_bakFail);
-        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0; g_faroKept = 0; g_scenePartNoFaro = g_sceneFullNoFaro = 0; g_faroAlphaSkip = 0; g_faroCamOwn = g_faroCamPrev = 0; g_hoverSkip = g_bakRestores = g_bakLate = g_bakFail = 0;
+        _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; immagini con la scena tenuta da Revit, nuvola gia' dentro %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s; scena ridisegnata senza faro: con le forbici %ld, intera %ld; trasparenti non ridisegnati al Present perche' gia' al faro %ld; camera al faro: di questa immagine %ld, dell'immagine prima %ld; passaggio del mouse: ripiego evitato %ld, scena rimessa dopo la nuvola %ld, poi altri disegni nella scena %ld, copia non creata %ld, nuvola non disegnata al faro %ld; ricerche della matrice in piu' dopo il cambio di vista %ld)",
+            g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroKept, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo, g_scenePartNoFaro, g_sceneFullNoFaro, g_faroAlphaSkip, g_faroCamOwn, g_faroCamPrev, g_hoverSkip, g_bakRestores, g_bakLate, g_bakFail, g_hoverFaroSkip, g_fastRetries);
+        g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0; g_faroKept = 0; g_scenePartNoFaro = g_sceneFullNoFaro = 0; g_faroAlphaSkip = 0; g_faroCamOwn = g_faroCamPrev = 0; g_hoverSkip = g_bakRestores = g_bakLate = g_bakFail = 0; g_hoverFaroSkip = 0; g_fastRetries = 0;
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld; ripresa la posizione che funzionava %ld volte)",
             g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept, g_goodUsed);
@@ -2990,17 +3014,57 @@ static void SceneHit(ID3D11DeviceContext* c)
     UINT n = 1; c->RSGetScissorRects(&n, &g_sceneSc); if (n == 0) g_sceneSc = D3D11_RECT{};
 }
 // voce 300: riga del diario per ogni immagine in pianta/sezione, chiamata al Present prima del ripiego
+// voce 304 (b): colore medio di un riquadro 64x64 al centro della scena; copia in una texture di appoggio e lettura
+// all'immagine dopo (senza attesa: se non e' pronta si salta)
+static ID3D11Texture2D* g_colStg[2] = {}; static int g_colK = 0; static bool g_colPend[2] = {}; static char g_colPrev[48] = "-";
+static void SceneColor(ID3D11DeviceContext* cx)
+{
+    _snprintf_s(g_colPrev, sizeof(g_colPrev), _TRUNCATE, "-");
+    if (!cx || !g_sceneRes) return;
+    int pk = g_colK ^ 1;
+    if (g_colPend[pk] && g_colStg[pk])
+    {
+        D3D11_MAPPED_SUBRESOURCE m;
+        if (SUCCEEDED(cx->Map(g_colStg[pk], 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m)))
+        {
+            double sr = 0, sg = 0, sb = 0;
+            for (int y = 0; y < 64; y++) { const unsigned char* row = (const unsigned char*)m.pData + y * m.RowPitch; for (int x = 0; x < 64; x++) { sr += row[x * 4]; sg += row[x * 4 + 1]; sb += row[x * 4 + 2]; } }
+            cx->Unmap(g_colStg[pk], 0);
+            _snprintf_s(g_colPrev, sizeof(g_colPrev), _TRUNCATE, "%.1f,%.1f,%.1f", sr / 4096, sg / 4096, sb / 4096);
+        }
+        else _snprintf_s(g_colPrev, sizeof(g_colPrev), _TRUNCATE, "non_pronto");
+        g_colPend[pk] = false;
+    }
+    ID3D11Resource* r = (ID3D11Resource*)g_sceneRes; D3D11_RESOURCE_DIMENSION dim; r->GetType(&dim);
+    if (dim != D3D11_RESOURCE_DIMENSION_TEXTURE2D) return;
+    D3D11_TEXTURE2D_DESC sd = {}; ((ID3D11Texture2D*)r)->GetDesc(&sd);
+    if (sd.SampleDesc.Count != 1 || sd.Width < 64 || sd.Height < 64) return;
+    if (DXGI_FORMAT_R8G8B8A8_TYPELESS > sd.Format || sd.Format > DXGI_FORMAT_R8G8B8A8_SINT) return;   // solo formati RGBA a 8 bit
+    if (!g_colStg[g_colK])
+    {
+        D3D11_TEXTURE2D_DESC nd = {}; nd.Width = 64; nd.Height = 64; nd.MipLevels = 1; nd.ArraySize = 1; nd.Format = sd.Format; nd.SampleDesc.Count = 1;
+        nd.Usage = D3D11_USAGE_STAGING; nd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        ID3D11Device* dv = nullptr; cx->GetDevice(&dv); if (dv) { if (FAILED(dv->CreateTexture2D(&nd, nullptr, &g_colStg[g_colK]))) g_colStg[g_colK] = nullptr; dv->Release(); }
+        if (!g_colStg[g_colK]) return;
+    }
+    D3D11_TEXTURE2D_DESC cd = {}; g_colStg[g_colK]->GetDesc(&cd);
+    if (cd.Format != sd.Format) { g_colStg[g_colK]->Release(); g_colStg[g_colK] = nullptr; return; }
+    D3D11_BOX box = { sd.Width / 2 - 32, sd.Height / 2 - 32, 0, sd.Width / 2 + 32, sd.Height / 2 + 32, 1 };
+    cx->CopySubresourceRegion(g_colStg[g_colK], 0, 0, 0, 0, r, 0, &box);
+    g_colPend[g_colK] = true; g_colK ^= 1;
+}
 static void SceneImageLog()
 {
     if (FaroMode() && g_shaderOn)
     {
+        if (g_realDev) { ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx); SceneColor(cx); if (cx) cx->Release(); }   // voce 304
         if (g_bakArm && g_realDev) { ID3D11DeviceContext* cx = nullptr; g_realDev->GetImmediateContext(&cx); SceneSegEnd(cx); if (cx) cx->Release(); }   // voce 303
         if (!g_faroDrawn && HoverImage() && g_sceneDrawn) g_hoverSkip++;
         if (g_sceneDraws >= HoverSceneMax) g_bigSceneGen = g_viewGen;
-        const char* how = g_bakRestored ? "al_faro_scena_rimessa" : g_faroDrawn ? "al_faro" : HoverImage() ? "passaggio_mouse_niente_ripiego" : FaroCovers() ? "scena_tenuta" : "ripiego_sopra_tutto";
+        const char* how = g_bakRestored ? "al_faro_scena_rimessa" : g_faroDrawn ? "al_faro" : (g_sceneFaroAt >= 0 && HoverImage()) ? "passaggio_mouse_faro_saltato" : HoverImage() ? "passaggio_mouse_niente_ripiego" : FaroCovers() ? "scena_tenuta" : "ripiego_sopra_tutto";
         if (!g_faroDrawn && g_sceneDraws > 0) { if (g_sceneScOn) g_scenePartNoFaro++; else g_sceneFullNoFaro++; }
-        FT("X;scena_immagine;nuvola=%s;disegni_scena=%ld;primo_disegno=%lld;faro_dopo_disegni_scena=%ld;faro_dopo_il_segnale=%d;camera_al_faro=%s;forbici=%d;rettangolo=%ld,%ld-%ld,%ld;disegni_immagine=%lld",
-           how, g_sceneDraws, g_sceneFirst, g_sceneFaroAt, g_faroAfterSig, g_faroCamKind == 1 ? "dal_faro" : g_faroCamKind == 0 ? "precedente_non_riuscita" : "precedente", g_sceneScOn, (long)g_sceneSc.left, (long)g_sceneSc.top, (long)g_sceneSc.right, (long)g_sceneSc.bottom, g_drawSeq - g_imgStart);
+        FT("X;scena_immagine;nuvola=%s;disegni_scena=%ld;primo_disegno=%lld;faro_dopo_disegni_scena=%ld;faro_dopo_il_segnale=%d;camera_al_faro=%s;forbici=%d;rettangolo=%ld,%ld-%ld,%ld;disegni_immagine=%lld;colore_centro_immagine_prima=%s",
+           how, g_sceneDraws, g_sceneFirst, g_sceneFaroAt, g_faroAfterSig, g_faroCamKind == 1 ? "dal_faro" : g_faroCamKind == 0 ? "precedente_non_riuscita" : "precedente", g_sceneScOn, (long)g_sceneSc.left, (long)g_sceneSc.top, (long)g_sceneSc.right, (long)g_sceneSc.bottom, g_drawSeq - g_imgStart, g_colPrev);
     }
     g_sceneDraws = 0; g_sceneFaroAt = -1; g_sceneFirst = -1; g_faroAfterSig = -1; g_faroCamKind = -1; g_bakArm = false; g_bakRestored = false;
 }

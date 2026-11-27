@@ -286,6 +286,8 @@ namespace PointDeviation
         [DataMember] public bool NoFlatFaroAlpha;   // voce 301
         [DataMember] public bool NoFlatFaroCamera;  // voce 302
         [DataMember] public bool NoFlatHoverFix;    // voce 303
+        [DataMember] public bool FlatHoverRestore;  // voce 304: spento = al faro non si disegna (nuovo); acceso = copia rimessa (303)
+        [DataMember] public bool NoFastMatrixRetry; // voce 304
         [DataMember] public bool MeshWithoutLinks;  // voce 296: mesh anche nelle viste senza collegamenti (spento)
         [DataMember] public bool FlatSimple;        // voce 290, 293: spento di serie (riserva se le viste 2D non vanno)
         [DataMember] public bool FlatBeacon;        // voce 286: faro anche in pianta e sezione (spento: come prima del faro)
@@ -356,7 +358,7 @@ namespace PointDeviation
     internal static class BuildInfo
     {
         /// <summary>Ultima voce di MODIFICHE.txt compresa in questa versione (da aggiornare a ogni voce).</summary>
-        public const int Change = 303;
+        public const int Change = 304;
 
         public static string Describe()
         {

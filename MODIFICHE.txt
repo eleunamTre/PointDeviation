@@ -1955,3 +1955,22 @@ Ottava tornata (28/10/2026): octree
      la camera e' rimasta uguale. Nessuna posizione cambia: decide solo chi copre chi. Rischio da guardare nel video: se quei ~30 disegni di Revit rimettono una scena
      senza la nuvola, al passaggio del mouse la nuvola sparirebbe a tratti invece di andare sopra. Va ricompilata
      PdRender.dll.
+
+304) Prova della 302+303 (registro, diario e video del 27/11 14:43:12): nuvola non piu' sopra e sotto il modello e
+     attaccata al modello in movimento («camera al faro: di questa immagine» 121 su 121, «dell'immagine prima» 0), ma
+     sfarfallio in pianta e sezione e nuvola lenta a comparire. Tre cose, nella stessa compilazione:
+     (a) Passaggio del mouse, seconda strada. Nel diario le immagini col faro durante il passaggio del mouse hanno sempre
+     30 disegni di Revit nella scena e poi il faro, dall'inizio dell'immagine; con la 303 la nuvola si disegnava e poi si
+     rimetteva la copia (281 volte), e nel video la pianta alterna due aspetti della nuvola. Ora in quelle immagini (faro
+     dopo meno di 60 disegni di Revit dall'inizio dell'immagine, stessa camera del faro prima, vista che ha gia' avuto
+     una scena intera) al faro la nuvola non si disegna affatto: la scena tenuta da Revit la contiene gia'. Opzione in
+     Avanzate «In pianta e sezione, passaggio del mouse: ridisegna e rimetti la copia (303)» (spenta = strada nuova):
+     si puo' passare da una strada all'altra senza ricompilare per confrontarle.
+     (b) Diagnostica dello sfarfallio: nel diario, per ogni immagine in pianta e sezione, il colore medio di un
+     riquadro 64x64 al centro della scena (colore_centro_immagine_prima, letto un'immagine dopo per non fermare la scheda
+     video): dice quali tipi di immagine cambiano aspetto.
+     (c) Sezione lenta a comparire: nel diario, aperta la Sezione 55, 5,7 s con «matrice non pronta»; la ricerca della
+     matrice falliva la prima volta e si ripeteva solo un segnale ogni 30, e in una vista ferma il segnale arriva ogni
+     0,7 s. Ora dopo un cambio di vista si riprova a ogni segnale per 20 volte, poi una ogni 5. Opzione «Ricerca rapida
+     della matrice dopo il cambio di vista» (accesa). Rapporto DirectX: «nuvola non disegnata al faro N; ricerche della
+     matrice in piu' dopo il cambio di vista M». Nessuna posizione cambia. Va ricompilata PdRender.dll.

@@ -45,6 +45,8 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _flatFaroAlpha = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroCamera = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatHoverFix = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _flatHoverRestore = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _fastMatrix = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _uniform = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
 
         private static readonly string[][] Levels =
@@ -236,6 +238,12 @@ namespace PointDeviation
             _flatHoverFix.Text = L.T("In pianta e sezione: passaggio del mouse senza nuvola sopra i riempimenti");
             p.Controls.Add(_flatHoverFix);
             p.Controls.Add(Note(L.T("Solo con «nuvola nello stesso punto dell'RCP». Acceso (consigliato): quando passi col mouse Revit aggiorna solo pochi elementi sopra l'immagine di prima, che contiene già la nuvola sotto i riempimenti; il plugin non la ridisegna sopra e, se l'ha appena disegnata al posto del faro, rimette l'immagine com'era. Non sposta né la nuvola né il modello: decide solo chi copre chi. Spento: come la 302.")));
+            _flatHoverRestore.Text = L.T("In pianta e sezione, passaggio del mouse: ridisegna e rimetti la copia (303)");
+            p.Controls.Add(_flatHoverRestore);
+            p.Controls.Add(Note(L.T("Solo con «passaggio del mouse senza nuvola sopra i riempimenti». Spento (consigliato, voce 304): nelle immagini in cui Revit aggiorna solo pochi elementi la nuvola non si ridisegna al posto del faro, l'immagine di prima la contiene già. Acceso: la nuvola si ridisegna e poi si rimette la copia della scena, come nella 303. Serve a confrontare le due strade se vedi sfarfallio.")));
+            _fastMatrix.Text = L.T("Ricerca rapida della matrice dopo il cambio di vista");
+            p.Controls.Add(_fastMatrix);
+            p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): aprendo una vista, se la camera di Revit non si trova subito, la si cerca di nuovo a ogni immagine invece che una ogni 30, così la nuvola compare prima (in sezione ci metteva più di 5 secondi). Spento: come prima.")));
             _flatPost.Text = L.T("In pianta e sezione: nuvola sotto i riempimenti del modello");
             p.Controls.Add(_flatPost);
             p.Controls.Add(Note(L.T("Solo con il disegno con shader. Acceso (consigliato): in piante, sezioni e prospetti Revit decide cosa sta sopra con l'ordine dei disegni, non con la profondità. Nelle immagini che Revit mostra mentre sposti, zoomi o passi col mouse la nuvola si disegna nello stesso punto dei fotogrammi completi (prima dei riempimenti del modello), invece che sopra tutto. Spento: in quelle immagini la nuvola può coprire il modello.")));
@@ -310,6 +318,8 @@ namespace PointDeviation
             _flatFaroAlpha.Checked = !a.NoFlatFaroAlpha;
             _flatFaroCamera.Checked = !a.NoFlatFaroCamera;
             _flatHoverFix.Checked = !a.NoFlatHoverFix;
+            _flatHoverRestore.Checked = a.FlatHoverRestore;
+            _fastMatrix.Checked = !a.NoFastMatrixRetry;
             _probe.Checked = a.NativeProbe;
             _shader.Checked = a.NativeShader;
         }
@@ -344,6 +354,8 @@ namespace PointDeviation
             a.NoFlatFaroAlpha = !_flatFaroAlpha.Checked;
             a.NoFlatFaroCamera = !_flatFaroCamera.Checked;
             a.NoFlatHoverFix = !_flatHoverFix.Checked;
+            a.FlatHoverRestore = _flatHoverRestore.Checked;
+            a.NoFastMatrixRetry = !_fastMatrix.Checked;
             a.NativeProbe = _probe.Checked;
             a.NativeShader = _shader.Checked;
             a.Save();
