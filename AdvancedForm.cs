@@ -42,6 +42,8 @@ namespace PointDeviation
         private readonly System.Windows.Forms.CheckBox _meshCache = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };   // voce 312
         private readonly System.Windows.Forms.CheckBox _meshBox = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _hangWatch = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+        private readonly System.Windows.Forms.CheckBox _meshDisk = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };   // voce 313
+        private readonly System.Windows.Forms.CheckBox _meshIdle = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaro = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroDepth = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
         private readonly System.Windows.Forms.CheckBox _flatFaroKeep = new System.Windows.Forms.CheckBox { AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
@@ -232,6 +234,12 @@ namespace PointDeviation
             _meshBox.Text = L.T("Mesh: rifalla anche quando cambia il riquadro di sezione");
             p.Controls.Add(_meshBox);
             p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Spento (consigliato): spostare il riquadro di sezione non rifà la mesh (i collegamenti la usano comunque per intero e il riquadro taglia anche la nuvola). Acceso: come prima, mesh rifatta a ogni modifica del riquadro.")));
+            _meshDisk.Text = L.T("Mesh: salva i collegamenti su disco");
+            p.Controls.Add(_meshDisk);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): la mesh di ogni file collegato si salva in %LOCALAPPDATA%\\PointDeviation\\mesh (al massimo 1 GB) e alla riapertura di Revit si rilegge da lì in un attimo, finché il file collegato non cambia. Spento: a ogni apertura si rilegge la geometria dei collegamenti (decine di secondi).")));
+            _meshIdle.Text = L.T("Mesh: prepara solo con mouse e tastiera fermi");
+            p.Controls.Add(_meshIdle);
+            p.Controls.Add(Note(L.T("Solo con la profondità dalla mesh. Acceso (consigliato): la geometria per la mesh si legge quando non usi mouse e tastiera da 1 s (al massimo un passo ogni 3 s mentre lavori), perché un passo può fermare Revit per qualche centinaio di ms. Spento: si legge sempre, anche mentre ti muovi nella vista.")));
             _hangWatch.Text = L.T("Registra i blocchi di Revit");
             p.Controls.Add(_hangWatch);
             p.Controls.Add(Note(L.T("Acceso (consigliato): quando Windows segna Revit come «Non risponde», nel registro (sezione [Blocco]) si scrivono l'ora, quanta CPU usa Revit e se in quel momento stava lavorando il plugin. Non cambia il disegno.")));
@@ -336,6 +344,8 @@ namespace PointDeviation
             _meshCache.Checked = !a.NoMeshCache;
             _meshBox.Checked = a.MeshOnSectionBox;
             _hangWatch.Checked = !a.NoHangWatch;
+            _meshDisk.Checked = !a.NoMeshDisk;
+            _meshIdle.Checked = !a.MeshWhileActive;
             _flatFaro.Checked = !a.NoFlatFaroDraw;
             _flatFaroDepth.Checked = !a.NoFlatFaroDepth;
             _flatFaroKeep.Checked = !a.NoFlatFaroKeep;
@@ -376,6 +386,8 @@ namespace PointDeviation
             a.NoMeshCache = !_meshCache.Checked;
             a.MeshOnSectionBox = _meshBox.Checked;
             a.NoHangWatch = !_hangWatch.Checked;
+            a.NoMeshDisk = !_meshDisk.Checked;
+            a.MeshWhileActive = !_meshIdle.Checked;
             a.NoFlatFaroDraw = !_flatFaro.Checked;
             a.NoFlatFaroDepth = !_flatFaroDepth.Checked;
             a.NoFlatFaroKeep = !_flatFaroKeep.Checked;

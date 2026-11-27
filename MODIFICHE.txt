@@ -2056,3 +2056,20 @@ Ottava tornata (28/10/2026): octree
      16:03:45) la CPU di Revit era allo 0%, quindi non erano calcoli in corso (ne' del plugin ne' di Revit). Niente
      cambia nelle posizioni di nuvola o modello. Solo C#: va ricompilato il plugin e riavviato Revit (PdRender.dll
      invariata).
+
+313) Mesh per la profondita' senza scatti e senza rifarla a ogni apertura (registro del 27/11, 16:33-18:26, ancora con
+     change 309: Revit riaperto 5 volte e a ogni apertura mesh rifatta da zero, 1,8-2,2 milioni di triangoli, 50-73 s
+     di lavoro a passi di 300-340 ms invece di 40; mentre la mesh si preparava, in movimento un fotogramma ogni 160-200
+     ms invece di 30-50). Tre cose: (1) le parti dei collegamenti si leggono nelle coordinate del file collegato e la
+     posizione del collegamento si applica quando si mettono insieme le parti: spostare un collegamento non rilegge
+     niente; (2) la parte di ogni file collegato si salva su disco (%LOCALAPPDATA%\PointDeviation\mesh, nome dal
+     percorso, data e dimensione del file collegato; al massimo 1 GB, si tolgono le meno usate; scrittura in un thread
+     a parte): alla riapertura di Revit si rilegge da li' finche' il file collegato non cambia; (3) la geometria si
+     legge solo quando mouse e tastiera sono fermi da 1 s con Revit in primo piano (al massimo un passo ogni 3 s mentre
+     si lavora): un elemento pesante non si puo' spezzare e un passo durava centinaia di ms. Registro [Mesh]: parti
+     riusate, lette da disco, rifatte, attese per mouse e tastiera. Opzioni in Avanzate: «Mesh: salva i collegamenti su
+     disco» (accesa), «Mesh: prepara solo con mouse e tastiera fermi» (accesa). Dal registro: dentro i nostri agganci
+     1-60 ms ogni 5 s, nostro tempo per fotogramma 3-8 ms (20-55 ms solo mentre i blocchi si caricano nella scheda
+     video), scheda video per i punti 3-10 ms: il peso viene dai passi della mesh. Molte «pause» del diario erano Revit
+     fermo senza ridisegni (righe S dell'Idling con CPU 0%), non blocchi; i blocchi veri si vedranno con [Blocco] (312).
+     Niente cambia nelle posizioni di nuvola o modello. Solo C#: va ricompilato il plugin e riavviato Revit.
