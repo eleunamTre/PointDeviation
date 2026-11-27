@@ -41,6 +41,12 @@ static double QpcMs()
     if (inv == 0) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); inv = 1000.0 / (double)f.QuadPart; }
     return (double)c.QuadPart * inv;
 }
+// voce 306: tempo che Revit passa dentro i nostri agganci (esclusa la chiamata originale di DirectX), per tipo:
+// 0 disegni, 1 Map, 2 Unmap, 3 destinazioni (OMSetRenderTargets), 4 Present (ripiego, diario), 5 altri (riaggancio)
+static long long g_hkT[6] = {}; static long g_hkN[6] = {};
+static inline long long HkTick() { LARGE_INTEGER c; QueryPerformanceCounter(&c); return c.QuadPart; }
+static inline void HkAdd(int k, long long t0) { g_hkT[k] += HkTick() - t0; g_hkN[k]++; }
+static double HkMs(long long t) { static double inv = 0; if (inv == 0) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); inv = 1000.0 / (double)f.QuadPart; } return t * inv; }
 static void FT(const char* fmt, ...)
 {
     if (!g_ftOn) return;
@@ -2855,6 +2861,13 @@ extern "C" __declspec(dllexport) int PdShaderReport(char* msg, int cap)
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; fotogrammi parziali (mouse/selezione): rettangolo al segnale %ld, rettangoli di Present1 %ld, forbici al Present %ld, copia della profondita' tenuta %ld volte; ultimo rettangolo %ldx%ld in %ld,%ld; forbici con la camera cambiata (riquadro della vista, fotogramma completo) %ld; parziali disegnati con la profondita' intera di prima %ld; pianta/sezione: immagini intermedie con la nuvola prima dei riempimenti %ld (posizione imparata %ld volte); nuvola disegnata al posto del faro %ld (non riuscita %ld; immagini con la scena tenuta da Revit, nuvola gia' dentro %ld; visibile %ld, coperta dalla profondita' %ld; con lo stato di profondita' di Revit %ld: %s; scena ridisegnata senza faro: con le forbici %ld, intera %ld; trasparenti non ridisegnati al Present perche' gia' al faro %ld; camera al faro: di questa immagine %ld, dell'immagine prima %ld; passaggio del mouse: ripiego evitato %ld, scena rimessa dopo la nuvola %ld, poi altri disegni nella scena %ld, copia non creata %ld, nuvola non disegnata al faro %ld; ricerche della matrice in piu' dopo il cambio di vista %ld)",
             g_partMarker, g_partDirty, g_partScPresent, g_partKeepSkip, (long)(g_partLast.right - g_partLast.left), (long)(g_partLast.bottom - g_partLast.top), (long)g_partLast.left, (long)g_partLast.top, g_cropFrames, g_partialKeepDraws, g_postDraws, g_postLearn, g_faroDraws, g_faroFail, g_faroKept, g_faroVis, g_faroHid, g_faroDssUsed, g_faroDssInfo, g_scenePartNoFaro, g_sceneFullNoFaro, g_faroAlphaSkip, g_faroCamOwn, g_faroCamPrev, g_hoverSkip, g_bakRestores, g_bakLate, g_bakFail, g_hoverFaroSkip, g_fastRetries);
         g_partMarker = g_partDirty = g_partScPresent = g_partKeepSkip = 0; g_cropFrames = 0; g_partialKeepDraws = 0; g_postDraws = 0; g_postLearn = 0; g_faroDraws = 0; g_faroFail = 0; g_faroVis = g_faroHid = g_faroDssUsed = 0; g_faroKept = 0; g_scenePartNoFaro = g_sceneFullNoFaro = 0; g_faroAlphaSkip = 0; g_faroCamOwn = g_faroCamPrev = 0; g_hoverSkip = g_bakRestores = g_bakLate = g_bakFail = 0; g_hoverFaroSkip = 0; g_fastRetries = 0;
+        {   // voce 306
+            double tot = 0; for (int k = 0; k < 6; k++) tot += HkMs(g_hkT[k]);
+            size_t L2 = strlen(msg);
+            _snprintf_s(msg + L2, cap - L2, _TRUNCATE, "; tempo di Revit dentro i nostri agganci (senza le chiamate di DirectX): %.1f ms in tutto - disegni %.1f ms (%ld), Map %.1f ms (%ld), Unmap %.1f ms (%ld), destinazioni %.1f ms (%ld), Present %.1f ms (%ld, compresi i nostri disegni al Present), altri %.1f ms (%ld)",
+                tot, HkMs(g_hkT[0]), g_hkN[0], HkMs(g_hkT[1]), g_hkN[1], HkMs(g_hkT[2]), g_hkN[2], HkMs(g_hkT[3]), g_hkN[3], HkMs(g_hkT[4]), g_hkN[4], HkMs(g_hkT[5]), g_hkN[5]);
+            for (int k = 0; k < 6; k++) { g_hkT[k] = 0; g_hkN[k] = 0; }
+        }
         L = strlen(msg);
         _snprintf_s(msg + L, cap - L, _TRUNCATE, "; disegni misurati: visibili %ld, coperti del tutto dalla profondita' %ld, nuvola fuori dalla finestra %ld (matrice cercata di nuovo per questo %ld volte, tenuta la precedente %ld; ripresa la posizione che funzionava %ld volte)",
             g_qVisible, g_qDepthBlock, g_qCamOut, g_reSearchDone, g_reSearchKept, g_goodUsed);
@@ -2922,10 +2935,10 @@ static void Marker(ID3D11DeviceContext* c, UINT count)
     if (n % 30 == 1) DescribeState(c, g_markerInfo, sizeof(g_markerInfo));
 }
 
-static void STDMETHODCALLTYPE HookDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_origDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_origD(c, a, b); }
-static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_origDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_origDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { long long t0 = HkTick(); BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); HkAdd(0, t0); g_origDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { long long t0 = HkTick(); { if (BeaconSeen(c, a, 0, "semplice")) { HkAdd(0, t0); return; } } Marker(c, a); Capture(c); HkAdd(0, t0); g_origD(c, a, b); }
+static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { long long t0 = HkTick(); BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); HkAdd(0, t0); g_origDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { long long t0 = HkTick(); BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); HkAdd(0, t0); g_origDInst(c, a, b, d, e); }
 
 static void* Patch(void** vt, int index, void* hook)
 {
@@ -3068,10 +3081,10 @@ static void SceneImageLog()
     }
     g_sceneDraws = 0; g_sceneFaroAt = -1; g_sceneFirst = -1; g_faroAfterSig = -1; g_faroCamKind = -1; g_bakArm = false; g_bakRestored = false;
 }
-static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); g_realDI(c, a, b, d); }
-static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } if (BeaconSeen(c, a, 0, "semplice")) return; Marker(c, a); Capture(c); g_realD(c, a, b); }
-static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); g_realDII(c, a, b, d, e, f); }
-static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); g_realDInst(c, a, b, d, e); }
+static void STDMETHODCALLTYPE HookRealDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { long long t0 = HkTick(); SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, 0, "indicizzato"); Marker(c, a); Capture(c); HkAdd(0, t0); g_realDI(c, a, b, d); }
+static void STDMETHODCALLTYPE HookRealD(ID3D11DeviceContext* c, UINT a, UINT b) { long long t0 = HkTick(); SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } { if (BeaconSeen(c, a, 0, "semplice")) { HkAdd(0, t0); return; } } Marker(c, a); Capture(c); HkAdd(0, t0); g_realD(c, a, b); }
+static void STDMETHODCALLTYPE HookRealDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { long long t0 = HkTick(); SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); HkAdd(0, t0); g_realDII(c, a, b, d, e, f); }
+static void STDMETHODCALLTYPE HookRealDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { long long t0 = HkTick(); SceneHit(c); PostCheck(c); if (g_bakArm && g_curWin && !g_inOurDraw) SceneSegEnd(c); if (g_uiArm && g_curWin && !g_inOurDraw) BeforeUi(c); g_drawSeq++; if (g_trRec) { TrSrv(c); g_trDraws++; } BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); HkAdd(0, t0); g_realDInst(c, a, b, d, e); }
 static void STDMETHODCALLTYPE HookRDefDI(ID3D11DeviceContext* c, UINT a, UINT b, INT d) { g_defDraws++; Marker(c, a); g_rdefDI(c, a, b, d); }
 static void STDMETHODCALLTYPE HookRDefDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { g_defDraws++; Marker(c, a); g_rdefDII(c, a, b, d, e, f); }
 
@@ -3100,19 +3113,22 @@ static void STDMETHODCALLTYPE HookRUpdate(ID3D11DeviceContext* c, ID3D11Resource
 static HRESULT STDMETHODCALLTYPE HookRMap(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a, D3D11_MAP t, UINT f, D3D11_MAPPED_SUBRESOURCE* m)
 {
     g_cMap++; HRESULT h = g_rMap(c, r, a, t, f, m);
+    long long t0 = HkTick();   // voce 306
     if (r && r == g_capBuf && SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE || t == D3D11_MAP_WRITE)) g_capPtr = m->pData;
     if (SUCCEEDED(h) && m && (t == D3D11_MAP_WRITE_DISCARD || t == D3D11_MAP_WRITE_NO_OVERWRITE)) { LearnMap(r, m->pData); CamMap(r, m->pData); ShadowMap(r, m->pData); }
-    Rehook(c); return h;
+    Rehook(c); HkAdd(1, t0); return h;
 }
 // voce 209: alla chiusura della scrittura del buffer della matrice si legge la matrice appena scritta
 typedef void (STDMETHODCALLTYPE* Unmap_t)(ID3D11DeviceContext*, ID3D11Resource*, UINT);
 static Unmap_t g_rUnmap = nullptr;
 static void STDMETHODCALLTYPE HookRUnmap(ID3D11DeviceContext* c, ID3D11Resource* r, UINT a)
 {
+    long long t0 = HkTick();   // voce 306
     if (r && r == g_capBuf && g_capPtr) { CaptureWrite(g_capPtr); g_capPtr = nullptr; }
     LearnUnmap(r);
     CamUnmap(r);
     ShadowUnmap(r);
+    HkAdd(2, t0);
     g_rUnmap(c, r, a);
 }
 static void STDMETHODCALLTYPE HookRExec(ID3D11DeviceContext* c, ID3D11CommandList* l, BOOL r) { g_cExec++; g_rExec(c, l, r); }
@@ -3157,6 +3173,7 @@ static void STDMETHODCALLTYPE HookRDrawAuto(ID3D11DeviceContext* c) { g_cDrawOth
 static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* r, ID3D11DepthStencilView* d)
 {
     g_cOMSet++;
+    long long t0 = HkTick();   // voce 306
     // voce 269: nel diario della 268 (come nella 267) la copia della finestra non si faceva mai: la condizione «non e' un
     // nostro disegno» (g_ourDraw) risultava sempre falsa per motivi non chiari. I nostri ripristini si riconoscono ora dal
     // buffer di profondita': e' una delle nostre copie (scena, faro, finestra). Nelle sequenze: LASCIO(...) con i motivi.
@@ -3229,7 +3246,9 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
             cur->Release();
         }
     }
+    HkAdd(3, t0);
     g_rOMSet(c, n, r, d);
+    long long t1 = HkTick();
     if (bcnLeave) { ID3D11Resource* rr = nullptr; bcnLeave->GetResource(&rr); BeaconDepthCopyRes(c, rr); if (rr) rr->Release(); bcnLeave->Release(); BeaconDzDisarm(); if (g_trRec) TrPut(" COPIA-FARO"); }
     if (leave)
     {
@@ -3238,11 +3257,12 @@ static void STDMETHODCALLTYPE HookROMSet(ID3D11DeviceContext* c, UINT n, ID3D11R
         g_keepThisFrame = g_keepOk; if (g_trRec) TrPut(" COPIA-PROF");
     }
     Rehook(c);
+    g_hkT[3] += HkTick() - t1;
 }
-static void STDMETHODCALLTYPE HookRVS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rVS(c, s, i, n); Rehook(c); }
-static void STDMETHODCALLTYPE HookRPS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rPS(c, s, i, n); Rehook(c); }
-static void STDMETHODCALLTYPE HookRSetVB(ID3D11DeviceContext* c, UINT a, UINT n, ID3D11Buffer* const* b, const UINT* s, const UINT* o) { g_cSetVB++; g_rSetVB(c, a, n, b, s, o); Rehook(c); }
-static void STDMETHODCALLTYPE HookRSetVP(ID3D11DeviceContext* c, UINT n, const D3D11_VIEWPORT* v) { g_cSetVP++; g_rSetVP(c, n, v); Rehook(c); }
+static void STDMETHODCALLTYPE HookRVS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rVS(c, s, i, n); { long long t0 = HkTick(); Rehook(c); HkAdd(5, t0); } }
+static void STDMETHODCALLTYPE HookRPS(ID3D11DeviceContext* c, void* s, void* const* i, UINT n) { g_cShader++; g_rPS(c, s, i, n); { long long t0 = HkTick(); Rehook(c); HkAdd(5, t0); } }
+static void STDMETHODCALLTYPE HookRSetVB(ID3D11DeviceContext* c, UINT a, UINT n, ID3D11Buffer* const* b, const UINT* s, const UINT* o) { g_cSetVB++; g_rSetVB(c, a, n, b, s, o); { long long t0 = HkTick(); Rehook(c); HkAdd(5, t0); } }
+static void STDMETHODCALLTYPE HookRSetVP(ID3D11DeviceContext* c, UINT n, const D3D11_VIEWPORT* v) { g_cSetVP++; g_rSetVP(c, n, v); { long long t0 = HkTick(); Rehook(c); HkAdd(5, t0); } }
 
 static int HookExtra(ID3D11DeviceContext* imm, char* buf, int cap)
 {
@@ -3399,8 +3419,8 @@ static void OnRealSwapChain(IDXGISwapChain* s)
     dev->Release();
 }
 
-static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { SceneImageLog(); FallbackAtPresent(s, nullptr); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; g_faroDrawn = false; g_sceneDrawn = false; } return g_origPresent(s, a, f); }
-static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { SceneImageLog(); FallbackAtPresent(s, p); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; g_faroDrawn = false; g_sceneDrawn = false; } return g_origPresent1(s, a, f, p); }
+static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* s, UINT a, UINT f) { long long t0 = HkTick(); g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { SceneImageLog(); FallbackAtPresent(s, nullptr); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; g_faroDrawn = false; g_sceneDrawn = false; } HkAdd(4, t0); return g_origPresent(s, a, f); }
+static HRESULT STDMETHODCALLTYPE HookPresent1(IDXGISwapChain1* s, UINT a, UINT f, const DXGI_PRESENT_PARAMETERS* p) { long long t0 = HkTick(); g_presents++; OnRealSwapChain(s); if (!(f & DXGI_PRESENT_TEST)) { SceneImageLog(); FallbackAtPresent(s, p); g_imgStart = g_drawSeq; g_postDone = false; g_postWant = false; g_faroDrawn = false; g_sceneDrawn = false; } HkAdd(4, t0); return g_origPresent1(s, a, f, p); }
 
 static void* Patch(void** vt, int index, void* hook);
 

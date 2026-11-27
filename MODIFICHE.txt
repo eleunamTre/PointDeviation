@@ -1987,3 +1987,12 @@ Ottava tornata (28/10/2026): octree
      «link», non quale: basta che ne sia spento uno (separarli richiede un dato per punto in piu'). Registro:
      «[Visibilita'] collegamenti dell'analisi spenti nella vista: N su M». Non tocca la DLL nativa. Correzione di compilazione: chiamata da
      DeviationHandler qualificata con DeviationController.
+
+306) Diagnostica della pesantezza: quanto costano a Revit i nostri agganci. Nei registri del 27/11 il «nostro tempo»
+     per immagine e' basso (1-16 ms, scheda video 1-9 ms), ma in pianta e sezione tra un'immagine e l'altra passano
+     100-160 ms (in 3D 25-60), e al passaggio del mouse Revit fa fino a 70 immagini al secondo con circa 28 mila scritture
+     (Map) e 10 mila disegni al secondo, tutti agganciati dalla libreria (copie dei buffer di costanti per il faro, conteggi,
+     riaggancio della tabella): quel costo non era misurato. Ora il rapporto DirectX ogni 5 s riporta il tempo passato
+     dentro i nostri agganci, senza la chiamata originale di DirectX, per tipo: disegni, Map, Unmap, destinazioni,
+     Present (compresi i nostri disegni al Present) e altri, con il numero di chiamate. Se e' alto, si alleggerisce la
+     parte che pesa. Nessun cambio di comportamento. Va ricompilata PdRender.dll.
