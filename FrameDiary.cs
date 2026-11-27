@@ -30,6 +30,9 @@ namespace PointDeviation
         public static string FilePath { get { return Path.Combine(Log.Folder, "PointDeviation" + Log.Instance + "-frames.log"); } }   // voce 283
         public static double NowMs { get { return Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency; } }
 
+        /// <summary>Voce 309: libreria nativa ricaricata, il diario delle sue righe va riacceso.</summary>
+        public static void OnLibReloaded() { if (_w != null) NativeProbe.TraceOn(true); }
+
         private static bool Ensure()
         {
             if (_w != null) return true;

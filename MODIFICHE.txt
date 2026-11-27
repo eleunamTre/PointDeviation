@@ -2016,3 +2016,17 @@ Ottava tornata (28/10/2026): octree
      Perche' Revit abbia iniziato a disegnare il segnale piu' volte non si vede dai dati (forse un'impostazione della
      vista o della grafica cambiata in quel momento). Dallo stesso registro: tempo dentro i nostri agganci 65-370 ms
      ogni 5 s (1-7%). Va ricompilata PdRender.dll.
+
+309) Ricarica di PdRender.dll senza riavviare Revit (richiesta del 27/11: ogni prova voleva dire riaprire Revit). In
+     Avanzate › Diagnostica il pulsante «Ricarica PdRender.dll»: al primo Idling la libreria toglie tutti i suoi agganci
+     (ogni Patch ora si ricorda posizione, funzione originale e nostra; PdShutdown rimette le originali dove c'e' ancora
+     la nostra e libera i blocchi nella scheda video), il plugin la scarica e carica la PdRender.dll appena compilata,
+     che riaggancia DirectX come all'avvio; i blocchi si ricaricano nella scheda video (chiave di caricamento con la
+     generazione della libreria), mesh, trasformazioni di nuvole e collegamenti e diario si rimandano. Per poterla
+     scaricare il plugin non usa piu' DllImport: carica la libreria con LoadLibrary e cerca le funzioni per nome
+     (classe PdLib in NativeProbe.cs, stesse eccezioni di prima se una funzione manca). Si carica sempre una copia in
+     %LOCALAPPDATA%\PointDeviation\live (PdRender-data-ora.dll; le copie vecchie si cancellano all'avvio), cosi' Visual
+     Studio puo' sovrascrivere PdRender.dll con Revit aperto. Registro: «libreria scaricata: N agganci tolti», «libreria
+     ricaricata senza riavviare Revit». Vale solo per la libreria nativa: le modifiche in C# richiedono ancora il
+     riavvio. La prima volta serve un riavvio con questa versione (la libreria di prima non sa togliere i suoi agganci:
+     il registro lo dice e non scarica nulla). Va ricompilata PdRender.dll.

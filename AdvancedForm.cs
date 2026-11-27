@@ -177,6 +177,11 @@ namespace PointDeviation
             _probe.Text = L.T("Prova DirectX (sperimentale)");
             p.Controls.Add(_probe);
             p.Controls.Add(Note(L.T("Carica la libreria PdRender.dll e scrive nel registro, ogni 5 secondi, se il disegno di Revit passa da un contesto DirectX 11 che possiamo usare. Non cambia la visualizzazione. Serve Revit riavviato dopo l'attivazione.")));
+            // voce 309
+            var reload = new Button { Text = L.T("Ricarica PdRender.dll"), AutoSize = true, Margin = new Padding(0, 16, 0, 0) };
+            reload.Click += (s2, e2) => { NativeProbe.RequestReload(); reload.Text = L.T("Ricarica chiesta: guarda il registro"); };
+            p.Controls.Add(reload);
+            p.Controls.Add(Note(L.T("Toglie gli agganci della libreria nativa, la scarica e carica la PdRender.dll appena compilata, senza riavviare Revit. Si usa dopo aver ricompilato solo la libreria nativa; le modifiche al plugin (C#) richiedono ancora il riavvio. La prima volta serve un riavvio con una libreria che sa togliere i suoi agganci (dalla voce 309).")));
             return p;
         }
 

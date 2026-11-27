@@ -2954,6 +2954,9 @@ static void STDMETHODCALLTYPE HookD(ID3D11DeviceContext* c, UINT a, UINT b) { lo
 static void STDMETHODCALLTYPE HookDII(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, INT e, UINT f) { long long t0 = HkTick(); BeaconSeen(c, a, b, "indicizzato_istanze"); Marker(c, a); Capture(c); HkAdd(0, t0); g_origDII(c, a, b, d, e, f); }
 static void STDMETHODCALLTYPE HookDInst(ID3D11DeviceContext* c, UINT a, UINT b, UINT d, UINT e) { long long t0 = HkTick(); BeaconSeen(c, a, b, "istanze"); Marker(c, a); Capture(c); HkAdd(0, t0); g_origDInst(c, a, b, d, e); }
 
+// voce 309: ogni aggancio si ricorda (posizione nella tabella, funzione originale, nostra) per poterlo togliere
+struct PatchRec { void** slot; void* orig; void* hook; };
+static std::unordered_map<void**, PatchRec> g_patches;
 static void* Patch(void** vt, int index, void* hook)
 {
     DWORD old;
@@ -2961,7 +2964,28 @@ static void* Patch(void** vt, int index, void* hook)
     void* orig = vt[index];
     vt[index] = hook;
     VirtualProtect(&vt[index], sizeof(void*), old, &old);
+    if (orig != hook) g_patches[&vt[index]] = PatchRec{ &vt[index], orig, hook };   // voce 309
     return orig;
+}
+// voce 309: toglie tutti gli agganci (rimette le funzioni originali dove c'e' ancora la nostra) e libera i blocchi,
+// prima che il plugin scarichi la libreria per caricarne una nuova senza riavviare Revit. Dal thread di Revit a riposo.
+extern "C" __declspec(dllexport) int PdShutdown()
+{
+    g_shaderOn = 0;
+    int n = 0;
+    for (auto& kv : g_patches)
+    {
+        PatchRec& p = kv.second;
+        if (*p.slot != p.hook) continue;   // qualcun altro ha gia' rimesso o sostituito la funzione
+        DWORD old;
+        if (VirtualProtect(p.slot, sizeof(void*), PAGE_READWRITE, &old)) { *p.slot = p.orig; VirtualProtect(p.slot, sizeof(void*), old, &old); n++; }
+    }
+    g_patches.clear();
+    g_ready.clear(); g_build.clear();
+    for (auto& kv : g_nodes) { if (kv.second.srv) kv.second.srv->Release(); if (kv.second.vb) kv.second.vb->Release(); }
+    g_nodes.clear(); g_shBytes = 0;
+    g_hooked = false;
+    return n;
 }
 
 // ---- voce 182: Revit non passa dalla tabella del contesto immediato (registro 18/11 20:48: 0 disegni in tutto).

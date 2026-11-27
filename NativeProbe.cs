@@ -16,101 +16,99 @@ namespace PointDeviation
     /// </summary>
     internal static class NativeProbe
     {
-        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern IntPtr LoadLibrary(string path);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        private static extern int PdInit(StringBuilder msg, int cap);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdCaptureBegin();
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        private static extern int PdCaptureEnd(StringBuilder msg, int cap);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        private static extern int PdReport(StringBuilder msg, int cap);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFocus(float[] p);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetAlpha(float a);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetPointAlpha(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdInit(StringBuilder msg, int cap);
+        private static int PdInit(StringBuilder msg, int cap) { return PdLib.Get<D_PdInit>("PdInit")(msg, cap); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdCaptureBegin();
+        private static void PdCaptureBegin() { PdLib.Get<D_PdCaptureBegin>("PdCaptureBegin")(); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdCaptureEnd(StringBuilder msg, int cap);
+        private static int PdCaptureEnd(StringBuilder msg, int cap) { return PdLib.Get<D_PdCaptureEnd>("PdCaptureEnd")(msg, cap); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdReport(StringBuilder msg, int cap);
+        private static int PdReport(StringBuilder msg, int cap) { return PdLib.Get<D_PdReport>("PdReport")(msg, cap); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFocus(float[] p);
+        private static void PdSetFocus(float[] p) { PdLib.Get<D_PdSetFocus>("PdSetFocus")(p); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetAlpha(float a);
+        private static void PdSetAlpha(float a) { PdLib.Get<D_PdSetAlpha>("PdSetAlpha")(a); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetPointAlpha(int on);
+        private static void PdSetPointAlpha(int on) { PdLib.Get<D_PdSetPointAlpha>("PdSetPointAlpha")(on); }
         private static bool _ptAlphaMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetModelMesh(float[] xyz, int tris, double[] origin);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetModelMesh(float[] xyz, int tris, double[] origin);
+        private static void PdSetModelMesh(float[] xyz, int tris, double[] origin) { PdLib.Get<D_PdSetModelMesh>("PdSetModelMesh")(xyz, tris, origin); }
         private static bool _meshMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetMeshTolerance(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetMeshTolerance(int on);
+        private static void PdSetMeshTolerance(int on) { PdLib.Get<D_PdSetMeshTolerance>("PdSetMeshTolerance")(on); }
         private static bool _meshTolMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatBeaconFix(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatBeaconFix(int on);
+        private static void PdSetFlatBeaconFix(int on) { PdLib.Get<D_PdSetFlatBeaconFix>("PdSetFlatBeaconFix")(on); }
         private static bool _flatFixMissing;
         private static object _meshSent;
         private static bool _meshAny;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetView(long viewId);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatView(int flat, int useBeacon);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatSimple(int on);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatPostDraw(int on);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatFaroDraw(int on);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatFaroDepth(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp);
+        private static void PdSetCameraInfo(float[] e, float[] d, float[] r, float target, float halfW, int persp) { PdLib.Get<D_PdSetCameraInfo>("PdSetCameraInfo")(e, d, r, target, halfW, persp); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetView(long viewId);
+        private static void PdSetView(long viewId) { PdLib.Get<D_PdSetView>("PdSetView")(viewId); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatView(int flat, int useBeacon);
+        private static void PdSetFlatView(int flat, int useBeacon) { PdLib.Get<D_PdSetFlatView>("PdSetFlatView")(flat, useBeacon); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatSimple(int on);
+        private static void PdSetFlatSimple(int on) { PdLib.Get<D_PdSetFlatSimple>("PdSetFlatSimple")(on); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatPostDraw(int on);
+        private static void PdSetFlatPostDraw(int on) { PdLib.Get<D_PdSetFlatPostDraw>("PdSetFlatPostDraw")(on); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatFaroDraw(int on);
+        private static void PdSetFlatFaroDraw(int on) { PdLib.Get<D_PdSetFlatFaroDraw>("PdSetFlatFaroDraw")(on); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatFaroDepth(int on);
+        private static void PdSetFlatFaroDepth(int on) { PdLib.Get<D_PdSetFlatFaroDepth>("PdSetFlatFaroDepth")(on); }
         private static bool _flatFaroDepthMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatFaroKeep(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatFaroKeep(int on);
+        private static void PdSetFlatFaroKeep(int on) { PdLib.Get<D_PdSetFlatFaroKeep>("PdSetFlatFaroKeep")(on); }
         private static bool _flatFaroKeepMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatFaroAlpha(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatFaroAlpha(int on);
+        private static void PdSetFlatFaroAlpha(int on) { PdLib.Get<D_PdSetFlatFaroAlpha>("PdSetFlatFaroAlpha")(on); }
         private static bool _flatFaroAlphaMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatFaroCamera(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatFaroCamera(int on);
+        private static void PdSetFlatFaroCamera(int on) { PdLib.Get<D_PdSetFlatFaroCamera>("PdSetFlatFaroCamera")(on); }
         private static bool _flatFaroCameraMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatHoverFix(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatHoverFix(int on);
+        private static void PdSetFlatHoverFix(int on) { PdLib.Get<D_PdSetFlatHoverFix>("PdSetFlatHoverFix")(on); }
         private static bool _flatHoverFixMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFlatHoverSkip(int on);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetFastMatrixRetry(int on);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetOtherBufferSkip(int on);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFlatHoverSkip(int on);
+        private static void PdSetFlatHoverSkip(int on) { PdLib.Get<D_PdSetFlatHoverSkip>("PdSetFlatHoverSkip")(on); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetFastMatrixRetry(int on);
+        private static void PdSetFastMatrixRetry(int on) { PdLib.Get<D_PdSetFastMatrixRetry>("PdSetFastMatrixRetry")(on); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetOtherBufferSkip(int on);
+        private static void PdSetOtherBufferSkip(int on) { PdLib.Get<D_PdSetOtherBufferSkip>("PdSetOtherBufferSkip")(on); }
         private static bool _v308Missing;
         private static bool _v304Missing;
         private static bool _flatFaroMissing;
         private static bool _flatPostMissing;
         private static bool _flatSimpleMissing;
         private static bool _flatMissing;
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdViewOff(long viewId);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int PdShaderUpload(int layer, int node, byte[] data, int count);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdShaderFree(int layer, int node);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdShaderAdd(int layer, int node, int count, float spacing, float grow);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetLinks(float[] m, int n);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetCloudTransforms(double[] m, int n);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdTraceOn(int on);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int PdTraceTake(byte[] buf, int cap);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int PdVideoMem(out double usedMB, out double budgetMB);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        private static extern int PdShaderReport(StringBuilder msg, int cap);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int PdShaderReady();
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern void PdSetClip(int on, float[] planes);
-        [DllImport("PdRender.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern float PdShaderGpuMs();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdViewOff(long viewId);
+        private static void PdViewOff(long viewId) { PdLib.Get<D_PdViewOff>("PdViewOff")(viewId); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdShaderUpload(int layer, int node, byte[] data, int count);
+        private static int PdShaderUpload(int layer, int node, byte[] data, int count) { return PdLib.Get<D_PdShaderUpload>("PdShaderUpload")(layer, node, data, count); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdShaderFree(int layer, int node);
+        private static void PdShaderFree(int layer, int node) { PdLib.Get<D_PdShaderFree>("PdShaderFree")(layer, node); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdShaderAdd(int layer, int node, int count, float spacing, float grow);
+        private static void PdShaderAdd(int layer, int node, int count, float spacing, float grow) { PdLib.Get<D_PdShaderAdd>("PdShaderAdd")(layer, node, count, spacing, grow); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdShaderEndFrame(int on, float maxPx, float scale, int wanted);
+        private static void PdShaderEndFrame(int on, float maxPx, float scale, int wanted) { PdLib.Get<D_PdShaderEndFrame>("PdShaderEndFrame")(on, maxPx, scale, wanted); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetLinks(float[] m, int n);
+        private static void PdSetLinks(float[] m, int n) { PdLib.Get<D_PdSetLinks>("PdSetLinks")(m, n); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetCloudTransforms(double[] m, int n);
+        private static void PdSetCloudTransforms(double[] m, int n) { PdLib.Get<D_PdSetCloudTransforms>("PdSetCloudTransforms")(m, n); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdTraceOn(int on);
+        private static void PdTraceOn(int on) { PdLib.Get<D_PdTraceOn>("PdTraceOn")(on); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdTraceTake(byte[] buf, int cap);
+        private static int PdTraceTake(byte[] buf, int cap) { return PdLib.Get<D_PdTraceTake>("PdTraceTake")(buf, cap); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdVideoMem(out double usedMB, out double budgetMB);
+        private static int PdVideoMem(out double usedMB, out double budgetMB) { return PdLib.Get<D_PdVideoMem>("PdVideoMem")(out usedMB, out budgetMB); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdShaderReport(StringBuilder msg, int cap);
+        private static int PdShaderReport(StringBuilder msg, int cap) { return PdLib.Get<D_PdShaderReport>("PdShaderReport")(msg, cap); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate int D_PdShaderReady();
+        private static int PdShaderReady() { return PdLib.Get<D_PdShaderReady>("PdShaderReady")(); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate void D_PdSetClip(int on, float[] planes);
+        private static void PdSetClip(int on, float[] planes) { PdLib.Get<D_PdSetClip>("PdSetClip")(on, planes); }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)] private delegate float D_PdShaderGpuMs();
+        private static float PdShaderGpuMs() { return PdLib.Get<D_PdShaderGpuMs>("PdShaderGpuMs")(); }
 
         // ---------------------------------------------------------------- voce 201: limite di punti dello shader
         // Il limite segue il tempo che la scheda video impiega davvero a disegnare i punti (query di tempo DirectX). Prima
@@ -289,7 +287,10 @@ namespace PointDeviation
                 string dir = Path.GetDirectoryName(typeof(NativeProbe).Assembly.Location);
                 string path = Path.Combine(dir, "PdRender.dll");
                 if (!File.Exists(path)) { Log.Warn("DirectX", "PdRender.dll non trovata in " + dir + " (compilala con Native\\build.bat)"); return false; }
-                if (LoadLibrary(path) == IntPtr.Zero) { Log.Warn("DirectX", "PdRender.dll non caricata, errore " + Marshal.GetLastWin32Error()); return false; }
+                // voce 309: si carica una copia (cartella «live» del registro), cosi' la PdRender.dll compilata si puo'
+                // sostituire con Revit aperto e ricaricare da Avanzate › Diagnostica senza riavviare Revit
+                string live = PdLib.ShadowCopy(path);
+                if (!PdLib.Load(live)) { Log.Warn("DirectX", "PdRender.dll non caricata (" + live + "), errore " + Marshal.GetLastWin32Error()); return false; }
                 var sb = new StringBuilder(512);
                 int ok = PdInit(sb, sb.Capacity);
                 Log.Write("DirectX", "avvio: " + sb);
@@ -297,6 +298,54 @@ namespace PointDeviation
             }
             catch (Exception ex) { Log.Error("DirectX", ex); }
             return _state > 0;
+        }
+
+        // ---------------------------------------------------------------- voce 309: ricarica della libreria nativa
+        private static volatile bool _reloadPending;
+        /// <summary>Chiesta da Avanzate › Diagnostica; si esegue al prossimo Idling (Revit fermo, nessun disegno in corso).</summary>
+        public static void RequestReload() { _reloadPending = true; Redraw.Request(); }
+        public static bool ReloadPending { get { return _reloadPending; } }
+        /// <summary>Generazione della libreria caricata: cambia a ogni ricarica, i blocchi vanno ricaricati nella scheda video.</summary>
+        public static int LibGen { get { return PdLib.Gen; } }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int D_PdShutdown();
+
+        /// <summary>
+        /// Voce 309: toglie gli agganci della libreria caricata, la scarica e carica la PdRender.dll appena compilata.
+        /// Solo dal thread di Revit a riposo (Idling). La libreria in uso deve avere PdShutdown (dalla voce 309): con una
+        /// libreria piu' vecchia gli agganci non si possono togliere e serve un riavvio di Revit (l'ultima volta).
+        /// </summary>
+        public static void DoReload()
+        {
+            _reloadPending = false;
+            try
+            {
+                if (_state > 0 && PdLib.Handle != IntPtr.Zero)
+                {
+                    int restored;
+                    try { restored = PdLib.Get<D_PdShutdown>("PdShutdown")(); }
+                    catch (EntryPointNotFoundException)
+                    {
+                        Log.Write("DirectX", "ricarica non possibile: la PdRender.dll in uso non sa togliere i suoi agganci (manca PdShutdown, voce 309). Riavvia Revit una volta; dalle prossime ricompilazioni la ricarica funziona.");
+                        return;
+                    }
+                    System.Threading.Thread.Sleep(50);
+                    PdLib.Unload();
+                    Log.Write("DirectX", string.Format("libreria scaricata: {0} agganci tolti (voce 309)", restored));
+                }
+                _state = 0;
+                _ptAlphaMissing = _meshMissing = _meshTolMissing = _flatFixMissing = _flatFaroDepthMissing = _flatFaroKeepMissing = false;
+                _flatFaroAlphaMissing = _flatFaroCameraMissing = _flatHoverFixMissing = _v304Missing = _v308Missing = false;
+                _flatFaroMissing = _flatPostMissing = _flatSimpleMissing = _flatMissing = false;
+                _meshSent = null; _meshAny = false; _shaderWasOn = false;
+                HybridServer.ResetNativeKeys();
+                if (Ready())
+                {
+                    FrameDiary.OnLibReloaded();
+                    Log.Write("DirectX", "libreria ricaricata senza riavviare Revit (voce 309); i blocchi si ricaricano nella scheda video");
+                }
+                Redraw.Request();
+            }
+            catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }
         }
 
         // Segnale (voce 181): un oggetto invisibile (1237 triangoli tutti con i tre vertici nello stesso punto) disegnato a
@@ -446,6 +495,67 @@ namespace PointDeviation
                 _frames = 0;
             }
             catch (Exception ex) { Log.Error("DirectX", ex); _state = -1; }
+        }
+    }
+
+    /// <summary>
+    /// Voce 309: PdRender.dll caricata a mano (LoadLibrary/GetProcAddress) invece che con DllImport, cosi' si puo'
+    /// scaricare e ricaricare con Revit aperto. Le funzioni si cercano per nome alla prima chiamata e si tengono finche'
+    /// la libreria non cambia; se una funzione manca si lancia EntryPointNotFoundException come faceva DllImport.
+    /// </summary>
+    internal static class PdLib
+    {
+        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string path);
+        [DllImport("kernel32", CharSet = CharSet.Ansi, SetLastError = true, ExactSpelling = true)]
+        private static extern IntPtr GetProcAddress(IntPtr h, string name);
+        [DllImport("kernel32", SetLastError = true)]
+        private static extern bool FreeLibrary(IntPtr h);
+
+        public static IntPtr Handle { get; private set; }
+        public static int Gen { get; private set; }
+        private static readonly Dictionary<string, Delegate> _fn = new Dictionary<string, Delegate>();
+
+        public static bool Load(string path)
+        {
+            IntPtr h = LoadLibrary(path);
+            if (h == IntPtr.Zero) return false;
+            Handle = h; Gen++; _fn.Clear();
+            return true;
+        }
+
+        public static void Unload()
+        {
+            IntPtr h = Handle;
+            Handle = IntPtr.Zero; _fn.Clear(); Gen++;
+            if (h != IntPtr.Zero) FreeLibrary(h);
+        }
+
+        public static T Get<T>(string name) where T : class
+        {
+            Delegate d;
+            if (_fn.TryGetValue(name, out d)) return d as T;
+            if (Handle == IntPtr.Zero) throw new DllNotFoundException("PdRender.dll non caricata");
+            IntPtr p = GetProcAddress(Handle, name);
+            if (p == IntPtr.Zero) throw new EntryPointNotFoundException(name);
+            d = Marshal.GetDelegateForFunctionPointer(p, typeof(T));
+            _fn[name] = d;
+            return d as T;
+        }
+
+        /// <summary>Copia della dll in %LOCALAPPDATA%\PointDeviation\live con un nome nuovo; le copie vecchie non in uso si cancellano.</summary>
+        public static string ShadowCopy(string src)
+        {
+            try
+            {
+                string dir = Path.Combine(Log.Folder, "live");
+                Directory.CreateDirectory(dir);
+                foreach (string f in Directory.GetFiles(dir, "PdRender-*.dll")) { try { File.Delete(f); } catch { } }   // in uso (altro Revit): resta
+                string dst = Path.Combine(dir, "PdRender-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".dll");
+                File.Copy(src, dst, true);
+                return dst;
+            }
+            catch (Exception ex) { Log.Warn("DirectX", "copia di PdRender.dll non riuscita, si usa l'originale: " + ex.Message); return src; }
         }
     }
 }

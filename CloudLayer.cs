@@ -1810,7 +1810,7 @@ namespace PointDeviation
                 if (want[i] <= 0) continue;
                 TileCpu cpu = Volatile.Read(ref Cpu[i]);
                 if (cpu == null || !ReadyFor(cpu, st)) continue;
-                long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L) ^ (1L << 48);
+                long key = ((long)st.Version << 32) ^ ((long)GeoVersion << 16) ^ ((long)ColorKey(cpu, st) << 1) ^ (hl ? 1L : 0L) ^ (1L << 48) ^ ((long)NativeProbe.LibGen << 52);   // voce 309: libreria ricaricata = blocchi da ricaricare
                 if (_nUp[i] == cpu && _nUpCount[i] == cpu.Count && _nUpKey[i] == key) continue;
                 _upIdx.Add(i); _upCpu.Add(cpu); _upKey.Add(key);
                 uploadBudget -= cpu.Count;

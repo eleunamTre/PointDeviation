@@ -78,6 +78,7 @@ namespace PointDeviation
         {
             try
             {
+                if (NativeProbe.ReloadPending) NativeProbe.DoReload();   // voce 309
                 var app = sender as UIApplication;
                 if (app == null || app.ActiveUIDocument == null) return;
                 DocumentData d = DeviationController.GetData(app.ActiveUIDocument.Document);
@@ -127,6 +128,8 @@ namespace PointDeviation
         private static long _settleAt;
         private static long _linksTick;
         private static string _linksKey = "";
+        /// <summary>Voce 309: libreria nativa ricaricata, trasformazioni di nuvole e collegamenti da rimandare.</summary>
+        internal static void ResetNativeKeys() { _linksKey = ""; _cloudTKey = ""; }
         /// <summary>
         /// Voce 239: trasformazioni dei modelli collegati per la libreria nativa. Nei fotogrammi interrotti Revit scrive le
         /// matrici dei collegamenti (camera x trasformazione): con l'inversa la libreria ritrova la camera del progetto.
