@@ -1927,3 +1927,15 @@ Ottava tornata (28/10/2026): octree
      al faro (giusti); 180 immagini al passaggio del mouse con ~30 disegni di Revit nella scena senza faro e ripiego
      sopra tutto, 70 con ~30 disegni e il faro in fondo, 134 con la scena tenuta. Le prime due vanno ancora sistemate
      (prossima voce, dopo la prova di questa).
+
+302) Pianta e sezione: la nuvola non resta piu' indietro rispetto al modello mentre si sposta o si zooma. Registro,
+     diario e video della 301 (27/11 12:03:28): con la nuvola disegnata una volta sola si vede meglio l'escursione,
+     anche in sezione. Nel diario il faro arriva sempre prima del segnale del plugin (306 immagini su 306): al faro la
+     camera era quella del segnale dell'immagine precedente, quindi in ogni immagine in movimento la nuvola era
+     disegnata dove stava il modello un'immagine prima. Ora al faro si usa la camera di quella stessa immagine, ricavata
+     dalla matrice del faro (gia' verificata: «camera dal faro uguale alla vera» 28 su 28 in pianta, 40 su 41 in
+     sezione), con la riga della profondita' dell'ultimo fotogramma completo come nella voce 282 (decide solo chi copre
+     chi). Se la camera dal faro non e' disponibile si usa quella di prima. Rapporto DirectX: «camera al faro: di questa
+     immagine N, dell'immagine prima M»; nel diario X;scena_immagine con camera_al_faro. Opzione in Avanzate «In pianta e
+     sezione: camera dell'immagine attuale al posto dell'RCP» (accesa). Le coordinate dei punti non cambiano. Va
+     ricompilata PdRender.dll.
