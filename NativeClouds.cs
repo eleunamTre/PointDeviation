@@ -111,6 +111,7 @@ namespace PointDeviation
         public double SearchFt;
         public int Version;
         public ulong Signature;   // impronta della geometria (TriangleBvh.Signature), per le distanze salvate su disco
+        public long[] LinkIds;    // voce 305: istanze dei collegamenti entrate nell'analisi
     }
 
     internal static class AnalysisRegistry

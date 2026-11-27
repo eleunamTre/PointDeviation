@@ -19,6 +19,7 @@ namespace PointDeviation
         [DataMember] public bool SelectionOnly;
         [DataMember] public bool IncludeLinks;
         [DataMember] public int? LinkLook;       // voce 259
+        [DataMember] public bool? HideLinkPointsWithLink;   // voce 305
         [DataMember] public int? LinkStrength;
         [DataMember] public int? MissingStrength;   // voce 261
         [DataMember] public int? MissingLook;       // voce 265
@@ -53,6 +54,7 @@ namespace PointDeviation
                 SelectionOnly = s.SelectionOnly,
                 IncludeLinks = s.IncludeLinks,
                 LinkLook = s.LinkLook,
+                HideLinkPointsWithLink = s.HideLinkPointsWithLink,
                 LinkStrength = s.LinkStrength,
                 MissingStrength = s.MissingStrength,
                 MissingLook = s.MissingLook,
@@ -88,6 +90,7 @@ namespace PointDeviation
             s.SelectionOnly = SelectionOnly;
             s.IncludeLinks = IncludeLinks;
             if (LinkLook.HasValue && LinkLook.Value >= 0 && LinkLook.Value <= 1) s.LinkLook = LinkLook.Value;
+            if (HideLinkPointsWithLink.HasValue) s.HideLinkPointsWithLink = HideLinkPointsWithLink.Value;
             if (LinkStrength.HasValue) s.LinkStrength = Math.Max(0, Math.Min(90, LinkStrength.Value));
             if (MissingStrength.HasValue) s.MissingStrength = Math.Max(0, Math.Min(90, MissingStrength.Value));
             if (MissingLook.HasValue && MissingLook.Value >= 0 && MissingLook.Value <= 1) s.MissingLook = MissingLook.Value;

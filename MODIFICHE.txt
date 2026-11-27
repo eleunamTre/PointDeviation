@@ -1974,3 +1974,15 @@ Ottava tornata (28/10/2026): octree
      0,7 s. Ora dopo un cambio di vista si riprova a ogni segnale per 20 volte, poi una ogni 5. Opzione «Ricerca rapida
      della matrice dopo il cambio di vista» (accesa). Rapporto DirectX: «nuvola non disegnata al faro N; ricerche della
      matrice in piu' dopo il cambio di vista M». Nessuna posizione cambia. Va ricompilata PdRender.dll.
+
+305) Analisi con i link: i punti dei link si spengono insieme al link (richiesta del 27/11, ROADMAP §2f). In
+     Impostazioni analisi, sotto «Punti vicini ai link», l'opzione «Spegni i punti dei link quando il link e' spento
+     nella vista» (spenta di serie, salvata col progetto). Accesa: se nella vista attiva uno dei collegamenti entrati
+     nell'analisi e' spento (V/G › Revit Links, Nascondi elemento, Nascondi categoria: il collegamento non compare tra
+     gli elementi visibili della vista), i punti la cui superficie piu' vicina e' di un link non si disegnano; si
+     riaccendono riaccendendo il link. Si usa il segno «link» gia' salvato con le distanze (voce 259): niente analisi da
+     rifare, solo i blocchi da ripreparare quando cambia. L'analisi ricorda quali collegamenti ha usato
+     (ModelMeshExtractor.LastLinkIds -> AnalysisSnapshot.LinkIds); il controllo si rifa' cambiando vista, alla fine
+     dell'analisi e a ogni modifica di una vista o di un collegamento. Con piu' link nell'analisi il segno dice solo
+     «link», non quale: basta che ne sia spento uno (separarli richiede un dato per punto in piu'). Registro:
+     «[Visibilita'] collegamenti dell'analisi spenti nella vista: N su M». Non tocca la DLL nativa.

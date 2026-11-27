@@ -92,6 +92,9 @@ namespace PointDeviation
         public bool LinkTranslucent;         // trasparenti davvero: solo con il disegno con shader (altrimenti sbiaditi)
         private byte _linkT;                 // trasparenza del punto del link (0 = opaco, 255 = invisibile)
         public bool LinkFx { get { return LinkStrength > 0 && Mode == DisplayMode.Discrepanze && Analysis != null && Analysis.Bvh != null && Analysis.Bvh.HasLinks; } }
+        // voce 305: collegamento dell'analisi spento nella vista attiva e opzione accesa: i punti dei link non si disegnano
+        public bool LinkHide;
+        public bool LinkHideFx { get { return LinkHide && Mode == DisplayMode.Discrepanze && Analysis != null && Analysis.Bvh != null && Analysis.Bvh.HasLinks; } }
         // voce 261: stessa resa (sbiaditi o trasparenti) per i punti senza modello mostrati nell'analisi
         public int MissingStrength;
         private byte _missT;
@@ -286,6 +289,7 @@ namespace PointDeviation
                 default:
                 {
                     float dk = c.Dist != null && i < c.Dist.Length ? c.Dist[i] : float.NaN;
+                    if (LinkHideFx && LinkBit.Is(dk)) return false;   // voce 305
                     double mm = float.IsNaN(dk) ? double.NaN : (Invert ? -dk : dk) * 304.8;
                     // voce 261: senza superficie vicina ma fuori dalla zona analizzata (riquadro di sezione della vista
                     // analizzata, selezione): non è «senza modello», lì il modello non è stato guardato. Grigio chiaro con

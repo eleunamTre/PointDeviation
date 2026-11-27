@@ -36,6 +36,8 @@ namespace PointDeviation
         public int LinkLook;
         /// <summary>Voce 259: intensità dell'effetto sui punti dei link, 0..90 (0 = come quelli del modello in uso).</summary>
         public int LinkStrength = 60;
+        /// <summary>Voce 305: punti dei link nascosti quando nella vista attiva è spento un collegamento dell'analisi.</summary>
+        public bool HideLinkPointsWithLink;
         /// <summary>Voce 261: intensità dell'effetto (sbiaditi/trasparenti come i link) sui punti senza modello, 0..90.</summary>
         public int MissingStrength;
         /// <summary>Voce 265: resa dei punti senza modello, separata da quella dei link (0 = sbiaditi, 1 = trasparenti).</summary>

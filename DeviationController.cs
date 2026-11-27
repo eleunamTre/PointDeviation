@@ -242,6 +242,10 @@ namespace PointDeviation
                 Log.Debug("Visibilità", "vista modificata: ridisegno richiesto");
             }
 
+            // voce 305: un collegamento acceso o spento nella vista (V/G, nascondi elemento o categoria)
+            if (d.Layers.Count > 0 && modified.Any(id => { Element el = doc.GetElement(id); return el is View || el is RevitLinkInstance || el is RevitLinkType; }))
+                UpdateLinkVisibility(doc);
+
             bool relevant = deleted.Any(id => d.Layers.Exists(l => l.InstanceId == id))
                 || modified.Any(id => d.Layers.Exists(l => l.InstanceId == id))
                 || added.Any(id => doc.GetElement(id) is PointCloudInstance);
@@ -324,8 +328,40 @@ namespace PointDeviation
                     d.Settings.Display = d.Settings.LastViewMode;
             }
             if (d.Style == null) d.RebuildStyle(d.Settings);
+            UpdateLinkVisibility(doc);   // voce 305
 
             SetActive(doc);
+        }
+
+        /// <summary>
+        /// Voce 305: guarda se nella vista attiva è spento uno dei collegamenti entrati nell'analisi (non compare tra gli
+        /// elementi visibili della vista: V/G › Revit Links, nascondi elemento o categoria). Se cambia, si rifà lo stile:
+        /// con l'opzione accesa i punti la cui superficie più vicina è di un collegamento non si disegnano. Con più
+        /// collegamenti nell'analisi il dato per punto dice solo «collegamento», non quale: basta che ne sia spento uno.
+        /// </summary>
+        internal static void UpdateLinkVisibility(Document doc)
+        {
+            DocumentData d = GetData(doc);
+            if (d == null) return;
+            bool hidden = false; int off = 0, total = 0;
+            try
+            {
+                AnalysisSnapshot an = AnalysisRegistry.Get(d.Key);
+                View v = doc.ActiveView;
+                if (an != null && an.LinkIds != null && an.LinkIds.Length > 0 && v != null && !v.IsTemplate && v.ViewType != ViewType.Schedule && v.ViewType != ViewType.ProjectBrowser && v.ViewType != ViewType.SystemBrowser)
+                {
+                    var visible = new HashSet<long>();
+                    foreach (ElementId id in new FilteredElementCollector(doc, v.Id).OfClass(typeof(RevitLinkInstance)).ToElementIds()) visible.Add(id.Value);
+                    total = an.LinkIds.Length;
+                    foreach (long id in an.LinkIds) if (!visible.Contains(id)) off++;
+                    hidden = off > 0;
+                }
+            }
+            catch (Exception ex) { Log.Debug("Visibilità", "collegamenti nella vista: " + ex.Message); hidden = false; }
+            if (hidden == d.LinksHiddenInView) return;
+            d.LinksHiddenInView = hidden;
+            Log.Write("Visibilità", hidden ? string.Format("collegamenti dell'analisi spenti nella vista: {0} su {1}{2}", off, total, d.Settings.HideLinkPointsWithLink ? "; punti dei link nascosti (voce 305)" : " (opzione spenta: punti dei link visibili)") : "collegamenti dell'analisi di nuovo visibili nella vista");
+            d.RebuildStyle(d.Settings);
         }
 
         internal static void SetActive(Document doc)
@@ -792,7 +828,8 @@ namespace PointDeviation
             data.AnalysisVersion = Math.Max(data.AnalysisVersion + 1, (int)((DateTime.UtcNow - new DateTime(2026, 1, 1)).TotalSeconds));
             AnalysisRegion region = RegionOf(doc, view, sel, searchFt);
             Log.Write("Analisi", region == null ? "zona analizzata: tutta la nuvola" : "zona analizzata (fuori i punti senza modello non si evidenziano): " + region.Describe());
-            AnalysisRegistry.Set(data.Key, new AnalysisSnapshot { Bvh = bvh, SearchFt = searchFt, Version = data.AnalysisVersion, Signature = bvh.Signature(), Region = region });
+            AnalysisRegistry.Set(data.Key, new AnalysisSnapshot { Bvh = bvh, SearchFt = searchFt, Version = data.AnalysisVersion, Signature = bvh.Signature(), Region = region, LinkIds = ModelMeshExtractor.LastLinkIds.ToArray() });
+            UpdateLinkVisibility(doc);   // voce 305
 
             // statistiche su un campione uniforme di tutte le nuvole; i punti disegnati calcolano le distanze da soli
             data.Cloud = data.BuildSample(Math.Max(100000, Math.Min(s.MaxPoints, 800000)));

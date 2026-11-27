@@ -22,6 +22,7 @@ namespace PointDeviation
         private readonly NumericUpDown _maxPts = Num(50m, 20000m, 2000m, 0, 500m);
         private readonly ComboBox _scope = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 290 };
         private readonly CheckBox _links = new CheckBox { Text = L.T("Includi i modelli collegati (link)"), AutoSize = true };
+        private readonly CheckBox _linkHide = new CheckBox { Text = L.T("Spegni i punti dei link quando il link è spento nella vista"), AutoSize = true };   // voce 305
         // voce 259: punti la cui superficie più vicina è di un link, distinti da quelli del modello in uso
         private readonly ComboBox _linkLook = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
         private readonly TrackBar _linkStr = new TrackBar { Minimum = 0, Maximum = 90, TickFrequency = 10, SmallChange = 5, LargeChange = 10, Width = 150, AutoSize = false, Height = 32 };
@@ -113,6 +114,8 @@ namespace PointDeviation
             linkRow.Controls.Add(_linkVal);
             addRow(L.T("Punti vicini ai link"), linkRow);
             new ToolTip().SetToolTip(_linkLook, L.T("Trasparenti solo con il disegno con shader; altrimenti sbiaditi."));
+            addRow(null, _linkHide);
+            new ToolTip().SetToolTip(_linkHide, L.T("Con l'analisi estesa ai link: se nella vista spegni un collegamento (V/G, nascondi elemento o categoria), spariscono anche i punti la cui superficie più vicina è di un link. Con più link nell'analisi basta che ne sia spento uno."));
 
             // --- Azioni
             var btnRecalc = new Button { Text = L.T("Ricalcola distanze"), AutoSize = true };
@@ -156,6 +159,7 @@ namespace PointDeviation
             _profile.SelectedIndexChanged += OnStyleChanged;
             _missing.SelectedIndexChanged += OnStyleChanged;
             _linkLook.SelectedIndexChanged += OnStyleChanged;
+            _linkHide.CheckedChanged += OnStyleChanged;
             // il cursore ricolora tutta la nuvola: si applica quando si ferma
             _linkStr.ValueChanged += (s, e) => { _linkVal.Text = _linkStr.Value + "%"; if (_loading) return; _linkTimer.Stop(); _linkTimer.Start(); };
             _linkTimer.Tick += (s, e) => { _linkTimer.Stop(); OnStyleChanged(s, e); };
@@ -234,6 +238,7 @@ namespace PointDeviation
             _scope.SelectedIndex = c.SelectionOnly ? 1 : 0;
             _links.Checked = c.IncludeLinks;
             _linkLook.SelectedIndex = Math.Max(0, Math.Min(1, c.LinkLook));
+            _linkHide.Checked = c.HideLinkPointsWithLink;
             _linkStr.Value = Math.Max(0, Math.Min(90, c.LinkStrength));
             _linkVal.Text = _linkStr.Value + "%";
             _missStr.Value = Math.Max(0, Math.Min(90, c.MissingStrength));
@@ -259,6 +264,7 @@ namespace PointDeviation
             s.SelectionOnly = _scope.SelectedIndex == 1;
             s.IncludeLinks = _links.Checked;
             s.LinkLook = Math.Max(0, _linkLook.SelectedIndex);
+            s.HideLinkPointsWithLink = _linkHide.Checked;
             s.LinkStrength = _linkStr.Value;
             s.MissingStrength = _missStr.Value;
             s.MissingLook = Math.Max(0, _missLook.SelectedIndex);

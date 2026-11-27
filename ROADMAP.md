@@ -95,7 +95,7 @@ modellato» quello che non va modellato:
   un classificatore addestrato solo se le regole non bastano;
 - zone escluse disegnate dall'utente.
 
-## 2f. Nuvola del collegamento spenta insieme al collegamento (opzione)
+## 2f. Nuvola del collegamento spenta insieme al collegamento (opzione) – fatto (voce 305, prima versione)
 Richiesta del 27/11/2026. Con l'analisi estesa ai modelli collegati, se nella vista si spegne un collegamento
 (V/G › Revit Links, Nascondi elemento, Nascondi categoria) si spengono in automatico anche i punti della nuvola la cui
 superficie più vicina è di quel collegamento. Opzione nella finestra dell'analisi, accanto a «sbiaditi / trasparenti»

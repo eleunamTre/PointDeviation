@@ -11,6 +11,9 @@ namespace PointDeviation
     /// </summary>
     internal static class ModelMeshExtractor
     {
+        /// <summary>Voce 305: collegamenti entrati nell'ultima analisi (id delle istanze).</summary>
+        public static readonly List<long> LastLinkIds = new List<long>();
+
         public static TriangleBvh Build(Document doc, View view, ICollection<ElementId> selection,
             Outline limit, bool includeLinks,
             out int elementCount, out int triangleCount, out int linkCount)
@@ -18,6 +21,7 @@ namespace PointDeviation
             elementCount = 0;
             triangleCount = 0;
             linkCount = 0;
+            LastLinkIds.Clear();   // voce 305
 
             var opt = new Options
             {
@@ -85,7 +89,7 @@ namespace PointDeviation
                         int n = AddElement(le, opt, xf, verts);
                         if (n > 0) { tris += n; elems++; }
                     }
-                    if (tris > before) linkCount++;
+                    if (tris > before) { linkCount++; LastLinkIds.Add(li.Id.Value); }
                 }
             }
 

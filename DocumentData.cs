@@ -146,6 +146,9 @@ namespace PointDeviation
         }
 
         /// <summary>Ricostruisce lo stile di disegno dalle impostazioni (colori, profilo, recinti, aspetto, qualità).</summary>
+        /// <summary>Voce 305: nella vista attiva è spento almeno un collegamento entrato nell'analisi.</summary>
+        public bool LinksHiddenInView;
+
         public void RebuildStyle(DeviationSettings s)
         {
             double zmin = double.MaxValue, zmax = double.MinValue;
@@ -160,10 +163,12 @@ namespace PointDeviation
             // Stile identico a quello attuale: si tiene (stessa versione). Un nuovo stile obbliga a ripreparare tutti
             // i blocchi di tutte le nuvole: prima succedeva a ogni inserimento, spostamento, o anche solo nascondendo
             // una nuvola (milioni di punti ripreparati con la vista ferma).
-            string key = LookKey(s, an, zmin, zmax);
+            string key = LookKey(s, an, zmin, zmax) + "|lh" + (s.HideLinkPointsWithLink && LinksHiddenInView);   // voce 305
             if (Style != null && key == _styleKey) { Redraw.Request(); return; }
             _styleKey = key;
-            Style = Style.From(s, an, zmin, zmax);
+            Style st = Style.From(s, an, zmin, zmax);
+            st.LinkHide = s.HideLinkPointsWithLink && LinksHiddenInView;   // voce 305
+            Style = st;
             Redraw.Request();
         }
 
