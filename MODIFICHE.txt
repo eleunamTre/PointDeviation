@@ -2030,3 +2030,9 @@ Ottava tornata (28/10/2026): octree
      ricaricata senza riavviare Revit». Vale solo per la libreria nativa: le modifiche in C# richiedono ancora il
      riavvio. La prima volta serve un riavvio con questa versione (la libreria di prima non sa togliere i suoi agganci:
      il registro lo dice e non scarica nulla). Va ricompilata PdRender.dll.
+
+311) Native\build.bat, dopo la compilazione, copia PdRender.dll direttamente nella cartella del plugin
+     (%APPDATA%\Autodesk\Revit\Addins\2024\PointDeviation; se il file e' in uso lo rinomina in .old e copia). Per
+     provare una modifica alla sola libreria nativa: doppio clic su Native\build.bat (oppure Esplora soluzioni ›
+     PointDeviation › Native › build.bat › Apri con), poi in Revit Avanzate › Diagnostica › «Ricarica PdRender.dll»
+     (voce 309). Nessun cambio nel plugin.

@@ -29,6 +29,13 @@ if errorlevel 1 (
 :compile
 cl /nologo /O2 /EHsc /LD /MT PdRender.cpp d3d11.lib d3dcompiler.lib user32.lib /Fe:PdRender.dll
 if errorlevel 1 goto fail
+rem voce 311: copia diretta nella cartella del plugin, cosi' basta «Ricarica PdRender.dll» in Avanzate (voce 309)
+set "DEPLOY=%APPDATA%\Autodesk\Revit\Addins\2024\PointDeviation"
+if exist "%DEPLOY%\" (
+  copy /y PdRender.dll "%DEPLOY%\PdRender.dll" >nul 2>nul || (ren "%DEPLOY%\PdRender.dll" "PdRender.dll.%RANDOM%.old" >nul 2>nul & copy /y PdRender.dll "%DEPLOY%\PdRender.dll" >nul)
+  echo PdRender.dll copiata in %DEPLOY%
+  echo Con Revit aperto: Avanzate, Diagnostica, Ricarica PdRender.dll.
+)
 echo.
 echo PdRender.dll pronta: ora compila PointDeviation in Visual Studio, la copia nella cartella del plugin.
 if not defined NOPAUSE pause
