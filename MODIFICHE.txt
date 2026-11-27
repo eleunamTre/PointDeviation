@@ -1996,3 +1996,11 @@ Ottava tornata (28/10/2026): octree
      dentro i nostri agganci, senza la chiamata originale di DirectX, per tipo: disegni, Map, Unmap, destinazioni,
      Present (compresi i nostri disegni al Present) e altri, con il numero di chiamate. Se e' alto, si alleggerisce la
      parte che pesa. Nessun cambio di comportamento. Va ricompilata PdRender.dll.
+
+307) Nuvole non selezionabili (richiesta del 27/11). In Visibilita' › Gestisci, in basso, la casella «Nuvole non
+     selezionabili» (spenta di serie, ricordata tra le sessioni). Revit non permette di rendere un elemento non
+     selezionabile senza modificarlo (bloccarlo cambia il modello, e il plugin non tocca il modello): quando una nuvola
+     del plugin entra nella selezione (clic, finestra, Tab) la si toglie subito con l'evento SelectionChanged (Revit
+     2023+), lasciando selezionati gli altri elementi; se non si puo' subito, al primo Idling. L'evidenziazione al
+     passaggio del mouse resta: e' di Revit. Alternativa senza plugin: l'interruttore «Seleziona collegamenti» di Revit
+     in basso a destra (vale anche per i modelli collegati). Nuovo file CloudSelection.cs. Non tocca la DLL nativa.

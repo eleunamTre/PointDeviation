@@ -161,6 +161,11 @@ namespace PointDeviation
             var zoom = new Button { Text = L.T("Zoom sulla nuvola"), AutoSize = true, Dock = DockStyle.Right };
             zoom.Click += (s, e) => ZoomTo();
             bottom.Controls.Add(zoom);
+            // voce 307: nuvole non selezionabili
+            var noSel = new System.Windows.Forms.CheckBox { Text = L.T("Nuvole non selezionabili"), AutoSize = true, Dock = DockStyle.Left, Checked = AdvancedSettings.Current.CloudNotSelectable };
+            new ToolTip().SetToolTip(noSel, L.T("Se un clic o una finestra di selezione prende una nuvola, la nuvola viene tolta dalla selezione e restano selezionati gli altri elementi. In alternativa c'è l'interruttore «Seleziona collegamenti» di Revit, in basso a destra, che vale anche per i modelli collegati."));
+            noSel.CheckedChanged += (s, e) => { var a = AdvancedSettings.Current; a.CloudNotSelectable = noSel.Checked; a.Save(); };
+            bottom.Controls.Add(noSel);
             Controls.Add(_list);
             Controls.Add(hint);
             Controls.Add(bottom);

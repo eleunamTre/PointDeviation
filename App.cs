@@ -41,6 +41,8 @@ namespace PointDeviation
             controlledApp.ApplicationInitialized += this.OnInitialized;
             application.ViewActivated += this.OnViewActivated;
             application.Idling += HybridServer.OnIdling;
+            application.SelectionChanged += CloudSelection.OnSelectionChanged;   // voce 307
+            application.Idling += CloudSelection.OnIdling;
 
             return Result.Succeeded;
         }
@@ -58,6 +60,8 @@ namespace PointDeviation
             controlledApp.ApplicationInitialized -= this.OnInitialized;
             application.ViewActivated -= this.OnViewActivated;
             application.Idling -= HybridServer.OnIdling;
+            application.SelectionChanged -= CloudSelection.OnSelectionChanged;   // voce 307
+            application.Idling -= CloudSelection.OnIdling;
 
             DeviationController.Shutdown(); // salva le impostazioni, libera i buffer e svuota il dizionario
             return Result.Succeeded;
